@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "qaforge-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["start"],
+      "port": 3000,
+      "cwd": "frontend",
+      "env": {
+        "REACT_APP_API_URL": "http://13.233.36.18:8080/api",
+        "BROWSER": "none"
+      }
+    }
+  ]
+}

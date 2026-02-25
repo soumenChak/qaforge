@@ -1,0 +1,117 @@
+import axios from 'axios';
+
+// ---------------------------------------------------------------------------
+// Axios instance
+// ---------------------------------------------------------------------------
+const api = axios.create({
+  baseURL: process.env.REACT_APP_API_URL || '/api',
+  headers: { 'Content-Type': 'application/json' },
+});
+
+// -- Request interceptor: attach Bearer token ---
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error),
+);
+
+// -- Response interceptor: redirect to /login on 401 ---
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('access_token');
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  },
+);
+
+// ---------------------------------------------------------------------------
+// API modules
+// ---------------------------------------------------------------------------
+
+// -- Auth --
+export const authAPI = {
+  login: (email, password) => api.post('/auth/login', { email, password }),
+  register: (data) => api.post('/auth/register', data),
+  getMe: () => api.get('/users/me'),
+};
+
+// -- Users --
+export const usersAPI = {
+  getAll: () => api.get('/users/'),
+  update: (id, data) => api.put(`/users/${id}`, data),
+  delete: (id) => api.delete(`/users/${id}`),
+  changePassword: (data) => api.post('/users/me/change-password', data),
+};
+
+// -- Projects --
+export const projectsAPI = {
+  getAll: (params = {}) => api.get('/projects/', { params }),
+  getById: (id) => api.get(`/projects/${id}`),
+  create: (data) => api.post('/projects/', data),
+  update: (id, data) => api.put(`/projects/${id}`, data),
+  archive: (id) => api.post(`/projects/${id}/archive`),
+};
+
+// -- Requirements --
+export const requirementsAPI = {
+  list: (projectId) => api.get(`/projects/${projectId}/requirements`),
+  create: (projectId, data) => api.post(`/projects/${projectId}/requirements`, data),
+  update: (projectId, reqId, data) => api.put(`/projects/${projectId}/requirements/${reqId}`, data),
+  delete: (projectId, reqId) => api.delete(`/projects/${projectId}/requirements/${reqId}`),
+  upload: (projectId, data) => api.post(`/projects/${projectId}/requirements/upload`, data),
+  extract: (projectId, data) => api.post(`/projects/${projectId}/requirements/extract`, data),
+};
+
+// -- Test Cases --
+export const testCasesAPI = {
+  list: (projectId, params = {}) => api.get(`/projects/${projectId}/test-cases`, { params }),
+  generate: (projectId, data) => api.post(`/projects/${projectId}/test-cases/generate`, data),
+  create: (projectId, data) => api.post(`/projects/${projectId}/test-cases`, data),
+  getById: (projectId, tcId) => api.get(`/projects/${projectId}/test-cases/${tcId}`),
+  update: (projectId, tcId, data) => api.put(`/projects/${projectId}/test-cases/${tcId}`, data),
+  delete: (projectId, tcId) => api.delete(`/projects/${projectId}/test-cases/${tcId}`),
+  rate: (projectId, tcId, data) => api.post(`/projects/${projectId}/test-cases/${tcId}/rate`, data),
+  exportExcel: (projectId, data) =>
+    api.post(`/projects/${projectId}/test-cases/export`, data, { responseType: 'blob' }),
+};
+
+// -- Templates --
+export const templatesAPI = {
+  getAll: (params = {}) => api.get('/templates/', { params }),
+  getById: (id) => api.get(`/templates/${id}`),
+  create: (data) => api.post('/templates/', data),
+  delete: (id) => api.delete(`/templates/${id}`),
+  preview: (id) => api.get(`/templates/${id}/preview`),
+};
+
+// -- Feedback --
+export const feedbackAPI = {
+  getMetrics: (params = {}) => api.get('/feedback/metrics', { params }),
+  getCorrections: (params = {}) => api.get('/feedback/corrections', { params }),
+};
+
+// -- Knowledge --
+export const knowledgeAPI = {
+  search: (params) => api.get('/knowledge/search', { params }),
+  create: (data) => api.post('/knowledge/', data),
+  getStats: () => api.get('/knowledge/stats'),
+};
+
+// -- Settings --
+export const settingsAPI = {
+  getLLM: () => api.get('/settings/llm'),
+  updateLLM: (data) => api.put('/settings/llm', data),
+  getProviders: () => api.get('/settings/llm/providers'),
+};
+
+export default api;

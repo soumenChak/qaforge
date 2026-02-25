@@ -1,0 +1,120 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: qaforge_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: qaforge
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-qaforge_pass}
+      POSTGRES_DB: qaforge
+    ports:
+      - "${DB_PORT:-5434}:5432"
+    volumes:
+      - qaforge_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qaforge -d qaforge"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: qaforge_redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6381}:6379"
+    volumes:
+      - qaforge_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  chromadb:
+    image: chromadb/chroma:0.4.24
+    container_name: qaforge_chromadb
+    restart: unless-stopped
+    ports:
+      - "${CHROMADB_PORT:-8001}:8000"
+    volumes:
+      - qaforge_chromadb_data:/chroma/chroma
+    environment:
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/api/v1/heartbeat\")' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: qaforge_backend
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      DATABASE_URL: postgresql://qaforge:${DB_PASSWORD:-qaforge_pass}@db:5432/qaforge
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CHROMADB_HOST: chromadb
+      CHROMADB_PORT: "8000"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      DEFAULT_LLM_PROVIDER: ${DEFAULT_LLM_PROVIDER:-anthropic}
+      DEFAULT_LLM_MODEL: ${DEFAULT_LLM_MODEL:-claude-sonnet-4-20250514}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/health\")' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: /api
+    container_name: qaforge_frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:80/health || wget -q --spider http://localhost:80/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  qaforge_db_data:
+    name: qaforge_db_data
+  qaforge_redis_data:
+    name: qaforge_redis_data
+  qaforge_chromadb_data:
+    name: qaforge_chromadb_data

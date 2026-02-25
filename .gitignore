@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build outputs
+build/
+dist/
+*.egg-info/
+
+# Environment & secrets
+.env
+certs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Docker
+*.tar.gz
+
+# Test & coverage
+.coverage
+htmlcov/
+.pytest_cache/
