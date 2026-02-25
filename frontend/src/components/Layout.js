@@ -50,14 +50,15 @@ export default function Layout() {
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
       {/* Logo */}
-      <div className="px-6 py-6 flex items-center gap-1">
+      <div className="px-6 pt-6 pb-1 flex items-baseline gap-1">
         <span className="text-2xl font-black text-fg-teal tracking-tight">QA</span>
         <span className="text-2xl font-black text-white tracking-tight">Forge</span>
+        <span className="text-[10px] text-gray-500 ml-1">by <span className="text-gray-400 font-semibold">FreshGravity</span></span>
       </div>
 
       {/* Subtitle */}
       <div className="px-6 mb-6">
-        <p className="text-xs text-gray-400 uppercase tracking-widest">Where Quality Is Engineered</p>
+        <p className="text-[9px] text-gray-500 uppercase tracking-[0.2em]">Where Quality Is Engineered</p>
       </div>
 
       {/* Navigation */}
