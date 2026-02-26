@@ -17,6 +17,7 @@ import {
   ClockIcon,
   EyeIcon,
   TrashIcon,
+  ArrowPathIcon,
 } from '@heroicons/react/24/outline';
 
 const DOMAIN_COLORS = {
@@ -164,23 +165,39 @@ export default function ProjectDetail() {
     }
   }, [id, tcPage, tcPageSize, tcFilter, project?.test_case_count]);
 
+  // Track in-flight poll to prevent overlapping requests
+  const pollInFlightRef = useRef(false);
+
   const loadExecutionRuns = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setExecLoading(true);
+    if (silent && pollInFlightRef.current) return; // skip if another poll is in-flight
+    if (silent) pollInFlightRef.current = true;
     try {
       const res = await executionAPI.list({ project_id: id });
-      setExecutionRuns(res.data);
-      executionRunsRef.current = res.data;
+      // Only update state if data actually changed (prevents unnecessary re-renders)
+      const newData = res.data;
+      const prev = executionRunsRef.current;
+      const changed = newData.length !== prev.length
+        || newData.some((r, i) => r.id !== prev[i]?.id || r.status !== prev[i]?.status
+            || JSON.stringify(r.results?.summary) !== JSON.stringify(prev[i]?.results?.summary));
+      if (changed || !silent) {
+        setExecutionRuns(newData);
+        executionRunsRef.current = newData;
+      }
     } catch (err) {
       console.error('Failed to load execution runs:', err);
     } finally {
       if (!silent) setExecLoading(false);
+      if (silent) pollInFlightRef.current = false;
     }
   }, [id]);
 
   useEffect(() => { loadProject(); }, [loadProject]);
   useEffect(() => { if (activeTab === 'requirements') loadRequirements(); }, [activeTab, loadRequirements]);
   useEffect(() => { if (activeTab === 'test_cases') loadTestCases(); }, [activeTab, loadTestCases]);
+  // Refresh full data when switching TO executions tab, but always load on mount for tab count
   useEffect(() => { if (activeTab === 'executions') loadExecutionRuns(); }, [activeTab, loadExecutionRuns]);
+  useEffect(() => { loadExecutionRuns({ silent: true }); }, [loadExecutionRuns]);
 
   // Poll active runs — uses ref to avoid dependency on executionRuns state
   useEffect(() => {
@@ -1033,13 +1050,22 @@ export default function ProjectDetail() {
             <p className="text-sm text-fg-mid">
               {executionRuns.length} execution run{executionRuns.length !== 1 ? 's' : ''}
             </p>
-            <button
-              onClick={() => { setActiveTab('test_cases'); }}
-              className="btn-secondary text-sm flex items-center gap-2"
-            >
-              <BoltIcon className="w-4 h-4" />
-              Run New Execution
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => loadExecutionRuns()}
+                className="btn-secondary text-sm flex items-center gap-2"
+              >
+                <ArrowPathIcon className="w-4 h-4" />
+                Refresh
+              </button>
+              <button
+                onClick={() => setActiveTab('test_cases')}
+                className="btn-primary text-sm flex items-center gap-2"
+              >
+                <BoltIcon className="w-4 h-4" />
+                New Execution
+              </button>
+            </div>
           </div>
 
           {execLoading ? (

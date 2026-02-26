@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { executionAPI, projectsAPI } from '../services/api';
 import {
@@ -42,14 +42,22 @@ export default function ExecutionResults() {
   const [cancelling, setCancelling] = useState(false);
   const [expandAll, setExpandAll] = useState(false);
 
-  const loadRun = useCallback(async () => {
+  // Use ref to track run status without re-creating intervals
+  const runStatusRef = useRef(null);
+  const pollInFlightRef = useRef(false);
+
+  const loadRun = useCallback(async ({ silent = false } = {}) => {
+    if (silent && pollInFlightRef.current) return; // skip if poll in-flight
+    if (silent) pollInFlightRef.current = true;
     try {
       const res = await executionAPI.getById(runId);
+      runStatusRef.current = res.data.status;
       setRun(res.data);
     } catch (err) {
       console.error('Failed to load execution run:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
+      if (silent) pollInFlightRef.current = false;
     }
   }, [runId]);
 
@@ -67,22 +75,16 @@ export default function ExecutionResults() {
     loadRun();
   }, [loadProject, loadRun]);
 
-  // Poll while running
+  // Poll while running — stable interval that checks ref, not state
   useEffect(() => {
-    if (!run || !['queued', 'running'].includes(run.status)) return;
-    const interval = setInterval(async () => {
-      try {
-        const res = await executionAPI.getById(runId);
-        setRun(res.data);
-        if (!['queued', 'running'].includes(res.data.status)) {
-          clearInterval(interval);
-        }
-      } catch (err) {
-        console.error('Poll error:', err);
+    const interval = setInterval(() => {
+      const status = runStatusRef.current;
+      if (status && ['queued', 'running'].includes(status)) {
+        loadRun({ silent: true });
       }
     }, 2000);
     return () => clearInterval(interval);
-  }, [run?.status, runId]);
+  }, [loadRun]);
 
   const toggleRow = (tcId) => {
     setExpandedRows((prev) => {
@@ -107,6 +109,7 @@ export default function ExecutionResults() {
     setCancelling(true);
     try {
       await executionAPI.cancel(runId);
+      runStatusRef.current = 'cancelled'; // stop polling immediately
       loadRun();
     } catch (err) {
       console.error('Failed to cancel:', err);
