@@ -273,7 +273,8 @@ def delete_execution_run(
         ip_address=get_client_ip(request),
     )
 
-    db.delete(run)
+    # Use query-level delete to avoid ORM cascade side-effects
+    db.query(ExecutionRun).filter(ExecutionRun.id == run_id).delete()
     db.flush()
 
     return MessageResponse(message="Execution run deleted")

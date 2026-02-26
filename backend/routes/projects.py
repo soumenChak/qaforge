@@ -25,7 +25,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from db_models import Project, Requirement, TestCase, User
+from db_models import ExecutionRun, FeedbackEntry, GenerationRun, Project, Requirement, TestCase, User
 from db_session import get_db
 from dependencies import (
     audit_log,
@@ -365,12 +365,6 @@ def delete_project(
 
     project_name = project.name
 
-    # Cascade delete test cases and requirements
-    db.query(TestCase).filter(TestCase.project_id == project_id).delete()
-    db.query(Requirement).filter(Requirement.project_id == project_id).delete()
-    db.delete(project)
-    db.flush()
-
     audit_log(
         db,
         user_id=current_user.id,
@@ -380,6 +374,43 @@ def delete_project(
         details={"name": project_name},
         ip_address=get_client_ip(request),
     )
+
+    # Cascade-delete all related entities using query-level deletes
+    # (avoids ORM cascade side-effects that cause IntegrityError)
+    # Order: children first, then parent
+
+    # 1. FeedbackEntries (FK to test_cases)
+    tc_ids = db.query(TestCase.id).filter(TestCase.project_id == project_id)
+    db.query(FeedbackEntry).filter(
+        FeedbackEntry.test_case_id.in_(tc_ids)
+    ).delete(synchronize_session=False)
+
+    # 2. Execution runs
+    db.query(ExecutionRun).filter(ExecutionRun.project_id == project_id).delete(
+        synchronize_session=False
+    )
+
+    # 3. Generation runs
+    db.query(GenerationRun).filter(GenerationRun.project_id == project_id).delete(
+        synchronize_session=False
+    )
+
+    # 4. Test cases
+    db.query(TestCase).filter(TestCase.project_id == project_id).delete(
+        synchronize_session=False
+    )
+
+    # 5. Requirements
+    db.query(Requirement).filter(Requirement.project_id == project_id).delete(
+        synchronize_session=False
+    )
+
+    # 6. Project itself
+    db.query(Project).filter(Project.id == project_id).delete(
+        synchronize_session=False
+    )
+
+    db.flush()
 
     logger.info("Project deleted: %s by %s", project_name, current_user.email)
 
