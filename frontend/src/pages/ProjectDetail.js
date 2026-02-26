@@ -16,6 +16,7 @@ import {
   XCircleIcon,
   ClockIcon,
   EyeIcon,
+  TrashIcon,
 } from '@heroicons/react/24/outline';
 
 const DOMAIN_COLORS = {
@@ -317,6 +318,34 @@ export default function ProjectDetail() {
       setUploadResult({ error: err.response?.data?.detail || 'Upload failed.' });
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleDeleteTc = async (tc) => {
+    if (!window.confirm(`Delete test case ${tc.test_case_id}: "${tc.title}"?`)) return;
+    try {
+      await testCasesAPI.delete(id, tc.id);
+      loadTestCases();
+      loadProject();
+    } catch (err) {
+      alert('Failed to delete test case.');
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedTcIds.size === 0) return;
+    const count = selectedTcIds.size;
+    if (!window.confirm(`Delete ${count} selected test case${count > 1 ? 's' : ''}? This cannot be undone.`)) return;
+    try {
+      const ids = Array.from(selectedTcIds);
+      await Promise.all(ids.map((tcId) => testCasesAPI.delete(id, tcId)));
+      setSelectedTcIds(new Set());
+      loadTestCases();
+      loadProject();
+    } catch (err) {
+      alert('Some test cases failed to delete.');
+      loadTestCases();
+      loadProject();
     }
   };
 
@@ -901,6 +930,15 @@ export default function ProjectDetail() {
                 <ArrowDownTrayIcon className="w-4 h-4" />
                 Export
               </button>
+              {selectedTcIds.size > 0 && (
+                <button
+                  onClick={handleDeleteSelected}
+                  className="btn-secondary text-sm flex items-center gap-2 border-red-200 text-red-600 hover:bg-red-50"
+                >
+                  <TrashIcon className="w-4 h-4" />
+                  Delete ({selectedTcIds.size})
+                </button>
+              )}
             </div>
           </div>
 
@@ -909,6 +947,7 @@ export default function ProjectDetail() {
             loading={tcLoading}
             onRowClick={(tc) => navigate(`/projects/${id}/test-cases/${tc.id}`)}
             onStatusChange={handleStatusChange}
+            onDelete={handleDeleteTc}
             selectedIds={selectedTcIds}
             onSelectChange={setSelectedTcIds}
             pagination={{

@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { TrashIcon } from '@heroicons/react/24/outline';
 import RatingWidget from './RatingWidget';
 
 const PRIORITY_STYLES = {
@@ -31,6 +32,7 @@ const EXEC_TYPE_STYLES = {
  *   testCases     - array of test case objects
  *   onRowClick    - callback(testCase) when a row is clicked
  *   onStatusChange - callback(testCase, newStatus) for inline status update
+ *   onDelete      - callback(testCase) for deleting a test case
  *   selectedIds   - Set of selected test case IDs
  *   onSelectChange - callback(newSelectedIds) for checkbox selection
  *   loading       - boolean loading state
@@ -40,6 +42,7 @@ export default function TestCaseTable({
   testCases = [],
   onRowClick,
   onStatusChange,
+  onDelete,
   selectedIds = new Set(),
   onSelectChange,
   loading = false,
@@ -157,6 +160,7 @@ export default function TestCaseTable({
                 Status <SortIcon field="status" />
               </th>
               <th className="px-4 py-3">Rating</th>
+              {onDelete && <th className="px-4 py-3 w-16">Actions</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
@@ -225,6 +229,17 @@ export default function TestCaseTable({
                 <td className="px-4 py-3">
                   <RatingWidget value={tc.rating || 0} readOnly size="sm" />
                 </td>
+                {onDelete && (
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onDelete(tc); }}
+                      className="text-gray-300 hover:text-red-500 transition-colors p-1"
+                      title={`Delete ${tc.test_case_id}`}
+                    >
+                      <TrashIcon className="w-4 h-4" />
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
