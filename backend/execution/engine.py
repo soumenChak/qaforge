@@ -25,7 +25,7 @@ from uuid import UUID
 from sqlalchemy.orm.attributes import flag_modified
 
 from db_session import SessionLocal
-from db_models import Connection, ExecutionRun, TestAgent, TestCase
+from db_models import Connection, ExecutionRun, Project, TestAgent, TestCase
 
 logger = logging.getLogger(__name__)
 
@@ -247,10 +247,89 @@ def _build_test_case_context(tc: TestCase) -> str:
     return "\n".join(parts)
 
 
+def _build_app_profile_context(app_profile: Dict[str, Any], execution_type: str) -> str:
+    """Build a context string from the project's app_profile for LLM param extraction."""
+    if not app_profile or not isinstance(app_profile, dict):
+        return ""
+
+    parts = []
+
+    # URLs
+    if app_profile.get("app_url"):
+        parts.append(f"Application URL: {app_profile['app_url']}")
+    if app_profile.get("api_base_url"):
+        parts.append(f"API Base URL: {app_profile['api_base_url']}")
+
+    # Auth config
+    auth = app_profile.get("auth", {})
+    if auth:
+        auth_parts = []
+        if auth.get("login_endpoint"):
+            auth_parts.append(f"Login endpoint: {auth['login_endpoint']}")
+        if auth.get("request_body"):
+            auth_parts.append(f"Login request body format: {auth['request_body']}")
+        if auth.get("token_header"):
+            auth_parts.append(f"Auth header: {auth['token_header']}")
+        if auth.get("test_credentials"):
+            creds = auth["test_credentials"]
+            auth_parts.append(f"Test credentials: email={creds.get('email', '')}, password={creds.get('password', '')}")
+        if auth.get("response_fields"):
+            auth_parts.append(f"Login response fields: {', '.join(auth['response_fields'])}")
+        if auth_parts:
+            parts.append("Authentication:\n  " + "\n  ".join(auth_parts))
+
+    # API endpoints (critical for correct paths and field names)
+    endpoints = app_profile.get("api_endpoints", [])
+    if endpoints and execution_type in ("api", "sql"):
+        ep_lines = []
+        for ep in endpoints[:30]:
+            line = f"  {ep.get('method', 'GET')} {ep.get('path', '')}"
+            if ep.get("description"):
+                line += f" — {ep['description']}"
+            if ep.get("required_fields"):
+                line += f"\n    Required fields: {', '.join(ep['required_fields'])}"
+            if ep.get("response_fields"):
+                line += f"\n    Response fields: {', '.join(ep['response_fields'])}"
+            ep_lines.append(line)
+        parts.append("API Endpoints (use these EXACT paths):\n" + "\n".join(ep_lines))
+
+    # UI pages (critical for correct CSS selectors)
+    ui_pages = app_profile.get("ui_pages", [])
+    if ui_pages and execution_type == "ui":
+        page_lines = []
+        for pg in ui_pages[:20]:
+            line = f"  Route: {pg.get('route', '')}"
+            if pg.get("description"):
+                line += f" — {pg['description']}"
+            if pg.get("key_elements"):
+                line += f"\n    CSS selectors: {', '.join(pg['key_elements'])}"
+            page_lines.append(line)
+        parts.append("UI Pages (use these EXACT routes and selectors):\n" + "\n".join(page_lines))
+
+    # RBAC model
+    if app_profile.get("rbac_model"):
+        parts.append(f"RBAC Model: {app_profile['rbac_model']}")
+
+    # Notes (important corrections and gotchas)
+    if app_profile.get("notes"):
+        parts.append(f"IMPORTANT Notes:\n{app_profile['notes']}")
+
+    if not parts:
+        return ""
+
+    return (
+        "\n\n=== APPLICATION PROFILE (use these EXACT URLs, endpoints, field names, and selectors) ===\n"
+        "CRITICAL: Do NOT invent or guess URLs, endpoints, field names, CSS selectors, or status codes.\n"
+        "Use ONLY the information below. If an endpoint or page is not listed, do not fabricate one.\n\n"
+        + "\n\n".join(parts)
+    )
+
+
 async def _extract_params_via_llm(
     test_case_text: str,
     connection_config: Dict[str, Any],
     execution_type: str = "api",
+    app_profile: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Use the LLM to extract execution parameters from test case steps."""
     try:
@@ -271,6 +350,11 @@ async def _extract_params_via_llm(
             context += f"\n\nDatabase type: {connection_config.get('db_type', 'postgresql')}"
         if connection_config.get("execution_context"):
             context += f"\n\n--- Execution Context (API docs / ETL mappings / prerequisites) ---\n{connection_config['execution_context']}"
+
+        # Inject app_profile context (exact endpoints, field names, CSS selectors)
+        profile_context = _build_app_profile_context(app_profile or {}, execution_type)
+        if profile_context:
+            context += profile_context
 
         result = llm.complete(
             system=system_prompt,
@@ -300,6 +384,7 @@ async def _execute_single_test(
     tc: TestCase,
     connection_config: Dict[str, Any],
     agent_config: Optional[Dict[str, Any]] = None,
+    app_profile: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Execute a single test case and return the result."""
     start_time = time.perf_counter()
@@ -308,8 +393,8 @@ async def _execute_single_test(
     # Determine execution type from test case
     execution_type = getattr(tc, "execution_type", "api") or "api"
 
-    # Step 1: Extract parameters via LLM (using type-specific prompt)
-    extraction = await _extract_params_via_llm(tc_text, connection_config, execution_type)
+    # Step 1: Extract parameters via LLM (using type-specific prompt + app profile)
+    extraction = await _extract_params_via_llm(tc_text, connection_config, execution_type, app_profile)
     template_name = extraction.get("template", "unknown")
     params = extraction.get("params", {})
 
@@ -500,6 +585,14 @@ async def _execute_run(run_id: UUID) -> None:
             if conn:
                 connection_config = conn.config or {}
 
+        # Load project app_profile (contains exact endpoints, field names, CSS selectors)
+        app_profile = None
+        if run.project_id:
+            project = db.query(Project).filter(Project.id == run.project_id).first()
+            if project and project.app_profile:
+                app_profile = project.app_profile
+                logger.info("Loaded app_profile for project %s (%d keys)", project.name, len(app_profile))
+
         # Load agent config
         agent_config = None
         if run.test_agent_id:
@@ -545,7 +638,7 @@ async def _execute_run(run_id: UUID) -> None:
             )
 
             try:
-                result = await _execute_single_test(tc, connection_config, agent_config)
+                result = await _execute_single_test(tc, connection_config, agent_config, app_profile)
 
                 test_result = {
                     "test_case_id": str(tc.id),
