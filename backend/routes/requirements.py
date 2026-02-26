@@ -606,7 +606,7 @@ Return a JSON array where each element has these fields:
             response = provider.complete(
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
-                max_tokens=4096,
+                max_tokens=8192,
                 temperature=0.2,  # Low temperature for structured extraction
                 model=provider.smart_model,  # Use Sonnet, not Haiku
             )
@@ -614,6 +614,11 @@ Return a JSON array where each element has these fields:
             model_used = response.model
             total_tokens_in += response.tokens_in
             total_tokens_out += response.tokens_out
+
+            logger.info(
+                "LLM response (first 500 chars): %s",
+                response.text[:500].replace("\n", "\\n"),
+            )
 
             parsed = _parse_json_response(response.text)
             if parsed:
@@ -694,39 +699,94 @@ def _parse_json_response(text: str) -> list[dict] | None:
     - Markdown code blocks (```json ... ```)
     - Leading/trailing whitespace or text
     - Single-object response (wrap in array)
+    - Trailing commas (common LLM error)
     """
-    # Strip markdown code blocks
+    if not text or not text.strip():
+        logger.warning("Empty LLM response — nothing to parse")
+        return None
+
     cleaned = text.strip()
+
+    # Step 1: Try to extract from markdown code blocks
     md_match = re.search(r"```(?:json)?\s*\n?(.*?)```", cleaned, re.DOTALL)
     if md_match:
         cleaned = md_match.group(1).strip()
+        logger.info("Extracted JSON from markdown code block (%d chars)", len(cleaned))
 
-    # Find the JSON array
+    # Step 2: Find the outermost JSON array
     arr_start = cleaned.find("[")
     arr_end = cleaned.rfind("]")
     if arr_start != -1 and arr_end != -1 and arr_end > arr_start:
         cleaned = cleaned[arr_start : arr_end + 1]
+    else:
+        # Maybe it's a JSON object wrapping an array
+        obj_start = cleaned.find("{")
+        if obj_start != -1:
+            logger.info("No JSON array found, trying as object")
 
+    # Step 3: Fix common JSON errors from LLMs
+    # Remove trailing commas before ] or }
+    cleaned = re.sub(r",\s*(\]|\})", r"\1", cleaned)
+
+    # Step 4: Parse
     try:
         parsed = json.loads(cleaned)
-        if isinstance(parsed, list):
-            # Validate each item has required fields
-            valid = []
-            for item in parsed:
-                if isinstance(item, dict) and item.get("title"):
-                    valid.append({
-                        "title": str(item.get("title", ""))[:200],
-                        "description": str(item.get("description", "")),
-                        "priority": item.get("priority", "medium") if item.get("priority") in ("high", "medium", "low") else "medium",
-                        "category": str(item.get("category", "functional")),
-                        "source_section": str(item.get("source_section", "")),
-                    })
-            return valid if valid else None
-        elif isinstance(parsed, dict) and parsed.get("title"):
-            return [parsed]
-    except json.JSONDecodeError:
-        logger.warning("Failed to parse LLM response as JSON:\n%s", cleaned[:500])
-    return None
+    except json.JSONDecodeError as exc:
+        # Last resort: try to fix truncated JSON by closing open brackets
+        logger.warning(
+            "JSON parse error at pos %d: %s\nFirst 300 chars: %s\nLast 300 chars: %s",
+            exc.pos, exc.msg, cleaned[:300], cleaned[-300:],
+        )
+        # Try to fix truncated response by closing brackets
+        fix_suffixes = ["]", "}", "}]", "\"}]", "\"}]}", "null}]"]
+        for fix_suffix in fix_suffixes:
+            try:
+                parsed = json.loads(cleaned + fix_suffix)
+                logger.info("Fixed truncated JSON with suffix: %s", fix_suffix)
+                break
+            except json.JSONDecodeError:
+                continue
+        else:
+            return None
+
+    # Step 5: Validate and normalize
+    items = []
+    if isinstance(parsed, list):
+        items = parsed
+    elif isinstance(parsed, dict):
+        # Might be {"requirements": [...]} or a single requirement
+        if "requirements" in parsed and isinstance(parsed["requirements"], list):
+            items = parsed["requirements"]
+        elif parsed.get("title"):
+            items = [parsed]
+        else:
+            # Try first list-valued key
+            for v in parsed.values():
+                if isinstance(v, list):
+                    items = v
+                    break
+
+    if not items:
+        logger.warning("Parsed JSON but found no requirement items")
+        return None
+
+    valid = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title", "")).strip()
+        if not title or len(title) < 5:
+            continue
+        valid.append({
+            "title": title[:200],
+            "description": str(item.get("description", "")),
+            "priority": item.get("priority", "medium") if item.get("priority") in ("high", "medium", "low") else "medium",
+            "category": str(item.get("category", "functional")),
+            "source_section": str(item.get("source_section", "")),
+        })
+
+    logger.info("Parsed %d valid requirements from LLM response", len(valid))
+    return valid if valid else None
 
 
 def _deduplicate_requirements(reqs: list[dict]) -> list[dict]:
