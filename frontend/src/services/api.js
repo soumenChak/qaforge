@@ -106,6 +106,7 @@ export const knowledgeAPI = {
   search: (params) => api.get('/knowledge/search', { params }),
   create: (data) => api.post('/knowledge/', data),
   getStats: () => api.get('/knowledge/stats'),
+  seed: () => api.post('/knowledge/seed'),
 };
 
 // -- Connections --

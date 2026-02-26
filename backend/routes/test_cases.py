@@ -25,12 +25,13 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from db_models import (
     FeedbackEntry,
     GenerationRun,
+    KnowledgeEntry,
     Project,
     Requirement,
     TestCase,
@@ -309,6 +310,34 @@ def _generate_via_llm(
     """Generate test cases by calling the LLM provider directly."""
     from core.llm_provider import get_llm_provider
 
+    # ── Query Knowledge Base for domain-relevant context ──
+    kb_entries = (
+        db.query(KnowledgeEntry)
+        .filter(
+            or_(
+                KnowledgeEntry.domain == domain,
+                KnowledgeEntry.domain == "general",
+            )
+        )
+        .order_by(KnowledgeEntry.usage_count.desc(), KnowledgeEntry.created_at.desc())
+        .limit(8)
+        .all()
+    )
+
+    kb_context = ""
+    kb_count = 0
+    if kb_entries:
+        kb_lines = []
+        for entry in kb_entries:
+            kb_lines.append(
+                f"[{entry.entry_type.upper()}] {entry.title}\n{entry.content[:500]}"
+            )
+            entry.usage_count += 1
+        kb_context = "\n\n".join(kb_lines)
+        kb_count = len(kb_entries)
+        db.flush()
+        logger.info("KB context: %d entries for domain=%s", kb_count, domain)
+
     system_prompt = f"""You are a senior QA automation engineer specializing in {domain} / {sub_domain}.
 You generate EXECUTION-READY test cases — each test case must contain enough detail in its test_steps
 that an automated execution engine can run it without human intervention.
@@ -330,6 +359,7 @@ System Description:
 
 {f"Requirements Context:{chr(10)}{requirement_context[:3000]}" if requirement_context else ""}
 {f"Additional Context:{chr(10)}{additional_context[:2000]}" if additional_context else ""}
+{f"{chr(10)}=== KNOWLEDGE BASE REFERENCE (use these patterns to improve test quality) ==={chr(10)}{kb_context}" if kb_context else ""}
 
 For each test case, return a JSON object with ALL of these fields:
 
@@ -406,10 +436,13 @@ Return ONLY the JSON array, no other text."""
             tokens_out=response.tokens_out,
         )
         logger.info(
-            "LLM generated %d test cases (%s/%s, %d tokens)",
+            "LLM generated %d test cases (%s/%s, %d tokens, %d KB entries used)",
             len(parsed), provider_name, model_name,
-            response.tokens_in + response.tokens_out,
+            response.tokens_in + response.tokens_out, kb_count,
         )
+        # Attach KB metadata so the generate endpoint can track it
+        for item in parsed:
+            item["_kb_entries_used"] = kb_count
         return parsed
 
     raise ValueError("LLM did not return a JSON array")

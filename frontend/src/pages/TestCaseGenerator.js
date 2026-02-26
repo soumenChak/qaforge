@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { projectsAPI, testCasesAPI, templatesAPI } from '../services/api';
+import { projectsAPI, testCasesAPI, templatesAPI, knowledgeAPI } from '../services/api';
 import {
   SparklesIcon,
   CheckCircleIcon,
@@ -9,6 +9,7 @@ import {
   ArrowLeftIcon,
   ClockIcon,
   CpuChipIcon,
+  BookOpenIcon,
 } from '@heroicons/react/24/outline';
 
 const STEPS = [
@@ -37,6 +38,11 @@ export default function TestCaseGenerator() {
   const [priority, setPriority] = useState('');
   const [category, setCategory] = useState('');
   const [executionType, setExecutionType] = useState('');
+
+  // Knowledge Base context
+  const [kbCount, setKbCount] = useState(0);
+  const [kbEntries, setKbEntries] = useState([]);
+  const [showKbPreview, setShowKbPreview] = useState(false);
 
   // Step 3: Generation state
   const [generating, setGenerating] = useState(false);
@@ -71,6 +77,29 @@ export default function TestCaseGenerator() {
     };
     loadTemplates();
   }, []);
+
+  // Load KB entries count for the project's domain
+  useEffect(() => {
+    if (!project?.domain) return;
+    const loadKbEntries = async () => {
+      try {
+        // Search with a broad term to get domain entries
+        const res = await knowledgeAPI.search({ q: project.domain, domain: project.domain, limit: 10 });
+        setKbEntries(res.data || []);
+        setKbCount(res.data?.length || 0);
+      } catch (err) {
+        // Also try "general" entries
+        try {
+          const res2 = await knowledgeAPI.search({ q: 'test', limit: 10 });
+          setKbEntries(res2.data || []);
+          setKbCount(res2.data?.length || 0);
+        } catch (err2) {
+          // KB is optional
+        }
+      }
+    };
+    loadKbEntries();
+  }, [project?.domain]);
 
   const handleGenerate = async () => {
     setStep(2);
@@ -315,6 +344,45 @@ export default function TestCaseGenerator() {
                 className="input-field"
               />
             </div>
+
+            {/* Knowledge Base context indicator */}
+            {kbCount > 0 && (
+              <div className="p-3 rounded-lg bg-teal-50 border border-teal-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-sm text-teal-800">
+                    <BookOpenIcon className="w-4 h-4 text-teal-600" />
+                    <span>
+                      <strong>{kbCount}</strong> knowledge base {kbCount === 1 ? 'entry' : 'entries'} will enhance generation
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowKbPreview(!showKbPreview)}
+                    className="text-xs text-teal-600 hover:text-teal-800 underline"
+                  >
+                    {showKbPreview ? 'Hide' : 'Preview'}
+                  </button>
+                </div>
+                {showKbPreview && (
+                  <div className="mt-3 space-y-2 max-h-48 overflow-y-auto">
+                    {kbEntries.map((entry) => (
+                      <div key={entry.id} className="text-xs bg-white/60 rounded p-2">
+                        <span className="font-semibold text-teal-900">{entry.title}</span>
+                        <span className="ml-2 text-[10px] text-teal-600 uppercase">{entry.entry_type?.replace(/_/g, ' ')}</span>
+                        <p className="text-teal-700 mt-0.5 line-clamp-2">{entry.content?.substring(0, 150)}...</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <a
+                  href="/knowledge"
+                  className="text-xs text-teal-600 hover:text-teal-800 mt-2 inline-block"
+                  onClick={(e) => { e.preventDefault(); window.open('/knowledge', '_blank'); }}
+                >
+                  Add more reference patterns &rarr;
+                </a>
+              </div>
+            )}
           </div>
 
           <div className="flex justify-between mt-6">
@@ -366,6 +434,12 @@ export default function TestCaseGenerator() {
                 <span className="flex items-center gap-1">
                   <CpuChipIcon className="w-4 h-4" />
                   {results[0].generated_by_model}
+                </span>
+              )}
+              {kbCount > 0 && (
+                <span className="flex items-center gap-1 text-teal-600">
+                  <BookOpenIcon className="w-4 h-4" />
+                  Enhanced with {kbCount} KB {kbCount === 1 ? 'pattern' : 'patterns'}
                 </span>
               )}
             </div>

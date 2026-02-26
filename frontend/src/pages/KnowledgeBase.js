@@ -5,16 +5,19 @@ import {
   PlusIcon,
   XMarkIcon,
   BookOpenIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 const DOMAIN_COLORS = {
+  general: 'bg-gray-100 text-gray-700',
   mdm: 'bg-purple-100 text-purple-700',
   ai: 'bg-blue-100 text-blue-700',
   data_eng: 'bg-orange-100 text-orange-700',
 };
 
 const DOMAIN_NAMES = {
+  general: 'General',
   mdm: 'MDM',
   ai: 'AI / GenAI',
   data_eng: 'Data Engineering',
@@ -24,7 +27,7 @@ const TYPE_COLORS = {
   pattern: 'bg-teal-100 text-teal-700',
   defect: 'bg-red-100 text-red-700',
   best_practice: 'bg-green-100 text-green-700',
-  reusable_test: 'bg-blue-100 text-blue-700',
+  test_case: 'bg-blue-100 text-blue-700',
 };
 
 export default function KnowledgeBase() {
@@ -48,6 +51,8 @@ export default function KnowledgeBase() {
   const [tagInput, setTagInput] = useState('');
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState('');
+  const [seeding, setSeeding] = useState(false);
+  const [seedResult, setSeedResult] = useState(null);
 
   const loadStats = useCallback(async () => {
     try {
@@ -113,6 +118,20 @@ export default function KnowledgeBase() {
     setNewEntry({ ...newEntry, tags: newEntry.tags.filter((t) => t !== tag) });
   };
 
+  const handleSeedKB = async () => {
+    setSeeding(true);
+    setSeedResult(null);
+    try {
+      const res = await knowledgeAPI.seed();
+      setSeedResult(res.data);
+      loadStats();
+    } catch (err) {
+      setSeedResult({ error: err.response?.data?.detail || 'Seeding failed.' });
+    } finally {
+      setSeeding(false);
+    }
+  };
+
   // Chart data from stats
   const chartData = stats?.entries_by_domain
     ? Object.entries(stats.entries_by_domain).map(([domain, count]) => ({ domain, count }))
@@ -127,11 +146,56 @@ export default function KnowledgeBase() {
             Domain-specific patterns, defects, and best practices
           </p>
         </div>
-        <button onClick={() => setShowAdd(true)} className="btn-primary flex items-center gap-2">
-          <PlusIcon className="w-4 h-4" />
-          Add Entry
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowAdd(true)} className="btn-primary flex items-center gap-2">
+            <PlusIcon className="w-4 h-4" />
+            Add Entry
+          </button>
+          <button
+            onClick={handleSeedKB}
+            disabled={seeding}
+            className="btn-secondary flex items-center gap-2 border-teal-200 text-teal-700 hover:bg-teal-50"
+          >
+            <SparklesIcon className="w-4 h-4" />
+            {seeding ? 'Seeding...' : 'Seed Reference Data'}
+          </button>
+        </div>
       </div>
+
+      {/* Seed result banner */}
+      {seedResult && (
+        <div className={`mb-4 p-3 rounded-lg text-sm ${
+          seedResult.error
+            ? 'bg-red-50 border border-red-200 text-red-700'
+            : 'bg-green-50 border border-green-200 text-green-700'
+        }`}>
+          {seedResult.error
+            ? seedResult.error
+            : `Seeded ${seedResult.kb_created} KB entries and ${seedResult.templates_created} templates. Total: ${seedResult.total_entries} entries.`
+          }
+          {seedResult.kb_skipped > 0 && ` (${seedResult.kb_skipped} already existed)`}
+        </div>
+      )}
+
+      {/* Empty state with seed prompt */}
+      {stats && stats.total_entries === 0 && !searched && (
+        <div className="card-static p-8 text-center mb-6 animate-fade-in">
+          <BookOpenIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+          <h3 className="text-lg font-bold text-fg-navy mb-2">Knowledge Base is Empty</h3>
+          <p className="text-sm text-fg-mid mb-4 max-w-md mx-auto">
+            Seed the knowledge base with reference patterns, best practices, and example test cases
+            to improve AI test generation quality.
+          </p>
+          <button
+            onClick={handleSeedKB}
+            disabled={seeding}
+            className="btn-primary flex items-center gap-2 mx-auto"
+          >
+            <SparklesIcon className="w-4 h-4" />
+            {seeding ? 'Seeding...' : 'Seed Reference Data'}
+          </button>
+        </div>
+      )}
 
       {/* Search */}
       <div className="card-static p-5 mb-6">
@@ -151,6 +215,7 @@ export default function KnowledgeBase() {
             className="input-field w-auto"
           >
             <option value="">All Domains</option>
+            <option value="general">General</option>
             <option value="mdm">MDM</option>
             <option value="ai">AI / GenAI</option>
             <option value="data_eng">Data Engineering</option>
@@ -321,6 +386,7 @@ export default function KnowledgeBase() {
                       onChange={(e) => setNewEntry({ ...newEntry, domain: e.target.value })}
                       className="input-field"
                     >
+                      <option value="general">General</option>
                       <option value="mdm">MDM</option>
                       <option value="ai">AI / GenAI</option>
                       <option value="data_eng">Data Engineering</option>
@@ -336,7 +402,7 @@ export default function KnowledgeBase() {
                       <option value="pattern">Pattern</option>
                       <option value="defect">Known Defect</option>
                       <option value="best_practice">Best Practice</option>
-                      <option value="reusable_test">Reusable Test</option>
+                      <option value="test_case">Test Case</option>
                     </select>
                   </div>
                 </div>

@@ -7,6 +7,7 @@ Endpoints:
     GET  /search — search knowledge entries (ILIKE text search; vector search in Phase 2)
     POST /       — add a knowledge entry manually
     GET  /stats  — knowledge base statistics
+    POST /seed   — seed reference knowledge base content
 """
 
 import logging
@@ -17,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from db_models import KnowledgeEntry, User
+from db_models import KnowledgeEntry, TestTemplate, User
 from db_session import get_db
 from dependencies import (
     audit_log,
@@ -205,4 +206,112 @@ def get_knowledge_stats(
         "entries_by_domain": entries_by_domain,
         "entries_by_type": entries_by_type,
         "top_used": top_used_list,
+    }
+
+
+# ---------------------------------------------------------------------------
+# POST /seed
+# ---------------------------------------------------------------------------
+@router.post(
+    "/seed",
+    summary="Seed reference knowledge base content",
+)
+def seed_knowledge_base(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Populate the knowledge base with reference patterns, best practices,
+    and example test cases. Idempotent — skips entries that already exist.
+    Also seeds export templates if missing.
+    """
+    from seed_knowledge import KB_ENTRIES, EXPORT_TEMPLATES
+
+    admin_id = current_user.id
+
+    created_kb = 0
+    skipped_kb = 0
+    for entry_data in KB_ENTRIES:
+        exists = (
+            db.query(KnowledgeEntry)
+            .filter(
+                KnowledgeEntry.title == entry_data["title"],
+                KnowledgeEntry.domain == entry_data["domain"],
+            )
+            .first()
+        )
+        if exists:
+            skipped_kb += 1
+            continue
+
+        entry = KnowledgeEntry(
+            domain=entry_data["domain"],
+            sub_domain=entry_data.get("sub_domain"),
+            entry_type=entry_data["entry_type"],
+            title=entry_data["title"],
+            content=entry_data["content"],
+            tags=entry_data.get("tags"),
+            created_by=admin_id,
+        )
+        db.add(entry)
+        created_kb += 1
+
+    created_tpl = 0
+    skipped_tpl = 0
+    for tpl_data in EXPORT_TEMPLATES:
+        exists = (
+            db.query(TestTemplate)
+            .filter(
+                TestTemplate.name == tpl_data["name"],
+                TestTemplate.domain == tpl_data["domain"],
+            )
+            .first()
+        )
+        if exists:
+            skipped_tpl += 1
+            continue
+
+        tpl = TestTemplate(
+            name=tpl_data["name"],
+            domain=tpl_data["domain"],
+            format=tpl_data["format"],
+            column_mapping=tpl_data["column_mapping"],
+            branding_config=tpl_data["branding_config"],
+            created_by=admin_id,
+        )
+        db.add(tpl)
+        created_tpl += 1
+
+    db.flush()
+
+    audit_log(
+        db,
+        user_id=admin_id,
+        action="seed_knowledge_base",
+        entity_type="knowledge_base",
+        entity_id="seed",
+        details={
+            "kb_created": created_kb,
+            "kb_skipped": skipped_kb,
+            "templates_created": created_tpl,
+            "templates_skipped": skipped_tpl,
+        },
+        ip_address=get_client_ip(request),
+    )
+
+    logger.info(
+        "KB seeded by %s: %d KB entries created, %d templates created",
+        current_user.email, created_kb, created_tpl,
+    )
+
+    total = db.query(func.count(KnowledgeEntry.id)).scalar() or 0
+
+    return {
+        "message": f"Seeded {created_kb} KB entries and {created_tpl} templates",
+        "kb_created": created_kb,
+        "kb_skipped": skipped_kb,
+        "templates_created": created_tpl,
+        "templates_skipped": skipped_tpl,
+        "total_entries": total,
     }
