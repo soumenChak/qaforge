@@ -217,6 +217,7 @@ class TestCaseCreate(BaseModel):
         pattern=r"^(functional|integration|regression|smoke|e2e)$",
     )
     domain_tags: Optional[List[str]] = None
+    execution_type: str = Field(default="api", pattern=r"^(api|ui|sql|manual)$")
     source: str = Field(default="manual", pattern=r"^(ai_generated|manual|hybrid)$")
 
 
@@ -235,9 +236,10 @@ class TestCaseUpdate(BaseModel):
         pattern=r"^(functional|integration|regression|smoke|e2e)$",
     )
     domain_tags: Optional[List[str]] = None
+    execution_type: Optional[str] = Field(None, pattern=r"^(api|ui|sql|manual)$")
     status: Optional[str] = Field(
         None,
-        pattern=r"^(draft|reviewed|approved|executed|passed|failed)$",
+        pattern=r"^(draft|active|passed|failed|blocked|deprecated)$",
     )
 
 
@@ -259,6 +261,7 @@ class TestCaseResponse(BaseModel):
     priority: str
     category: str
     domain_tags: Optional[List[str]] = None
+    execution_type: str = "api"
     source: str
     status: str
     rating: Optional[int] = None
@@ -286,6 +289,7 @@ class TestCaseGenerateRequest(BaseModel):
         None,
         pattern=r"^(functional|integration|regression|smoke|e2e)$",
     )
+    execution_type: Optional[str] = Field(None, pattern=r"^(api|ui|sql|manual)$")
 
 
 class TestCaseRateRequest(BaseModel):
@@ -448,6 +452,37 @@ class ExecutionRunResponse(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     executed_by: uuid.UUID
+
+
+class ExecutionRunStatus(BaseModel):
+    """Lightweight status for polling during execution."""
+
+    id: uuid.UUID
+    status: str
+    progress: Optional[Dict[str, Any]] = None
+    started_at: Optional[datetime] = None
+    elapsed_seconds: Optional[float] = None
+
+
+class ConnectionUpdate(BaseModel):
+    """Partial update for a connection."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    config: Optional[Dict[str, Any]] = None
+    credentials_ref: Optional[str] = None
+    status: Optional[str] = None
+
+
+class TestAgentUpdate(BaseModel):
+    """Partial update for a test agent."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = None
+    system_prompt: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None
+    connection_ids: Optional[List[uuid.UUID]] = None
+    template_id: Optional[str] = None
+    status: Optional[str] = Field(None, pattern=r"^(draft|active|archived)$")
 
 
 # ═══════════════════════════════════════════════════════════════════════════

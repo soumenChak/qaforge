@@ -60,6 +60,7 @@ export const projectsAPI = {
   create: (data) => api.post('/projects/', data),
   update: (id, data) => api.put(`/projects/${id}`, data),
   archive: (id) => api.post(`/projects/${id}/archive`),
+  delete: (id) => api.delete(`/projects/${id}`),
 };
 
 // -- Requirements --
@@ -105,6 +106,34 @@ export const knowledgeAPI = {
   search: (params) => api.get('/knowledge/search', { params }),
   create: (data) => api.post('/knowledge/', data),
   getStats: () => api.get('/knowledge/stats'),
+};
+
+// -- Connections --
+export const connectionsAPI = {
+  getAll: (params = {}) => api.get('/connections/', { params }),
+  getById: (id) => api.get(`/connections/${id}`),
+  create: (data) => api.post('/connections/', data),
+  update: (id, data) => api.put(`/connections/${id}`, data),
+  delete: (id) => api.delete(`/connections/${id}`),
+  test: (id) => api.post(`/connections/${id}/test`),
+};
+
+// -- Test Agents --
+export const testAgentsAPI = {
+  getAll: (params = {}) => api.get('/test-agents/', { params }),
+  getById: (id) => api.get(`/test-agents/${id}`),
+  create: (data) => api.post('/test-agents/', data),
+  update: (id, data) => api.put(`/test-agents/${id}`, data),
+  delete: (id) => api.delete(`/test-agents/${id}`),
+};
+
+// -- Execution --
+export const executionAPI = {
+  create: (data) => api.post('/execution/', data),
+  list: (params = {}) => api.get('/execution/', { params }),
+  getById: (id) => api.get(`/execution/${id}`),
+  getStatus: (id) => api.get(`/execution/${id}/status`),
+  cancel: (id) => api.post(`/execution/${id}/cancel`),
 };
 
 // -- Settings --

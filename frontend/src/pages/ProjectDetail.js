@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { projectsAPI, requirementsAPI, testCasesAPI } from '../services/api';
+import { projectsAPI, requirementsAPI, testCasesAPI, executionAPI } from '../services/api';
 import TestCaseTable from '../components/TestCaseTable';
+import ExecutionRunModal from '../components/ExecutionRunModal';
 import {
   SparklesIcon,
   PlusIcon,
@@ -10,6 +11,11 @@ import {
   ArrowDownTrayIcon,
   XMarkIcon,
   FunnelIcon,
+  BoltIcon,
+  CheckCircleIcon,
+  XCircleIcon,
+  ClockIcon,
+  EyeIcon,
 } from '@heroicons/react/24/outline';
 
 const DOMAIN_COLORS = {
@@ -28,6 +34,14 @@ const PRIORITY_COLORS = {
   high: 'badge-red',
   medium: 'badge-yellow',
   low: 'badge-green',
+};
+
+const RUN_STATUS_COLORS = {
+  queued: 'bg-gray-100 text-gray-700',
+  running: 'bg-blue-100 text-blue-700',
+  completed: 'bg-green-100 text-green-700',
+  failed: 'bg-red-100 text-red-700',
+  cancelled: 'bg-yellow-100 text-yellow-700',
 };
 
 export default function ProjectDetail() {
@@ -55,6 +69,11 @@ export default function ProjectDetail() {
   const [tcPage, setTcPage] = useState(1);
   const [tcPageSize, setTcPageSize] = useState(25);
   const [tcTotal, setTcTotal] = useState(0);
+
+  // Execution state
+  const [showRunModal, setShowRunModal] = useState(false);
+  const [executionRuns, setExecutionRuns] = useState([]);
+  const [execLoading, setExecLoading] = useState(false);
 
   const loadProject = useCallback(async () => {
     try {
@@ -90,10 +109,10 @@ export default function ProjectDetail() {
       if (tcFilter.priority) params.priority = tcFilter.priority;
       if (tcFilter.category) params.category = tcFilter.category;
       if (tcFilter.source) params.source = tcFilter.source;
+      if (tcFilter.execution_type) params.execution_type = tcFilter.execution_type;
 
       const res = await testCasesAPI.list(id, params);
       setTestCases(res.data);
-      // Approximate total from project stats
       setTcTotal(project?.test_case_count || res.data.length);
     } catch (err) {
       console.error('Failed to load test cases:', err);
@@ -102,9 +121,31 @@ export default function ProjectDetail() {
     }
   }, [id, tcPage, tcPageSize, tcFilter, project?.test_case_count]);
 
+  const loadExecutionRuns = useCallback(async () => {
+    setExecLoading(true);
+    try {
+      const res = await executionAPI.list({ project_id: id });
+      setExecutionRuns(res.data);
+    } catch (err) {
+      console.error('Failed to load execution runs:', err);
+    } finally {
+      setExecLoading(false);
+    }
+  }, [id]);
+
   useEffect(() => { loadProject(); }, [loadProject]);
   useEffect(() => { if (activeTab === 'requirements') loadRequirements(); }, [activeTab, loadRequirements]);
   useEffect(() => { if (activeTab === 'test_cases') loadTestCases(); }, [activeTab, loadTestCases]);
+  useEffect(() => { if (activeTab === 'executions') loadExecutionRuns(); }, [activeTab, loadExecutionRuns]);
+
+  // Poll active runs
+  useEffect(() => {
+    if (activeTab !== 'executions') return;
+    const activeRuns = executionRuns.filter(r => ['queued', 'running'].includes(r.status));
+    if (activeRuns.length === 0) return;
+    const interval = setInterval(loadExecutionRuns, 3000);
+    return () => clearInterval(interval);
+  }, [activeTab, executionRuns, loadExecutionRuns]);
 
   const handleAddRequirement = async (e) => {
     e.preventDefault();
@@ -185,6 +226,31 @@ export default function ProjectDetail() {
     }
   };
 
+  const handleRunSelected = () => {
+    if (selectedTcIds.size === 0) {
+      alert('Please select test cases to run.');
+      return;
+    }
+    setShowRunModal(true);
+  };
+
+  const handleRunAll = () => {
+    // Select all test case IDs for execution
+    const allIds = testCases.map(tc => tc.id);
+    if (allIds.length === 0) {
+      alert('No test cases available to run.');
+      return;
+    }
+    setSelectedTcIds(new Set(allIds));
+    setShowRunModal(true);
+  };
+
+  const handleExecutionStarted = (run) => {
+    setShowRunModal(false);
+    setActiveTab('executions');
+    loadExecutionRuns();
+  };
+
   if (loading || !project) {
     return (
       <div className="page-container">
@@ -247,6 +313,7 @@ export default function ProjectDetail() {
         {[
           { key: 'requirements', label: `Requirements (${requirements.length})` },
           { key: 'test_cases', label: `Test Cases (${project.test_case_count || 0})` },
+          { key: 'executions', label: `Executions (${executionRuns.length})` },
         ].map((tab) => (
           <button
             key={tab.key}
@@ -451,9 +518,36 @@ export default function ProjectDetail() {
                 <option value="ai_generated">AI Generated</option>
                 <option value="manual">Manual</option>
               </select>
+              <select
+                value={tcFilter.execution_type || ''}
+                onChange={(e) => { setTcFilter({ ...tcFilter, execution_type: e.target.value }); setTcPage(1); }}
+                className="text-xs border rounded-md px-2 py-1.5 border-gray-200 focus:ring-fg-teal focus:border-fg-teal"
+              >
+                <option value="">All Types</option>
+                <option value="api">API</option>
+                <option value="ui">UI (Playwright)</option>
+                <option value="sql">SQL (Database)</option>
+                <option value="manual">Manual</option>
+              </select>
             </div>
 
             <div className="flex gap-2">
+              <button
+                onClick={handleRunSelected}
+                disabled={selectedTcIds.size === 0}
+                className="btn-secondary text-sm flex items-center gap-2 border-teal-200 text-teal-700 hover:bg-teal-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <BoltIcon className="w-4 h-4" />
+                Run Selected ({selectedTcIds.size})
+              </button>
+              <button
+                onClick={handleRunAll}
+                disabled={testCases.length === 0}
+                className="btn-secondary text-sm flex items-center gap-2"
+              >
+                <BoltIcon className="w-4 h-4" />
+                Run All
+              </button>
               <button
                 onClick={handleExport}
                 disabled={testCases.length === 0}
@@ -481,6 +575,133 @@ export default function ProjectDetail() {
             }}
           />
         </div>
+      )}
+
+      {/* Executions tab */}
+      {activeTab === 'executions' && (
+        <div className="animate-fade-in">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+            <p className="text-sm text-fg-mid">
+              {executionRuns.length} execution run{executionRuns.length !== 1 ? 's' : ''}
+            </p>
+            <button
+              onClick={() => { setActiveTab('test_cases'); }}
+              className="btn-secondary text-sm flex items-center gap-2"
+            >
+              <BoltIcon className="w-4 h-4" />
+              Run New Execution
+            </button>
+          </div>
+
+          {execLoading ? (
+            <div className="text-center py-8 text-fg-mid">Loading execution runs...</div>
+          ) : executionRuns.length === 0 ? (
+            <div className="card-static p-8 text-center">
+              <BoltIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <p className="text-fg-mid mb-2">No execution runs yet.</p>
+              <p className="text-xs text-fg-mid mb-4">
+                Go to the Test Cases tab, select test cases, and click "Run Selected" to start.
+              </p>
+              <button
+                onClick={() => setActiveTab('test_cases')}
+                className="btn-primary text-sm"
+              >
+                Go to Test Cases
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {executionRuns.map((run) => {
+                const summary = run.results?.summary || {};
+                const isActive = ['queued', 'running'].includes(run.status);
+                const passRate = summary.pass_rate;
+
+                return (
+                  <div
+                    key={run.id}
+                    className="card cursor-pointer overflow-hidden"
+                    onClick={() => navigate(`/projects/${id}/executions/${run.id}`)}
+                  >
+                    <div className={`h-1 ${
+                      run.status === 'completed' && (passRate || 0) >= 70 ? 'bg-gradient-to-r from-green-400 to-green-500' :
+                      run.status === 'completed' ? 'bg-gradient-to-r from-orange-400 to-red-500' :
+                      run.status === 'running' ? 'bg-gradient-to-r from-blue-400 to-blue-500' :
+                      run.status === 'failed' ? 'bg-gradient-to-r from-red-400 to-red-500' :
+                      'bg-gradient-to-r from-gray-300 to-gray-400'
+                    }`} />
+
+                    <div className="p-4 flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-4">
+                        {/* Status badge */}
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${RUN_STATUS_COLORS[run.status] || 'bg-gray-100 text-gray-700'}`}>
+                          {isActive && (
+                            <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                            </svg>
+                          )}
+                          {run.status}
+                        </span>
+
+                        {/* Test count */}
+                        <span className="text-sm text-fg-dark">
+                          {(run.test_case_ids || []).length} test case{(run.test_case_ids || []).length !== 1 ? 's' : ''}
+                        </span>
+
+                        {/* Results summary */}
+                        {summary.passed !== undefined && (
+                          <div className="flex items-center gap-3 text-xs">
+                            <span className="flex items-center gap-1 text-green-600">
+                              <CheckCircleIcon className="w-3.5 h-3.5" />
+                              {summary.passed} passed
+                            </span>
+                            {(summary.failed || 0) + (summary.errored || 0) > 0 && (
+                              <span className="flex items-center gap-1 text-red-600">
+                                <XCircleIcon className="w-3.5 h-3.5" />
+                                {(summary.failed || 0) + (summary.errored || 0)} failed
+                              </span>
+                            )}
+                            {passRate != null && (
+                              <span className={`font-semibold ${
+                                passRate >= 70 ? 'text-green-600' :
+                                passRate >= 40 ? 'text-yellow-600' : 'text-red-600'
+                              }`}>
+                                {passRate}% pass rate
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-4">
+                        {/* Timestamp */}
+                        <span className="text-xs text-gray-400 flex items-center gap-1">
+                          <ClockIcon className="w-3.5 h-3.5" />
+                          {run.started_at
+                            ? new Date(run.started_at).toLocaleString()
+                            : 'Queued'
+                          }
+                        </span>
+                        <EyeIcon className="w-4 h-4 text-gray-400" />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Execution Run Modal */}
+      {showRunModal && (
+        <ExecutionRunModal
+          projectId={id}
+          testCaseIds={Array.from(selectedTcIds)}
+          testCaseCount={selectedTcIds.size}
+          onClose={() => setShowRunModal(false)}
+          onStarted={handleExecutionStarted}
+        />
       )}
     </div>
   );

@@ -36,6 +36,7 @@ export default function TestCaseGenerator() {
   const [additionalContext, setAdditionalContext] = useState('');
   const [priority, setPriority] = useState('');
   const [category, setCategory] = useState('');
+  const [executionType, setExecutionType] = useState('');
 
   // Step 3: Generation state
   const [generating, setGenerating] = useState(false);
@@ -88,6 +89,7 @@ export default function TestCaseGenerator() {
         template_id: selectedTemplate || null,
         priority: priority || null,
         category: category || null,
+        execution_type: executionType || null,
       });
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -239,6 +241,35 @@ export default function TestCaseGenerator() {
                 </select>
               </div>
             )}
+
+            {/* Execution Type */}
+            <div>
+              <label className="label">Execution Type</label>
+              <p className="text-xs text-fg-mid mb-2">How should these test cases be executed?</p>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { key: '', label: 'Auto-detect', icon: '🤖', desc: 'AI infers from test steps' },
+                  { key: 'api', label: 'API', icon: '🌐', desc: 'REST/HTTP testing' },
+                  { key: 'sql', label: 'SQL', icon: '🗄️', desc: 'Database / ETL' },
+                  { key: 'ui', label: 'UI', icon: '🖥️', desc: 'Playwright browser' },
+                ].map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    onClick={() => setExecutionType(t.key)}
+                    className={`p-2 rounded-lg border-2 text-center transition-all ${
+                      executionType === t.key
+                        ? 'border-teal-500 bg-teal-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <span className="text-lg block">{t.icon}</span>
+                    <span className="text-xs font-semibold text-fg-dark block">{t.label}</span>
+                    <span className="text-[10px] text-fg-mid block">{t.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
 
             {/* Priority + Category */}
             <div className="grid grid-cols-2 gap-4">

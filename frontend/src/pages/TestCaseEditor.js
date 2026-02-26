@@ -28,6 +28,7 @@ export default function TestCaseEditor() {
   const [priority, setPriority] = useState('P2');
   const [category, setCategory] = useState('functional');
   const [status, setStatus] = useState('draft');
+  const [executionType, setExecutionType] = useState('api');
   const [testSteps, setTestSteps] = useState([]);
 
   const loadTestCase = useCallback(async () => {
@@ -42,6 +43,7 @@ export default function TestCaseEditor() {
       setPriority(data.priority || 'P2');
       setCategory(data.category || 'functional');
       setStatus(data.status || 'draft');
+      setExecutionType(data.execution_type || 'api');
       setTestSteps(data.test_steps || []);
     } catch (err) {
       setError('Failed to load test case.');
@@ -65,6 +67,7 @@ export default function TestCaseEditor() {
         priority,
         category,
         status,
+        execution_type: executionType,
         test_steps: testSteps.map((s, i) => ({
           step_number: i + 1,
           action: s.action || '',
@@ -217,7 +220,16 @@ export default function TestCaseEditor() {
                 <textarea value={expectedResult} onChange={(e) => setExpectedResult(e.target.value)} rows={2} className="input-field" />
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="label">Execution Type</label>
+                  <select value={executionType} onChange={(e) => setExecutionType(e.target.value)} className="input-field">
+                    <option value="api">🌐 API</option>
+                    <option value="ui">🖥️ UI (Playwright)</option>
+                    <option value="sql">🗄️ SQL (Database)</option>
+                    <option value="manual">✋ Manual</option>
+                  </select>
+                </div>
                 <div>
                   <label className="label">Priority</label>
                   <select value={priority} onChange={(e) => setPriority(e.target.value)} className="input-field">

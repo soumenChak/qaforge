@@ -17,6 +17,13 @@ const STATUS_STYLES = {
   deprecated: 'bg-gray-100 text-gray-500',
 };
 
+const EXEC_TYPE_STYLES = {
+  api: { bg: 'bg-indigo-100 text-indigo-700', label: 'API', icon: '🌐' },
+  ui: { bg: 'bg-purple-100 text-purple-700', label: 'UI', icon: '🖥️' },
+  sql: { bg: 'bg-amber-100 text-amber-700', label: 'SQL', icon: '🗄️' },
+  manual: { bg: 'bg-gray-100 text-gray-600', label: 'Manual', icon: '✋' },
+};
+
 /**
  * TestCaseTable -- Sortable, filterable test case data table.
  *
@@ -140,6 +147,9 @@ export default function TestCaseTable({
               <th className="px-4 py-3 cursor-pointer select-none" onClick={() => handleSort('priority')}>
                 Priority <SortIcon field="priority" />
               </th>
+              <th className="px-4 py-3 cursor-pointer select-none" onClick={() => handleSort('execution_type')}>
+                Type <SortIcon field="execution_type" />
+              </th>
               <th className="px-4 py-3 cursor-pointer select-none" onClick={() => handleSort('category')}>
                 Category <SortIcon field="category" />
               </th>
@@ -180,6 +190,16 @@ export default function TestCaseTable({
                   <span className={`badge ${PRIORITY_STYLES[tc.priority] || PRIORITY_STYLES.P3}`}>
                     {tc.priority}
                   </span>
+                </td>
+                <td className="px-4 py-3">
+                  {(() => {
+                    const et = EXEC_TYPE_STYLES[tc.execution_type] || EXEC_TYPE_STYLES.api;
+                    return (
+                      <span className={`badge text-xs ${et.bg}`}>
+                        {et.icon} {et.label}
+                      </span>
+                    );
+                  })()}
                 </td>
                 <td className="px-4 py-3 text-sm text-fg-mid capitalize">
                   {tc.category?.replace(/_/g, ' ')}

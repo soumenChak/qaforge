@@ -13,6 +13,7 @@ import Settings from './pages/Settings';
 import Users from './pages/Users';
 import TemplateManager from './pages/TemplateManager';
 import KnowledgeBase from './pages/KnowledgeBase';
+import ExecutionResults from './pages/ExecutionResults';
 
 /**
  * ProtectedRoute -- Redirects to /login if not authenticated.
@@ -82,6 +83,7 @@ export default function App() {
             <Route path="projects/:id" element={<ProjectDetail />} />
             <Route path="projects/:id/generate" element={<TestCaseGenerator />} />
             <Route path="projects/:id/test-cases/:tcId" element={<TestCaseEditor />} />
+            <Route path="projects/:id/executions/:runId" element={<ExecutionResults />} />
             <Route path="templates" element={<TemplateManager />} />
             <Route path="knowledge" element={<KnowledgeBase />} />
             <Route path="settings" element={<Settings />} />

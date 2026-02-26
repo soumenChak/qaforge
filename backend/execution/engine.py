@@ -1,0 +1,681 @@
+"""
+QAForge -- Execution Engine (Core Orchestrator).
+
+Drives the end-to-end execution of test cases:
+  1. Loads test cases and connection config from DB
+  2. For each test case, asks the LLM to extract template parameters
+  3. Matches to the best template (api_smoke / api_crud) or falls back to sandbox
+  4. Executes the template and captures results
+  5. Updates ExecutionRun.results JSONB after each test case (live progress)
+  6. Updates TestCase.status to passed/failed
+
+Runs as a FastAPI BackgroundTask with its own DB session.
+"""
+
+import asyncio
+import json
+import logging
+import re
+import time
+import traceback
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+from uuid import UUID
+
+from sqlalchemy.orm.attributes import flag_modified
+
+from db_session import SessionLocal
+from db_models import Connection, ExecutionRun, TestAgent, TestCase
+
+logger = logging.getLogger(__name__)
+
+# -- LLM prompts for parameter extraction (per execution_type) ---------------
+
+PARAM_EXTRACTION_PROMPTS = {
+    "api": """You are a QA test execution assistant. Given a test case, extract the parameters needed to execute it via an HTTP API.
+
+Analyze the test case steps and determine which template to use:
+- "api_smoke" — for single HTTP request tests (GET/POST/PUT/DELETE an endpoint and verify response)
+- "api_crud" — for full CRUD lifecycle tests (Create → Read → Update → Delete flow)
+
+Return ONLY valid JSON with this structure:
+
+For api_smoke:
+{
+  "template": "api_smoke",
+  "params": {
+    "method": "GET",
+    "endpoint": "/api/endpoint",
+    "expected_status": 200,
+    "expected_fields": ["field1", "field2"],
+    "headers": {},
+    "body": null,
+    "query_params": null,
+    "max_response_time_ms": 5000,
+    "expected_body_contains": null
+  }
+}
+
+For api_crud:
+{
+  "template": "api_crud",
+  "params": {
+    "resource_endpoint": "/api/resource",
+    "create_body": {"field": "value"},
+    "update_body": {"field": "updated_value"},
+    "id_field": "id",
+    "headers": {},
+    "expected_create_status": 201,
+    "expected_read_status": 200,
+    "expected_update_status": 200,
+    "expected_delete_status": 200,
+    "expected_fields": ["id", "field"]
+  }
+}
+
+If you cannot determine parameters from the test steps, return:
+{"template": "unknown", "params": {}, "reason": "explanation"}
+
+IMPORTANT: Return ONLY the JSON, no markdown fences, no extra text.""",
+
+    "sql": """You are a QA database test execution assistant. Given a test case about ETL/ELT pipelines, data quality, or database validation, extract SQL parameters.
+
+Analyze the test case steps and determine which template to use:
+- "db_query" — for single SQL query tests (run a query and validate results: row count, column existence, value checks, null checks)
+- "db_reconciliation" — for source-to-target data reconciliation (compare row counts, aggregates, or data between source and target tables)
+
+Return ONLY valid JSON with this structure:
+
+For db_query:
+{
+  "template": "db_query",
+  "params": {
+    "query": "SELECT * FROM schema.table WHERE condition",
+    "expected_row_count": 10,
+    "row_count_operator": "gte",
+    "expected_columns": ["col1", "col2"],
+    "value_assertions": [
+      {"column": "status", "row": 0, "expected": "active", "operator": "eq"}
+    ],
+    "null_check_columns": ["id", "email"],
+    "max_query_time_ms": 10000
+  }
+}
+
+For db_reconciliation:
+{
+  "template": "db_reconciliation",
+  "params": {
+    "source_query": "SELECT COUNT(*) as cnt FROM source_schema.orders",
+    "target_query": "SELECT COUNT(*) as cnt FROM target_schema.fact_orders",
+    "reconciliation_type": "row_count",
+    "tolerance_percent": 0,
+    "column_mappings": [
+      {"source": "customer_name", "target": "cust_name"}
+    ],
+    "aggregate_checks": [
+      {"source_query": "SELECT SUM(amount) FROM src.orders", "target_query": "SELECT SUM(total) FROM tgt.fact_orders", "tolerance_percent": 0.01}
+    ],
+    "freshness_query": "SELECT MAX(updated_at) FROM target.fact_orders",
+    "freshness_max_hours": 24
+  }
+}
+
+Use the execution context to understand table names, schema mappings, and ETL/ELT pipeline details.
+If you cannot determine parameters, return: {"template": "unknown", "params": {}, "reason": "explanation"}
+
+IMPORTANT: Return ONLY the JSON, no markdown fences, no extra text.""",
+
+    "ui": """You are a QA UI test execution assistant. Given a test case about browser-based UI testing, extract Playwright parameters.
+
+Use the "ui_playwright" template. Extract step-by-step browser actions from the test case.
+
+Return ONLY valid JSON:
+{
+  "template": "ui_playwright",
+  "params": {
+    "steps": [
+      {"action": "navigate", "url": "/page-path"},
+      {"action": "click", "selector": "button.submit"},
+      {"action": "fill", "selector": "#input-field", "value": "test data"},
+      {"action": "wait", "ms": 1000},
+      {"action": "assert_visible", "selector": ".success-message"},
+      {"action": "assert_text", "selector": "h1", "expected": "Expected Title"},
+      {"action": "assert_url", "pattern": "/expected-path"},
+      {"action": "screenshot", "name": "final-state"}
+    ],
+    "timeout_ms": 5000,
+    "screenshot_on_failure": true
+  }
+}
+
+Supported actions: navigate, click, fill, select_option, wait, wait_for_selector, press_key, hover, assert_visible, assert_text, assert_url, assert_element_count, screenshot.
+
+For selectors, prefer: data-testid attributes, then IDs, then specific CSS classes, then generic selectors.
+Use the execution context for app-specific selectors, page structure, and navigation hints.
+
+If you cannot determine parameters, return: {"template": "unknown", "params": {}, "reason": "explanation"}
+
+IMPORTANT: Return ONLY the JSON, no markdown fences, no extra text.""",
+}
+
+# Legacy fallback for untyped test cases
+PARAM_EXTRACTION_PROMPT = PARAM_EXTRACTION_PROMPTS["api"]
+
+
+def _extract_json_from_llm_response(text: str) -> Optional[Dict]:
+    """
+    Robustly extract JSON from an LLM response that may contain markdown
+    fences, extra commentary, or multiple JSON blocks.
+
+    Returns the parsed dict or None if extraction fails.
+    """
+    # Strategy 1: Strip markdown fences
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        # Remove opening fence (```json or ```)
+        first_newline = cleaned.find("\n")
+        if first_newline > 0:
+            cleaned = cleaned[first_newline + 1:]
+        else:
+            cleaned = cleaned[3:]
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3]
+    cleaned = cleaned.strip()
+
+    try:
+        return json.loads(cleaned)
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Strategy 2: Find the first { ... } block using brace matching
+    start = text.find("{")
+    if start >= 0:
+        depth = 0
+        end = start
+        for i, ch in enumerate(text[start:], start):
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        candidate = text[start : end + 1]
+        try:
+            return json.loads(candidate)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # Strategy 3: Regex for JSON-like block
+    match = re.search(r"\{[\s\S]*\}", text)
+    if match:
+        try:
+            return json.loads(match.group(0))
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    return None
+
+
+def _build_test_case_context(tc: TestCase) -> str:
+    """Build a text description of a test case for the LLM."""
+    parts = [
+        f"Test Case: {tc.title}",
+        f"Description: {tc.description or 'N/A'}",
+        f"Category: {tc.category or 'N/A'}",
+        f"Priority: {tc.priority or 'N/A'}",
+    ]
+    if tc.preconditions:
+        parts.append(f"Preconditions: {tc.preconditions}")
+
+    steps = tc.test_steps or []
+    if steps:
+        parts.append("Test Steps:")
+        for step in steps:
+            if isinstance(step, dict):
+                sn = step.get("step_number", "?")
+                action = step.get("action", "")
+                expected = step.get("expected_result", "")
+                parts.append(f"  {sn}. {action} → Expected: {expected}")
+            else:
+                parts.append(f"  - {step}")
+
+    if tc.expected_result:
+        parts.append(f"Expected Result: {tc.expected_result}")
+
+    return "\n".join(parts)
+
+
+async def _extract_params_via_llm(
+    test_case_text: str,
+    connection_config: Dict[str, Any],
+    execution_type: str = "api",
+) -> Dict[str, Any]:
+    """Use the LLM to extract execution parameters from test case steps."""
+    try:
+        from core.llm_provider import get_llm_provider
+
+        llm = get_llm_provider()
+
+        # Select the appropriate prompt based on execution_type
+        system_prompt = PARAM_EXTRACTION_PROMPTS.get(execution_type, PARAM_EXTRACTION_PROMPT)
+
+        # Add connection context + execution context (user-provided prerequisites)
+        context = test_case_text
+        if connection_config.get("base_url"):
+            context += f"\n\nTarget API base URL: {connection_config['base_url']}"
+        if connection_config.get("app_url"):
+            context += f"\n\nTarget App URL: {connection_config['app_url']}"
+        if connection_config.get("db_url") or connection_config.get("database_url"):
+            context += f"\n\nDatabase type: {connection_config.get('db_type', 'postgresql')}"
+        if connection_config.get("execution_context"):
+            context += f"\n\n--- Execution Context (API docs / ETL mappings / prerequisites) ---\n{connection_config['execution_context']}"
+
+        result = llm.complete(
+            system=system_prompt,
+            messages=[{"role": "user", "content": context}],
+            max_tokens=1024,
+            temperature=0.1,
+        )
+
+        # Parse JSON from response — robust extraction for Groq/Llama
+        text = result.text.strip()
+        parsed = _extract_json_from_llm_response(text)
+        if parsed is not None:
+            return parsed
+
+        # Last resort: try raw parse
+        return json.loads(text)
+
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.warning("LLM returned invalid JSON for param extraction: %s — raw text: %s", exc, result.text[:300] if hasattr(result, 'text') else 'N/A')
+        return {"template": "unknown", "params": {}, "reason": f"Invalid JSON: {exc}"}
+    except Exception as exc:
+        logger.error("LLM param extraction failed: %s", exc, exc_info=True)
+        return {"template": "unknown", "params": {}, "reason": str(exc)}
+
+
+async def _execute_single_test(
+    tc: TestCase,
+    connection_config: Dict[str, Any],
+    agent_config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Execute a single test case and return the result."""
+    start_time = time.perf_counter()
+    tc_text = _build_test_case_context(tc)
+
+    # Determine execution type from test case
+    execution_type = getattr(tc, "execution_type", "api") or "api"
+
+    # Step 1: Extract parameters via LLM (using type-specific prompt)
+    extraction = await _extract_params_via_llm(tc_text, connection_config, execution_type)
+    template_name = extraction.get("template", "unknown")
+    params = extraction.get("params", {})
+
+    # Step 2: Execute via appropriate template
+    from execution.templates import TEMPLATE_REGISTRY
+
+    # Normalise template name (LLMs sometimes use hyphens or mixed case)
+    template_name = template_name.lower().replace("-", "_").strip()
+
+    if template_name in TEMPLATE_REGISTRY:
+        template_fn = TEMPLATE_REGISTRY[template_name]
+        result = await template_fn(params, connection_config)
+        result["template_used"] = template_name
+    elif template_name == "unknown":
+        # No template matched — try sandbox fallback if agent allows it
+        if agent_config and agent_config.get("allow_sandbox", False):
+            from execution.sandbox import execute_script
+
+            # Ask LLM to generate a test script
+            script = await _generate_test_script(tc_text, connection_config)
+            if script:
+                env_vars = {}
+                if connection_config.get("base_url"):
+                    env_vars["BASE_URL"] = connection_config["base_url"]
+                if connection_config.get("auth_token"):
+                    env_vars["AUTH_TOKEN"] = connection_config["auth_token"]
+                result = await execute_script(
+                    script,
+                    timeout=agent_config.get("sandbox_timeout", 30),
+                    env_vars=env_vars,
+                )
+                result["template_used"] = "sandbox"
+            else:
+                result = {
+                    "passed": False,
+                    "assertions": [{
+                        "type": "template_match",
+                        "expected": "matched",
+                        "actual": "no_match_no_script",
+                        "passed": False,
+                    }],
+                    "logs": [
+                        f"No template matched for this test case",
+                        f"Reason: {extraction.get('reason', 'unknown')}",
+                        "Sandbox script generation also failed",
+                    ],
+                    "template_used": "none",
+                    "details": {},
+                }
+        else:
+            result = {
+                "passed": False,
+                "assertions": [{
+                    "type": "template_match",
+                    "expected": "matched",
+                    "actual": "no_match",
+                    "passed": False,
+                }],
+                "logs": [
+                    f"No template matched for this test case",
+                    f"Reason: {extraction.get('reason', 'unknown')}",
+                    "Sandbox execution is disabled for this agent",
+                ],
+                "template_used": "none",
+                "details": {},
+            }
+    else:
+        result = {
+            "passed": False,
+            "assertions": [{
+                "type": "template_match",
+                "expected": "known_template",
+                "actual": template_name,
+                "passed": False,
+            }],
+            "logs": [f"Unknown template: {template_name}"],
+            "template_used": template_name,
+            "details": {},
+        }
+
+    duration = time.perf_counter() - start_time
+    result["duration_seconds"] = round(duration, 2)
+
+    return result
+
+
+async def _generate_test_script(
+    test_case_text: str,
+    connection_config: Dict[str, Any],
+) -> Optional[str]:
+    """Ask the LLM to generate a Python test script as a fallback."""
+    try:
+        from core.llm_provider import get_llm_provider
+
+        llm = get_llm_provider()
+
+        system_prompt = """You are a QA automation engineer. Generate a Python test script that:
+1. Uses the `httpx` library for HTTP requests (already installed)
+2. Prints a JSON result to stdout with this structure:
+   {"passed": true/false, "assertions": [...], "logs": [...]}
+3. Uses environment variables: BASE_URL, AUTH_TOKEN (if applicable)
+4. Handles errors gracefully
+5. Does NOT use any external test framework (no pytest, unittest)
+
+Return ONLY the Python code, no markdown fences."""
+
+        context = test_case_text
+        if connection_config.get("base_url"):
+            context += f"\n\nBase URL: {connection_config['base_url']}"
+
+        result = llm.complete(
+            system=system_prompt,
+            messages=[{"role": "user", "content": context}],
+            max_tokens=2048,
+            temperature=0.2,
+        )
+
+        script = result.text.strip()
+        # Strip markdown fences
+        if script.startswith("```python"):
+            script = script[9:]
+        elif script.startswith("```"):
+            script = script[3:]
+        if script.endswith("```"):
+            script = script[:-3]
+
+        return script.strip() if script.strip() else None
+
+    except Exception as exc:
+        logger.error("Failed to generate test script: %s", exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Main execution entry point (runs as BackgroundTask)
+# ---------------------------------------------------------------------------
+
+def run_execution(run_id: UUID) -> None:
+    """
+    Execute a test run. Called as a FastAPI BackgroundTask.
+
+    Creates its own DB session (separate from the request session).
+    Updates the ExecutionRun row in real-time with progress.
+    """
+    # Run the async execution in its own event loop
+    # (BackgroundTasks run in a thread, not in the main async loop)
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(_execute_run(run_id))
+    except Exception as exc:
+        logger.error("Execution run %s failed: %s", run_id, exc, exc_info=True)
+        # Update run status to failed
+        _mark_run_failed(run_id, str(exc))
+    finally:
+        loop.close()
+
+
+async def _execute_run(run_id: UUID) -> None:
+    """Async implementation of the execution run."""
+    db = SessionLocal()
+
+    try:
+        # Retry-find: the row may not be committed yet if the background task
+        # starts before the request session auto-commits.
+        run = None
+        for attempt in range(5):
+            run = db.query(ExecutionRun).filter(ExecutionRun.id == run_id).first()
+            if run is not None:
+                break
+            logger.warning("Execution run %s not found (attempt %d/5), retrying...", run_id, attempt + 1)
+            await asyncio.sleep(1)
+            db.expire_all()  # clear session cache so next query hits DB
+
+        if run is None:
+            logger.error("Execution run %s not found after retries", run_id)
+            return
+
+        # Mark as running
+        run.status = "running"
+        run.started_at = datetime.now(timezone.utc)
+        run.results = {"test_results": [], "summary": {"total": 0, "passed": 0, "failed": 0, "errored": 0, "pass_rate": 0.0}}
+        db.commit()
+
+        # Load connection config
+        connection_config = {}
+        if run.connection_id:
+            conn = db.query(Connection).filter(Connection.id == run.connection_id).first()
+            if conn:
+                connection_config = conn.config or {}
+
+        # Load agent config
+        agent_config = None
+        if run.test_agent_id:
+            agent = db.query(TestAgent).filter(TestAgent.id == run.test_agent_id).first()
+            if agent:
+                agent_config = agent.config or {}
+
+        # Load test cases
+        test_case_ids = run.test_case_ids or []
+        test_cases = (
+            db.query(TestCase)
+            .filter(TestCase.id.in_(test_case_ids))
+            .all()
+        )
+
+        if not test_cases:
+            run.status = "completed"
+            run.completed_at = datetime.now(timezone.utc)
+            run.results = {
+                "test_results": [],
+                "summary": {"total": 0, "passed": 0, "failed": 0, "errored": 0, "pass_rate": 0.0},
+            }
+            db.commit()
+            logger.info("Execution run %s completed — no test cases found", run_id)
+            return
+
+        total = len(test_cases)
+        passed_count = 0
+        failed_count = 0
+        errored_count = 0
+        test_results = []
+
+        for i, tc in enumerate(test_cases):
+            # Check if run was cancelled
+            db.refresh(run)
+            if run.status == "cancelled":
+                logger.info("Execution run %s was cancelled at test %d/%d", run_id, i + 1, total)
+                break
+
+            logger.info(
+                "Executing test %d/%d: %s (%s)",
+                i + 1, total, tc.title, tc.test_case_id or tc.id,
+            )
+
+            try:
+                result = await _execute_single_test(tc, connection_config, agent_config)
+
+                test_result = {
+                    "test_case_id": str(tc.id),
+                    "test_case_display_id": tc.test_case_id or f"TC-{str(tc.id)[:8]}",
+                    "title": tc.title,
+                    "status": "passed" if result["passed"] else "failed",
+                    "duration_seconds": result.get("duration_seconds", 0),
+                    "template_used": result.get("template_used", "unknown"),
+                    "assertions": result.get("assertions", []),
+                    "logs": result.get("logs", []),
+                    "details": result.get("details", {}),
+                    "error": None,
+                }
+
+                if result["passed"]:
+                    passed_count += 1
+                    tc.status = "passed"
+                else:
+                    failed_count += 1
+                    tc.status = "failed"
+
+                # Persist execution result to test case for historical tracking
+                tc.execution_result = {
+                    "run_id": str(run_id),
+                    "status": test_result["status"],
+                    "template_used": test_result.get("template_used", "unknown"),
+                    "duration_seconds": test_result.get("duration_seconds", 0),
+                    "assertions": test_result.get("assertions", []),
+                    "logs": test_result.get("logs", []),
+                    "details": test_result.get("details", {}),
+                    "executed_at": datetime.now(timezone.utc).isoformat(),
+                }
+                flag_modified(tc, "execution_result")
+
+            except Exception as exc:
+                errored_count += 1
+                tc.status = "failed"
+                test_result = {
+                    "test_case_id": str(tc.id),
+                    "test_case_display_id": tc.test_case_id or f"TC-{str(tc.id)[:8]}",
+                    "title": tc.title,
+                    "status": "error",
+                    "duration_seconds": 0,
+                    "template_used": "none",
+                    "assertions": [],
+                    "logs": [f"Execution error: {type(exc).__name__}: {exc}"],
+                    "details": {"traceback": traceback.format_exc()[:500]},
+                    "error": str(exc),
+                }
+                logger.error("Test case %s execution error: %s", tc.id, exc, exc_info=True)
+
+                # Persist error result to test case
+                tc.execution_result = {
+                    "run_id": str(run_id),
+                    "status": "error",
+                    "error": str(exc),
+                    "logs": [f"Execution error: {type(exc).__name__}: {exc}"],
+                    "executed_at": datetime.now(timezone.utc).isoformat(),
+                }
+                flag_modified(tc, "execution_result")
+
+            test_results.append(test_result)
+
+            # Update run results in real-time (after each test case)
+            pass_rate = round((passed_count / (i + 1)) * 100, 1) if (i + 1) > 0 else 0.0
+            run.results = {
+                "test_results": test_results,
+                "summary": {
+                    "total": total,
+                    "completed": i + 1,
+                    "passed": passed_count,
+                    "failed": failed_count,
+                    "errored": errored_count,
+                    "pass_rate": pass_rate,
+                },
+            }
+            flag_modified(run, "results")
+            db.commit()
+
+        # Finalise run
+        if run.status != "cancelled":
+            run.status = "completed"
+        run.completed_at = datetime.now(timezone.utc)
+
+        # Final summary
+        completed = passed_count + failed_count + errored_count
+        pass_rate = round((passed_count / completed) * 100, 1) if completed > 0 else 0.0
+        run.results["summary"] = {
+            "total": total,
+            "completed": completed,
+            "passed": passed_count,
+            "failed": failed_count,
+            "errored": errored_count,
+            "pass_rate": pass_rate,
+        }
+        flag_modified(run, "results")
+        db.commit()
+
+        logger.info(
+            "Execution run %s completed: %d/%d passed (%.1f%%)",
+            run_id, passed_count, total, pass_rate,
+        )
+
+    except Exception as exc:
+        logger.error("Execution run %s failed: %s", run_id, exc, exc_info=True)
+        try:
+            run.status = "failed"
+            run.completed_at = datetime.now(timezone.utc)
+            if not run.results:
+                run.results = {}
+            run.results["error"] = str(exc)
+            db.commit()
+        except Exception:
+            db.rollback()
+    finally:
+        db.close()
+
+
+def _mark_run_failed(run_id: UUID, error: str) -> None:
+    """Mark a run as failed (called from the outer exception handler)."""
+    db = SessionLocal()
+    try:
+        run = db.query(ExecutionRun).filter(ExecutionRun.id == run_id).first()
+        if run:
+            run.status = "failed"
+            run.completed_at = datetime.now(timezone.utc)
+            run.results = run.results or {}
+            run.results["error"] = error
+            db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()

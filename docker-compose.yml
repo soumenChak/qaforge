@@ -64,6 +64,8 @@ services:
       dockerfile: Dockerfile
     container_name: qaforge_backend
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     expose:
       - "8000"
     environment:
@@ -75,8 +77,8 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
-      DEFAULT_LLM_PROVIDER: ${DEFAULT_LLM_PROVIDER:-anthropic}
-      DEFAULT_LLM_MODEL: ${DEFAULT_LLM_MODEL:-claude-sonnet-4-20250514}
+      LLM_PROVIDER: ${LLM_PROVIDER:-groq}
+      LLM_MODEL: ${LLM_MODEL:-}
     depends_on:
       db:
         condition: service_healthy

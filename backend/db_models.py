@@ -216,6 +216,10 @@ class TestCase(Base):
         comment="functional / integration / regression / smoke / e2e"
     )
     domain_tags: Mapped[Any] = mapped_column(JSONB, nullable=True)
+    execution_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="api",
+        comment="api / ui / sql / manual"
+    )
     source: Mapped[str] = mapped_column(
         String(20), nullable=False, default="ai_generated",
         comment="ai_generated / manual / hybrid"

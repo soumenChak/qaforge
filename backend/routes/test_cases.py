@@ -161,6 +161,11 @@ def generate_test_cases(
                 return "; ".join(str(v) for v in val)
             return str(val)
 
+        # Determine execution_type: from LLM output -> from request body -> default "api"
+        exec_type = item.get("execution_type", body.execution_type or "api")
+        if exec_type not in ("api", "ui", "sql", "manual"):
+            exec_type = "api"
+
         tc = TestCase(
             project_id=project_id,
             test_case_id=tc_id_str,
@@ -172,6 +177,7 @@ def generate_test_cases(
             test_data=item.get("test_data"),
             priority=item.get("priority", body.priority or "P2"),
             category=item.get("category", body.category or "functional"),
+            execution_type=exec_type,
             domain_tags=item.get("domain_tags"),
             source="ai_generated",
             status="draft",
@@ -305,6 +311,7 @@ def _generate_via_llm(
 
     system_prompt = f"""You are a senior QA engineer specializing in {domain} / {sub_domain}.
 You generate thorough, detailed test cases that a QA team can execute immediately.
+You understand API testing, UI testing (Playwright), and SQL/database testing.
 Return ONLY a JSON array — no markdown fences, no explanation."""
 
     user_prompt = f"""Generate exactly {count} test cases for the following system description.
@@ -323,7 +330,15 @@ For each test case, return a JSON array of objects with:
 - "expected_result": Overall expected outcome
 - "priority": One of "P1", "P2", "P3", "P4"
 - "category": One of "functional", "integration", "regression", "smoke", "e2e"
+- "execution_type": One of "api", "ui", "sql" — how to execute this test:
+    - "api" for HTTP/REST API tests (endpoint calls, status checks, response validation)
+    - "ui" for browser/Playwright UI tests (click, navigate, fill form, assert visible)
+    - "sql" for database/SQL tests (query validation, ETL/ELT mapping, row counts, data reconciliation)
 - "domain_tags": Array of relevant tags
+
+Infer the execution_type from the test steps: if they involve HTTP methods/endpoints use "api",
+if they involve UI actions (click, navigate, fill, form) use "ui",
+if they involve SQL queries, database tables, ETL/ELT validation, row counts, or data mapping use "sql".
 
 Return ONLY the JSON array, no other text."""
 
@@ -423,6 +438,7 @@ def list_test_cases(
     priority: Optional[str] = Query(None, description="Filter by priority (P1/P2/P3/P4)"),
     category: Optional[str] = Query(None, description="Filter by category"),
     source: Optional[str] = Query(None, description="Filter by source (ai_generated/manual/hybrid)"),
+    execution_type: Optional[str] = Query(None, description="Filter by execution type (api/ui/sql/manual)"),
     limit: int = Query(50, ge=1, le=500, description="Page size"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     db: Session = Depends(get_db),
@@ -443,6 +459,8 @@ def list_test_cases(
         query = query.filter(TestCase.category == category)
     if source:
         query = query.filter(TestCase.source == source)
+    if execution_type:
+        query = query.filter(TestCase.execution_type == execution_type)
 
     test_cases = (
         query.order_by(TestCase.created_at.desc())
@@ -587,6 +605,8 @@ def update_test_case(
         tc.category = body.category
     if body.domain_tags is not None:
         tc.domain_tags = body.domain_tags
+    if body.execution_type is not None:
+        tc.execution_type = body.execution_type
     if body.status is not None:
         tc.status = body.status
 
