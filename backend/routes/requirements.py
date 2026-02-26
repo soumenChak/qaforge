@@ -708,10 +708,21 @@ def _parse_json_response(text: str) -> list[dict] | None:
     cleaned = text.strip()
 
     # Step 1: Try to extract from markdown code blocks
+    # First try with closing backticks
     md_match = re.search(r"```(?:json)?\s*\n?(.*?)```", cleaned, re.DOTALL)
     if md_match:
         cleaned = md_match.group(1).strip()
         logger.info("Extracted JSON from markdown code block (%d chars)", len(cleaned))
+    else:
+        # Handle truncated response — opening ``` but no closing ```
+        md_open = re.match(r"^```(?:json)?\s*\n?", cleaned)
+        if md_open:
+            cleaned = cleaned[md_open.end():]
+            # Also strip trailing ``` if present at the very end
+            if cleaned.rstrip().endswith("```"):
+                cleaned = cleaned.rstrip()[:-3]
+            cleaned = cleaned.strip()
+            logger.info("Stripped opening markdown fence (no closing fence — likely truncated), %d chars remain", len(cleaned))
 
     # Step 2: Find the outermost JSON array
     arr_start = cleaned.find("[")
