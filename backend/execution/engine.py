@@ -218,6 +218,231 @@ def _extract_json_from_llm_response(text: str) -> Optional[Dict]:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Feature 1: Template Selection Guardrails
+# ---------------------------------------------------------------------------
+
+# Patterns for rule-based template correction
+_CRUD_VERBS = re.compile(r"\b(create|post|read|get|update|put|delete|remove)\b", re.IGNORECASE)
+_SQL_KEYWORDS = re.compile(r"\b(SELECT|INSERT|UPDATE|DELETE\s+FROM|CREATE\s+TABLE|ALTER\s+TABLE)\b", re.IGNORECASE)
+_CSS_SELECTORS = re.compile(r"(\.[\w-]+|#[\w-]+|\[data-testid|\binput\b|\bbutton\b|\btextarea\b|\.[\w-]+\s*>)", re.IGNORECASE)
+_RECONCILIATION = re.compile(r"\b(reconcil|compare\s+tables?|source.*target|row.count.match)\b", re.IGNORECASE)
+
+
+def _apply_template_guardrails(
+    tc: "TestCase",
+    extraction: Dict[str, Any],
+    execution_type: str,
+) -> Dict[str, Any]:
+    """
+    Rule-based correction of LLM template selection.
+
+    Applies guardrails to prevent common mismatches like:
+    - api_smoke chosen for a CRUD lifecycle test
+    - api template chosen for a UI test
+    - wrong template for SQL/reconciliation tests
+    """
+    original_template = extraction.get("template", "unknown")
+
+    # Build text from TC steps for pattern matching
+    steps_text = ""
+    steps = getattr(tc, "test_steps", None) or []
+    for step in steps:
+        if isinstance(step, dict):
+            steps_text += f" {step.get('action', '')} {step.get('expected_result', '')}"
+        else:
+            steps_text += f" {step}"
+    steps_text += f" {getattr(tc, 'title', '')} {getattr(tc, 'description', '')}"
+
+    corrected = original_template
+
+    # Rule 1: Execution type override for UI
+    if execution_type == "ui" and corrected != "ui_playwright":
+        corrected = "ui_playwright"
+
+    # Rule 2: Execution type override for SQL
+    elif execution_type == "sql" and corrected not in ("db_query", "db_reconciliation"):
+        if _RECONCILIATION.search(steps_text):
+            corrected = "db_reconciliation"
+        else:
+            corrected = "db_query"
+
+    # Rule 3: CRUD detection — if test mentions 2+ distinct CRUD verbs, prefer api_crud
+    elif execution_type == "api" and corrected == "api_smoke":
+        crud_matches = set()
+        for m in _CRUD_VERBS.finditer(steps_text):
+            verb = m.group(1).lower()
+            if verb in ("create", "post"):
+                crud_matches.add("create")
+            elif verb in ("read", "get"):
+                crud_matches.add("read")
+            elif verb in ("update", "put"):
+                crud_matches.add("update")
+            elif verb in ("delete", "remove"):
+                crud_matches.add("delete")
+        if len(crud_matches) >= 2:
+            corrected = "api_crud"
+
+    # Rule 4: SQL keyword detection
+    elif execution_type == "api" and _SQL_KEYWORDS.search(steps_text):
+        if _RECONCILIATION.search(steps_text):
+            corrected = "db_reconciliation"
+        else:
+            corrected = "db_query"
+
+    # Rule 5: CSS selector detection (when execution_type wasn't explicitly set to UI)
+    elif execution_type == "api" and corrected == "api_smoke":
+        css_hits = len(_CSS_SELECTORS.findall(steps_text))
+        if css_hits >= 3:  # Multiple CSS selectors strongly indicate UI test
+            corrected = "ui_playwright"
+
+    # Rule 6: Reconciliation keyword detection
+    elif execution_type == "api" and _RECONCILIATION.search(steps_text):
+        corrected = "db_reconciliation"
+
+    if corrected != original_template:
+        logger.info(
+            "Template guardrail: %s → %s for TC '%s'",
+            original_template, corrected, getattr(tc, 'title', 'unknown'),
+        )
+        extraction["template"] = corrected
+        extraction["guardrail_applied"] = {
+            "original": original_template,
+            "corrected": corrected,
+        }
+
+    return extraction
+
+
+# ---------------------------------------------------------------------------
+# Feature 5: Failure-to-Fix Feedback Loop — Failure Analysis
+# ---------------------------------------------------------------------------
+
+def _analyze_failure(test_result: Dict[str, Any]) -> List[Dict[str, str]]:
+    """
+    Analyze a failed test result and return actionable fix suggestions.
+
+    Returns a list of {category, suggestion, detail} dicts.
+    """
+    suggestions: List[Dict[str, str]] = []
+    assertions = test_result.get("assertions", [])
+    logs = test_result.get("logs", [])
+    details = test_result.get("details", {})
+    logs_text = " ".join(logs).lower() if logs else ""
+
+    status_code = details.get("status_code")
+
+    # Check status code patterns
+    for assertion in assertions:
+        if assertion.get("type") in ("status_code", "create_status", "read_status",
+                                      "update_status", "delete_status", "verify_deletion"):
+            actual = assertion.get("actual")
+            expected = assertion.get("expected")
+            if assertion.get("passed"):
+                continue
+
+            if actual == 404:
+                suggestions.append({
+                    "category": "wrong_endpoint",
+                    "suggestion": f"Endpoint returned 404 (Not Found). Verify the endpoint path exists in your App Profile's API endpoints list.",
+                    "detail": f"Expected status {expected}, got 404",
+                })
+            elif actual in (401, 403):
+                suggestions.append({
+                    "category": "auth_issue",
+                    "suggestion": "Authentication/authorization failed. Check that auth credentials in App Profile are correct and the token hasn't expired.",
+                    "detail": f"Expected status {expected}, got {actual}",
+                })
+            elif actual == 422:
+                suggestions.append({
+                    "category": "validation_error",
+                    "suggestion": "Request validation failed (422). Check the required_fields for this endpoint in your App Profile — a mandatory field may be missing or have the wrong type.",
+                    "detail": f"Expected status {expected}, got 422",
+                })
+            elif actual is not None and actual >= 500:
+                suggestions.append({
+                    "category": "server_error",
+                    "suggestion": f"Server returned {actual}. This likely indicates a bug in the target application, not in the test case.",
+                    "detail": f"Expected status {expected}, got {actual}",
+                })
+            elif actual is not None and actual != expected:
+                suggestions.append({
+                    "category": "wrong_status",
+                    "suggestion": f"Expected status {expected} but got {actual}. Update the expected_status in the test case or check the App Profile notes for status code corrections.",
+                    "detail": f"E.g., some APIs return 200 for POST instead of 201",
+                })
+
+        # Check field existence failures
+        elif assertion.get("type") in ("field_exists", "create_field_exists") and not assertion.get("passed"):
+            field_name = assertion.get("field", "unknown")
+            suggestions.append({
+                "category": "wrong_field",
+                "suggestion": f"Expected field '{field_name}' not found in response. Update response_fields in your App Profile to match the actual API response structure.",
+                "detail": f"Field '{field_name}' was expected but not present",
+            })
+
+        # Check body_contains failures
+        elif assertion.get("type") == "body_contains" and not assertion.get("passed"):
+            suggestions.append({
+                "category": "wrong_body",
+                "suggestion": "Response body doesn't contain expected content. Verify the expected values match the actual API behavior.",
+                "detail": f"Expected: {assertion.get('expected', 'N/A')}",
+            })
+
+        # Check connection failures
+        elif assertion.get("type") == "connection" and not assertion.get("passed"):
+            actual = assertion.get("actual", "")
+            if "timeout" in str(actual).lower():
+                suggestions.append({
+                    "category": "timeout",
+                    "suggestion": "Request timed out. The target server may be slow or unreachable. Verify api_base_url/app_url in App Profile.",
+                    "detail": "Connection timed out after 30s",
+                })
+            else:
+                suggestions.append({
+                    "category": "connectivity",
+                    "suggestion": "Cannot connect to the target server. Verify the api_base_url or app_url in your App Profile is correct and the server is running.",
+                    "detail": f"Connection error: {actual}",
+                })
+
+        # Check response time failures
+        elif assertion.get("type") == "response_time" and not assertion.get("passed"):
+            actual_ms = assertion.get("actual_ms", 0)
+            max_ms = assertion.get("max_ms", 5000)
+            suggestions.append({
+                "category": "slow_response",
+                "suggestion": f"Response took {actual_ms}ms (max: {max_ms}ms). Consider increasing max_response_time_ms or investigating server performance.",
+                "detail": f"Response time {actual_ms}ms exceeded threshold {max_ms}ms",
+            })
+
+    # Check for selector-related failures in logs
+    if "selector" in logs_text and ("not found" in logs_text or "timeout" in logs_text):
+        suggestions.append({
+            "category": "wrong_selector",
+            "suggestion": "CSS selector not found on the page. Update the key_elements in your App Profile's UI pages section.",
+            "detail": "A CSS selector used in the test couldn't be found on the page",
+        })
+
+    # Check template match failure
+    template_used = test_result.get("template_used", "")
+    if template_used in ("none", "unknown"):
+        suggestions.append({
+            "category": "no_template",
+            "suggestion": "No execution template matched this test case. Ensure the test case has a valid execution_type (api, ui, or sql) and the test steps are specific enough.",
+            "detail": f"Template resolution returned: {template_used}",
+        })
+
+    # Deduplicate by category
+    seen = set()
+    unique = []
+    for s in suggestions:
+        if s["category"] not in seen:
+            seen.add(s["category"])
+            unique.append(s)
+
+    return unique
+
+
 def _build_test_case_context(tc: TestCase) -> str:
     """Build a text description of a test case for the LLM."""
     parts = [
@@ -395,6 +620,10 @@ async def _execute_single_test(
 
     # Step 1: Extract parameters via LLM (using type-specific prompt + app profile)
     extraction = await _extract_params_via_llm(tc_text, connection_config, execution_type, app_profile)
+
+    # Step 1.5: Apply template guardrails (rule-based correction)
+    extraction = _apply_template_guardrails(tc, extraction, execution_type)
+
     template_name = extraction.get("template", "unknown")
     params = extraction.get("params", {})
 
@@ -659,6 +888,10 @@ async def _execute_run(run_id: UUID) -> None:
                 else:
                     failed_count += 1
                     tc.status = "failed"
+                    # Analyze failure and add fix suggestions
+                    fix_suggestions = _analyze_failure(result)
+                    if fix_suggestions:
+                        test_result["fix_suggestions"] = fix_suggestions
 
                 # Persist execution result to test case for historical tracking
                 tc.execution_result = {
@@ -689,6 +922,11 @@ async def _execute_run(run_id: UUID) -> None:
                     "error": str(exc),
                 }
                 logger.error("Test case %s execution error: %s", tc.id, exc, exc_info=True)
+
+                # Analyze the error and add fix suggestions
+                error_suggestions = _analyze_failure(test_result)
+                if error_suggestions:
+                    test_result["fix_suggestions"] = error_suggestions
 
                 # Persist error result to test case
                 tc.execution_result = {

@@ -47,6 +47,9 @@ from dependencies import (
     track_cost,
 )
 from models import (
+    ChatGenerateRequest,
+    ChatGenerateResponse,
+    ChatMessage,
     MessageResponse,
     TestCaseCreate,
     TestCaseExportRequest,
@@ -1565,4 +1568,282 @@ def _export_csv(
         headers={
             "Content-Disposition": f"attachment; filename=test_cases_{project_id}.csv"
         },
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /chat  (Feature 6: Chat-Based Test Generation Agent)
+# ---------------------------------------------------------------------------
+@router.post(
+    "/{project_id}/chat",
+    summary="Chat-based test case generation",
+)
+def chat_generate(
+    project_id: uuid.UUID,
+    body: ChatGenerateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Multi-turn conversational test generation.
+
+    The agent reviews project context (app_profile, requirements, existing TCs)
+    and decides whether to ask clarifying questions or generate test cases.
+
+    Returns:
+    - action="question": agent needs more info (message contains the question)
+    - action="confirm": agent proposes a config before generating
+    - action="generate": agent generated test cases (test_cases field populated)
+    """
+    from core.llm_provider import get_llm_provider
+
+    project = _get_project_or_404(project_id, db)
+
+    # Build project context summary
+    app_profile = project.app_profile or {}
+    requirements = (
+        db.query(Requirement)
+        .filter(Requirement.project_id == project_id)
+        .all()
+    )
+
+    tc_count = (
+        db.query(func.count(TestCase.id))
+        .filter(TestCase.project_id == project_id)
+        .scalar()
+    ) or 0
+
+    # Build context for the agent
+    context_parts = []
+
+    context_parts.append(f"Project: {project.name} (domain: {project.domain}, sub-domain: {project.sub_domain})")
+    if project.description:
+        context_parts.append(f"Description: {project.description[:500]}")
+    context_parts.append(f"Existing test cases: {tc_count}")
+    context_parts.append(f"Requirements: {len(requirements)}")
+
+    if requirements:
+        req_summary = []
+        for r in requirements[:15]:
+            req_summary.append(f"  [{r.priority}] {r.req_id}: {r.title}")
+        context_parts.append("Requirements list:\n" + "\n".join(req_summary))
+
+    if app_profile:
+        ap_summary = []
+        if app_profile.get("app_url"):
+            ap_summary.append(f"App URL: {app_profile['app_url']}")
+        if app_profile.get("api_base_url"):
+            ap_summary.append(f"API Base: {app_profile['api_base_url']}")
+        endpoints = app_profile.get("api_endpoints", [])
+        if endpoints:
+            ap_summary.append(f"API Endpoints: {len(endpoints)} configured")
+            for ep in endpoints[:10]:
+                if isinstance(ep, dict):
+                    ap_summary.append(f"  {ep.get('method', 'GET')} {ep.get('path', '')}")
+        ui_pages = app_profile.get("ui_pages", [])
+        if ui_pages:
+            ap_summary.append(f"UI Pages: {len(ui_pages)} configured")
+        if app_profile.get("auth"):
+            ap_summary.append("Auth: configured")
+        context_parts.append("App Profile:\n" + "\n".join(ap_summary))
+
+    project_context = "\n".join(context_parts)
+
+    # System prompt for the chat agent
+    system_prompt = f"""You are an AI QA test generation assistant for the QAForge platform.
+Your job is to help users create high-quality, execution-ready test cases.
+
+You have access to this project's context:
+
+{project_context}
+
+== YOUR WORKFLOW ==
+
+1. EVALUATE if you have enough context to generate good test cases. Consider:
+   - Do you know WHAT features/endpoints/pages to test?
+   - Do you know the execution type (api, ui, sql)?
+   - Are the user's requirements clear and specific?
+   - Is there enough detail to write concrete, executable test steps?
+
+2. If context is INCOMPLETE (first 1-2 turns), ask 1-2 focused clarifying questions.
+   Good questions:
+   - "Which specific features would you like to test? For example: authentication, CRUD operations, dashboard, etc."
+   - "Should I generate API tests, UI tests, or a mix of both?"
+   - "How many test cases would you like? And what priority level?"
+   - "I notice your app profile has 29 API endpoints. Should I focus on specific ones?"
+
+3. If you have ENOUGH context, respond with a JSON block to trigger generation:
+   ```json
+   {{"action": "generate", "config": {{"description": "...", "count": 10, "execution_type": "api", "priority": "P1"}}}}
+   ```
+
+RULES:
+- Ask a MAXIMUM of 2 rounds of questions, then generate with best available context
+- Be conversational and helpful, not formal
+- Reference the project's actual endpoints, pages, and requirements in your questions
+- When ready to generate, ALWAYS include the JSON config block
+- Never generate test cases directly in chat — use the JSON config block to trigger the generation pipeline
+"""
+
+    # Build messages for LLM
+    llm_messages = []
+    for msg in body.messages:
+        llm_messages.append({"role": msg.role, "content": msg.content})
+
+    # Call LLM (use fast model for chat, it's cheaper)
+    provider = get_llm_provider()
+    try:
+        result = provider.complete(
+            system=system_prompt,
+            messages=llm_messages,
+            model=getattr(provider, "fast_model", None) or getattr(provider, "model", None),
+            max_tokens=2048,
+            temperature=0.5,
+        )
+    except Exception as exc:
+        logger.error("Chat generation LLM call failed: %s", exc, exc_info=True)
+        return ChatGenerateResponse(
+            message=ChatMessage(
+                role="assistant",
+                content="I'm having trouble connecting to the AI model. Please try again in a moment.",
+            ),
+            action="question",
+        )
+
+    response_text = result.text.strip()
+
+    # Check if the response contains a generation config JSON
+    import re as _re
+    json_match = _re.search(r'\{["\s]*"action"["\s]*:\s*"generate".*?\}', response_text, _re.DOTALL)
+    if json_match:
+        try:
+            config_text = json_match.group(0)
+            # Find the complete JSON block (handle nested braces)
+            start = response_text.find(config_text)
+            depth = 0
+            end = start
+            for i, ch in enumerate(response_text[start:], start):
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end = i
+                        break
+            config_block = response_text[start:end + 1]
+            config = json.loads(config_block)
+
+            if config.get("action") == "generate":
+                gen_config = config.get("config", {})
+                description = gen_config.get("description", body.messages[0].content if body.messages else "")
+                count = gen_config.get("count", 10)
+                execution_type = gen_config.get("execution_type", body.execution_type)
+                priority = gen_config.get("priority")
+
+                # Build requirement context
+                requirement_context = ""
+                req_ids = body.requirement_ids
+                if req_ids:
+                    sel_reqs = [r for r in requirements if r.id in req_ids]
+                else:
+                    sel_reqs = requirements
+
+                if sel_reqs:
+                    req_lines = []
+                    for r in sel_reqs[:20]:
+                        req_lines.append(f"[{r.priority}] {r.req_id}: {r.title}\n  {r.description or 'N/A'}")
+                    requirement_context = "\n".join(req_lines)
+
+                # Generate test cases using the existing pipeline
+                try:
+                    generated = _generate_via_llm(
+                        description=description[:4000],
+                        domain=project.domain,
+                        sub_domain=project.sub_domain,
+                        requirement_context=requirement_context,
+                        count=min(count, 50),
+                        additional_context=None,
+                        project_id=project_id,
+                        user_id=current_user.id,
+                        db=db,
+                        app_profile=app_profile,
+                    )
+
+                    # Save generated test cases to DB
+                    saved_tcs = []
+                    tc_seq = (
+                        db.query(func.count(TestCase.id))
+                        .filter(TestCase.project_id == project_id)
+                        .scalar()
+                    ) or 0
+
+                    for i, tc_data in enumerate(generated):
+                        tc_seq += 1
+                        tc = TestCase(
+                            project_id=project_id,
+                            test_case_id=tc_data.get("test_case_id", f"TC-{tc_seq:04d}"),
+                            title=tc_data.get("title", f"Test Case {tc_seq}"),
+                            description=tc_data.get("description"),
+                            preconditions=tc_data.get("preconditions"),
+                            test_steps=tc_data.get("test_steps", []),
+                            expected_result=tc_data.get("expected_result"),
+                            test_data=tc_data.get("test_data"),
+                            priority=tc_data.get("priority", priority or "P2"),
+                            category=tc_data.get("category", "functional"),
+                            domain_tags=tc_data.get("domain_tags", []),
+                            execution_type=tc_data.get("execution_type", execution_type or "api"),
+                            source="ai_generated",
+                            created_by=current_user.id,
+                        )
+
+                        # Link to requirement if possible
+                        if req_ids and len(req_ids) == 1:
+                            tc.requirement_id = req_ids[0]
+                        elif tc_data.get("requirement_id"):
+                            tc.requirement_id = tc_data["requirement_id"]
+
+                        db.add(tc)
+                        db.flush()
+                        saved_tcs.append(TestCaseResponse.model_validate(tc))
+
+                    audit_log(
+                        db,
+                        user_id=current_user.id,
+                        action="chat_generate_test_cases",
+                        entity_type="test_case",
+                        entity_id=str(project_id),
+                        details={"count": len(saved_tcs), "source": "chat_agent"},
+                        ip_address=get_client_ip(request),
+                    )
+
+                    # Remove the JSON config from the response text for cleaner message
+                    clean_text = response_text[:start].strip()
+                    if not clean_text:
+                        clean_text = f"Generated {len(saved_tcs)} test cases based on our conversation."
+
+                    return ChatGenerateResponse(
+                        message=ChatMessage(role="assistant", content=clean_text),
+                        action="generate",
+                        test_cases=saved_tcs,
+                        suggested_config=gen_config,
+                    )
+
+                except Exception as exc:
+                    logger.error("Chat generation pipeline failed: %s", exc, exc_info=True)
+                    return ChatGenerateResponse(
+                        message=ChatMessage(
+                            role="assistant",
+                            content=f"I tried to generate test cases but encountered an error: {str(exc)[:200]}. Could you try again?",
+                        ),
+                        action="question",
+                    )
+
+        except (json.JSONDecodeError, ValueError):
+            pass  # Not valid JSON — treat as a regular question response
+
+    # No generation config found — this is a question/clarification
+    return ChatGenerateResponse(
+        message=ChatMessage(role="assistant", content=response_text),
+        action="question",
     )

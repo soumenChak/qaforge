@@ -62,6 +62,12 @@ export const projectsAPI = {
   updateAppProfile: (id, data) => api.put(`/projects/${id}/app-profile`, data),
   archive: (id) => api.post(`/projects/${id}/archive`),
   delete: (id) => api.delete(`/projects/${id}`),
+  // Feature 2: Test Coverage Score
+  getCoverage: (id) => api.get(`/projects/${id}/coverage`),
+  // Feature 3: Profile Validation
+  validateProfile: (id) => api.post(`/projects/${id}/app-profile/validate`),
+  // Feature 4: OpenAPI Auto-Discovery
+  discoverOpenAPI: (id, data) => api.post(`/projects/${id}/app-profile/discover`, data),
 };
 
 // -- Requirements --
@@ -96,6 +102,8 @@ export const testCasesAPI = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
+  // Feature 6: Chat-Based Generation
+  chatGenerate: (projectId, data) => api.post(`/projects/${projectId}/test-cases/chat`, data),
 };
 
 // -- Templates --

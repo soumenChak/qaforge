@@ -107,6 +107,19 @@ export default function ProjectDetail() {
   const [appProfileSaving, setAppProfileSaving] = useState(false);
   const [appProfileMsg, setAppProfileMsg] = useState('');
 
+  // Coverage score state (Feature 2)
+  const [coverage, setCoverage] = useState(null);
+  const [coverageLoading, setCoverageLoading] = useState(false);
+
+  // Profile validation state (Feature 3)
+  const [validationResult, setValidationResult] = useState(null);
+  const [validating, setValidating] = useState(false);
+
+  // OpenAPI discovery state (Feature 4)
+  const [openapiUrl, setOpenapiUrl] = useState('');
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveryMsg, setDiscoveryMsg] = useState('');
+
   const loadProject = useCallback(async () => {
     try {
       const res = await projectsAPI.getById(id);
@@ -192,9 +205,22 @@ export default function ProjectDetail() {
     }
   }, [id]);
 
+  // Load coverage when switching to test_cases tab
+  const loadCoverage = useCallback(async () => {
+    setCoverageLoading(true);
+    try {
+      const res = await projectsAPI.getCoverage(id);
+      setCoverage(res.data);
+    } catch (err) {
+      console.error('Failed to load coverage:', err);
+    } finally {
+      setCoverageLoading(false);
+    }
+  }, [id]);
+
   useEffect(() => { loadProject(); }, [loadProject]);
   useEffect(() => { if (activeTab === 'requirements') loadRequirements(); }, [activeTab, loadRequirements]);
-  useEffect(() => { if (activeTab === 'test_cases') loadTestCases(); }, [activeTab, loadTestCases]);
+  useEffect(() => { if (activeTab === 'test_cases') { loadTestCases(); loadCoverage(); } }, [activeTab, loadTestCases, loadCoverage]);
   // Refresh full data when switching TO executions tab, but always load on mount for tab count
   useEffect(() => { if (activeTab === 'executions') loadExecutionRuns(); }, [activeTab, loadExecutionRuns]);
   useEffect(() => { loadExecutionRuns({ silent: true }); }, [loadExecutionRuns]);
@@ -690,6 +716,80 @@ export default function ProjectDetail() {
       {/* Test Cases tab */}
       {activeTab === 'test_cases' && (
         <div className="animate-fade-in">
+          {/* Coverage Score Card (Feature 2) */}
+          {coverage && coverage.total_requirements > 0 && (
+            <div className="mb-4 card-static p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold text-white ${
+                    coverage.grade === 'A' ? 'bg-green-500' :
+                    coverage.grade === 'B' ? 'bg-blue-500' :
+                    coverage.grade === 'C' ? 'bg-yellow-500' :
+                    coverage.grade === 'D' ? 'bg-orange-500' : 'bg-red-500'
+                  }`}>
+                    {coverage.grade}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-fg-dark">
+                      Test Coverage: {coverage.score}%
+                    </p>
+                    <p className="text-xs text-fg-mid">
+                      {coverage.covered_requirements}/{coverage.total_requirements} requirements covered
+                      {coverage.orphan_test_count > 0 && ` · ${coverage.orphan_test_count} unlinked tests`}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  {coverage.coverage_by_priority?.high && (
+                    <span className="text-xs">
+                      <span className="font-medium text-red-600">High:</span>{' '}
+                      {coverage.coverage_by_priority.high.covered}/{coverage.coverage_by_priority.high.total}
+                    </span>
+                  )}
+                  {coverage.coverage_by_priority?.medium && (
+                    <span className="text-xs">
+                      <span className="font-medium text-yellow-600">Med:</span>{' '}
+                      {coverage.coverage_by_priority.medium.covered}/{coverage.coverage_by_priority.medium.total}
+                    </span>
+                  )}
+                  {coverage.coverage_by_priority?.low && (
+                    <span className="text-xs">
+                      <span className="font-medium text-green-600">Low:</span>{' '}
+                      {coverage.coverage_by_priority.low.covered}/{coverage.coverage_by_priority.low.total}
+                    </span>
+                  )}
+                </div>
+              </div>
+              {/* Uncovered requirements */}
+              {coverage.uncovered_details?.length > 0 && (
+                <details className="mt-3">
+                  <summary className="text-xs font-medium text-amber-700 cursor-pointer hover:text-amber-800">
+                    {coverage.uncovered_requirements} uncovered requirement(s) — click to expand
+                  </summary>
+                  <div className="mt-2 space-y-1 pl-2 border-l-2 border-amber-200">
+                    {coverage.uncovered_details.map((req, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                          req.priority === 'high' ? 'bg-red-100 text-red-700' :
+                          req.priority === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-green-100 text-green-700'
+                        }`}>{req.priority}</span>
+                        <span className="font-mono text-fg-tealDark">{req.req_id}</span>
+                        <span className="text-fg-dark">{req.title}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => navigate(`/projects/${id}/generate?requirement_ids=${coverage.uncovered_details.map(r => r.id).join(',')}`)}
+                    className="mt-2 text-xs px-3 py-1.5 rounded bg-amber-100 text-amber-800 hover:bg-amber-200 font-medium transition-colors"
+                  >
+                    Generate Tests for Gaps →
+                  </button>
+                </details>
+              )}
+            </div>
+          )}
+
           {/* Action buttons row */}
           <div className="flex flex-wrap gap-3 mb-4">
             <button
@@ -1179,32 +1279,146 @@ export default function ProjectDetail() {
                 so generated test cases use <strong>exact URLs, endpoints, field names, and selectors</strong> instead of guessing.
               </p>
             </div>
-            <button
-              onClick={async () => {
-                setAppProfileSaving(true);
-                setAppProfileMsg('');
-                try {
-                  await projectsAPI.updateAppProfile(id, appProfile);
-                  setAppProfileDirty(false);
-                  setAppProfileMsg('Saved successfully');
-                  setTimeout(() => setAppProfileMsg(''), 3000);
-                } catch (err) {
-                  setAppProfileMsg('Failed to save: ' + (err.response?.data?.detail || err.message));
-                } finally {
-                  setAppProfileSaving(false);
-                }
-              }}
-              disabled={appProfileSaving || !appProfileDirty}
-              className={`btn ${appProfileDirty ? 'btn-primary' : 'btn-secondary'} text-sm flex items-center gap-2`}
-            >
-              {appProfileSaving ? 'Saving...' : 'Save Profile'}
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Validate button (Feature 3) */}
+              <button
+                onClick={async () => {
+                  setValidating(true);
+                  setValidationResult(null);
+                  try {
+                    const res = await projectsAPI.validateProfile(id);
+                    setValidationResult(res.data);
+                  } catch (err) {
+                    setValidationResult({ overall_status: 'fail', checks: [{ name: 'Error', status: 'fail', message: err.response?.data?.detail || err.message }] });
+                  } finally {
+                    setValidating(false);
+                  }
+                }}
+                disabled={validating || appProfileDirty}
+                className="btn btn-secondary text-sm flex items-center gap-2"
+                title={appProfileDirty ? 'Save profile first' : 'Test endpoints against live app'}
+              >
+                {validating ? 'Validating...' : '✓ Validate'}
+              </button>
+              {/* Save button */}
+              <button
+                onClick={async () => {
+                  setAppProfileSaving(true);
+                  setAppProfileMsg('');
+                  try {
+                    await projectsAPI.updateAppProfile(id, appProfile);
+                    setAppProfileDirty(false);
+                    setAppProfileMsg('Saved successfully');
+                    setTimeout(() => setAppProfileMsg(''), 3000);
+                  } catch (err) {
+                    setAppProfileMsg('Failed to save: ' + (err.response?.data?.detail || err.message));
+                  } finally {
+                    setAppProfileSaving(false);
+                  }
+                }}
+                disabled={appProfileSaving || !appProfileDirty}
+                className={`btn ${appProfileDirty ? 'btn-primary' : 'btn-secondary'} text-sm flex items-center gap-2`}
+              >
+                {appProfileSaving ? 'Saving...' : 'Save Profile'}
+              </button>
+            </div>
           </div>
           {appProfileMsg && (
             <div className={`text-sm px-3 py-2 rounded ${appProfileMsg.startsWith('Failed') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
               {appProfileMsg}
             </div>
           )}
+
+          {/* Validation Results (Feature 3) */}
+          {validationResult && (
+            <div className={`p-4 rounded-lg border ${
+              validationResult.overall_status === 'pass' ? 'bg-green-50 border-green-200' :
+              validationResult.overall_status === 'partial' ? 'bg-yellow-50 border-yellow-200' :
+              'bg-red-50 border-red-200'
+            }`}>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-sm font-semibold">
+                  Profile Validation: <span className={
+                    validationResult.overall_status === 'pass' ? 'text-green-700' :
+                    validationResult.overall_status === 'partial' ? 'text-yellow-700' : 'text-red-700'
+                  }>{validationResult.overall_status.toUpperCase()}</span>
+                </h4>
+                <button onClick={() => setValidationResult(null)} className="text-xs text-fg-mid hover:text-fg-dark">✕</button>
+              </div>
+              <div className="space-y-1.5">
+                {validationResult.checks?.map((check, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    {check.status === 'pass' ? (
+                      <span className="w-5 h-5 rounded-full bg-green-500 text-white flex items-center justify-center text-[10px]">✓</span>
+                    ) : check.status === 'fail' ? (
+                      <span className="w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-[10px]">✕</span>
+                    ) : check.status === 'warn' ? (
+                      <span className="w-5 h-5 rounded-full bg-yellow-500 text-white flex items-center justify-center text-[10px]">!</span>
+                    ) : (
+                      <span className="w-5 h-5 rounded-full bg-gray-300 text-white flex items-center justify-center text-[10px]">—</span>
+                    )}
+                    <span className="font-medium text-fg-dark">{check.name}:</span>
+                    <span className="text-fg-mid">{check.message}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* OpenAPI Auto-Discovery (Feature 4) */}
+          <div className="card p-4">
+            <h4 className="text-sm font-semibold text-fg-dark mb-2 flex items-center gap-2">
+              <svg className="w-4 h-4 text-fg-teal" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              Auto-Discover from OpenAPI
+            </h4>
+            <p className="text-xs text-fg-mid mb-3">
+              Paste your OpenAPI/Swagger URL to automatically populate API endpoints, auth schemes, and response fields.
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                className="input flex-1"
+                placeholder="https://myapp.example.com/api/openapi.json"
+                value={openapiUrl}
+                onChange={e => setOpenapiUrl(e.target.value)}
+              />
+              <button
+                onClick={async () => {
+                  if (!openapiUrl.trim()) return;
+                  setDiscovering(true);
+                  setDiscoveryMsg('');
+                  try {
+                    const res = await projectsAPI.discoverOpenAPI(id, { openapi_url: openapiUrl.trim() });
+                    const newProfile = res.data.app_profile || {};
+                    setAppProfile(prev => ({
+                      ...prev,
+                      ...newProfile,
+                      tech_stack: { ...prev.tech_stack, ...(newProfile.tech_stack || {}) },
+                      auth: { ...prev.auth, ...(newProfile.auth || {}) },
+                    }));
+                    const epCount = (newProfile.api_endpoints || []).length;
+                    setDiscoveryMsg(`Discovered ${epCount} endpoint(s). Review and save.`);
+                    setAppProfileDirty(true);
+                  } catch (err) {
+                    setDiscoveryMsg('Discovery failed: ' + (err.response?.data?.detail || err.message));
+                  } finally {
+                    setDiscovering(false);
+                  }
+                }}
+                disabled={discovering || !openapiUrl.trim()}
+                className="btn btn-primary text-sm px-4"
+              >
+                {discovering ? 'Discovering...' : 'Discover'}
+              </button>
+            </div>
+            {discoveryMsg && (
+              <p className={`text-xs mt-2 ${discoveryMsg.startsWith('Discovery failed') ? 'text-red-600' : 'text-green-600'}`}>
+                {discoveryMsg}
+              </p>
+            )}
+          </div>
 
           {/* URLs */}
           <div className="card p-5">

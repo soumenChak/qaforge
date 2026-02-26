@@ -693,3 +693,81 @@ class PaginatedResponse(BaseModel):
     page: int = 1
     page_size: int = 50
     pages: int = 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Coverage Score (Feature 2)
+# ═══════════════════════════════════════════════════════════════════════════
+class CoverageResult(BaseModel):
+    """Test coverage analysis for a project's requirements."""
+
+    score: float = Field(..., ge=0, le=100, description="Priority-weighted coverage score (0-100)")
+    grade: str = Field(..., description="Letter grade: A/B/C/D/F")
+    total_requirements: int
+    covered_requirements: int
+    uncovered_requirements: int
+    coverage_by_priority: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Breakdown by priority: {high: {total, covered, uncovered_ids}, medium: ..., low: ...}",
+    )
+    uncovered_details: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="List of uncovered requirements: [{req_id, title, priority}]",
+    )
+    orphan_test_count: int = Field(
+        default=0,
+        description="Test cases without a requirement_id (not contributing to coverage)",
+    )
+    scoring_explanation: str = Field(
+        default="",
+        description="Human-readable explanation of how the score was calculated",
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Profile Validation (Feature 3)
+# ═══════════════════════════════════════════════════════════════════════════
+class ProfileValidationResult(BaseModel):
+    """Results from validating an app_profile against the live application."""
+
+    overall_status: str = Field(..., description="pass | partial | fail")
+    checks: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="List of validation checks: [{name, status, message, details}]",
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# OpenAPI Discovery (Feature 4)
+# ═══════════════════════════════════════════════════════════════════════════
+class OpenAPIDiscoverRequest(BaseModel):
+    """Request to auto-discover API endpoints from an OpenAPI/Swagger spec."""
+
+    openapi_url: str = Field(..., min_length=5, description="URL to OpenAPI JSON or YAML spec")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Chat-Based Test Generation (Feature 6)
+# ═══════════════════════════════════════════════════════════════════════════
+class ChatMessage(BaseModel):
+    """A single message in a chat-based generation conversation."""
+
+    role: str = Field(..., pattern=r"^(user|assistant)$")
+    content: str = Field(..., min_length=1)
+
+
+class ChatGenerateRequest(BaseModel):
+    """Request for chat-based test generation (multi-turn conversation)."""
+
+    messages: List[ChatMessage] = Field(..., min_length=1)
+    requirement_ids: Optional[List[uuid.UUID]] = None
+    execution_type: Optional[str] = Field(None, pattern=r"^(api|ui|sql|manual)$")
+
+
+class ChatGenerateResponse(BaseModel):
+    """Response from the chat-based generation agent."""
+
+    message: ChatMessage
+    action: str = Field(..., description="question | generate | confirm")
+    test_cases: Optional[List[TestCaseResponse]] = None
+    suggested_config: Optional[Dict[str, Any]] = None

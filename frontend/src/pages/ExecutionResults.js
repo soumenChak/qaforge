@@ -461,6 +461,47 @@ export default function ExecutionResults() {
                               <strong>Error:</strong> {tr.error}
                             </div>
                           )}
+
+                          {/* Fix Suggestions (Feature 5) */}
+                          {tr.fix_suggestions && tr.fix_suggestions.length > 0 && (
+                            <div className="mt-4 p-3 rounded-lg bg-amber-50 border border-amber-200">
+                              <h4 className="text-xs font-bold text-amber-800 mb-2 uppercase tracking-wide flex items-center gap-1">
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                                </svg>
+                                Fix Suggestions
+                              </h4>
+                              <div className="space-y-2">
+                                {tr.fix_suggestions.map((fix, idx) => (
+                                  <div key={idx} className="flex items-start gap-2 text-xs">
+                                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold flex-shrink-0 ${
+                                      fix.category === 'auth_issue' ? 'bg-red-100 text-red-700' :
+                                      fix.category === 'wrong_endpoint' ? 'bg-orange-100 text-orange-700' :
+                                      fix.category === 'wrong_field' ? 'bg-purple-100 text-purple-700' :
+                                      fix.category === 'validation_error' ? 'bg-blue-100 text-blue-700' :
+                                      fix.category === 'server_error' ? 'bg-red-100 text-red-700' :
+                                      fix.category === 'connectivity' || fix.category === 'timeout' ? 'bg-gray-100 text-gray-700' :
+                                      'bg-amber-100 text-amber-700'
+                                    }`}>
+                                      {fix.category?.replace(/_/g, ' ')}
+                                    </span>
+                                    <div>
+                                      <p className="text-fg-dark">{fix.suggestion}</p>
+                                      {fix.detail && <p className="text-fg-mid mt-0.5">{fix.detail}</p>}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="mt-2 pt-2 border-t border-amber-200 flex gap-2">
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); navigate(`/projects/${projectId}?tab=app_profile`); }}
+                                  className="text-[10px] px-2 py-1 rounded bg-amber-100 text-amber-800 hover:bg-amber-200 font-medium transition-colors"
+                                >
+                                  Go to App Profile →
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     )}

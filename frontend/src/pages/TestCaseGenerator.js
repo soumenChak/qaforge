@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { projectsAPI, testCasesAPI, templatesAPI, knowledgeAPI, requirementsAPI } from '../services/api';
+import ChatGenerator from '../components/ChatGenerator';
 import {
   SparklesIcon,
   CheckCircleIcon,
@@ -15,6 +16,7 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
   LightBulbIcon,
+  ChatBubbleLeftRightIcon,
 } from '@heroicons/react/24/outline';
 
 const STEPS = [
@@ -62,6 +64,9 @@ export default function TestCaseGenerator() {
   const [kbCount, setKbCount] = useState(0);
   const [kbEntries, setKbEntries] = useState([]);
   const [showKbPreview, setShowKbPreview] = useState(false);
+
+  // Chat-based generation (Feature 6)
+  const [showChat, setShowChat] = useState(false);
 
   // Step 3: Generation state
   const [generating, setGenerating] = useState(false);
@@ -428,19 +433,41 @@ export default function TestCaseGenerator() {
             className="input-field mb-4"
             autoFocus
           />
-          <div className="flex justify-between">
+          <div className="flex justify-between items-center">
             <span className="text-xs text-fg-mid self-center">
               {description.length > 0 ? `${description.length} characters` : 'Start typing or use the smart prompt'}
             </span>
-            <button
-              onClick={() => setStep(1)}
-              disabled={!description.trim()}
-              className="btn-primary"
-            >
-              Next: Configure
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowChat(true)}
+                className="btn-secondary flex items-center gap-1.5"
+                title="Chat with an AI agent that asks questions before generating"
+              >
+                <ChatBubbleLeftRightIcon className="w-4 h-4" />
+                Chat with Agent
+              </button>
+              <button
+                onClick={() => setStep(1)}
+                disabled={!description.trim()}
+                className="btn-primary"
+              >
+                Next: Configure
+              </button>
+            </div>
           </div>
         </div>
+      )}
+
+      {/* Chat-based generation overlay (Feature 6) */}
+      {showChat && (
+        <ChatGenerator
+          projectId={id}
+          onGenerated={(tcs) => {
+            setShowChat(false);
+            navigate(`/projects/${id}?tab=test_cases`);
+          }}
+          onClose={() => setShowChat(false)}
+        />
       )}
 
       {/* Step 2: Configure */}
