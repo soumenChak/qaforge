@@ -70,6 +70,20 @@ export default function ProjectDetail() {
   const [tcPageSize, setTcPageSize] = useState(25);
   const [tcTotal, setTcTotal] = useState(0);
 
+  // Add test case state
+  const [showAddTc, setShowAddTc] = useState(false);
+  const [newTc, setNewTc] = useState({
+    test_case_id: '', title: '', description: '', preconditions: '',
+    priority: 'P2', category: 'functional', execution_type: 'manual', expected_result: '',
+    test_steps: [{ step_number: 1, action: '', expected_result: '' }],
+  });
+
+  // Bulk upload state
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [uploadFile, setUploadFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState(null);
+
   // Execution state
   const [showRunModal, setShowRunModal] = useState(false);
   const [executionRuns, setExecutionRuns] = useState([]);
@@ -226,6 +240,83 @@ export default function ProjectDetail() {
       URL.revokeObjectURL(url);
     } catch (err) {
       alert('Export failed.');
+    }
+  };
+
+  const handleAddTestCase = async (e) => {
+    e.preventDefault();
+    if (!newTc.test_case_id || !newTc.title) return;
+    try {
+      const payload = {
+        ...newTc,
+        test_steps: newTc.test_steps.filter(s => s.action.trim()),
+        source: 'manual',
+      };
+      if (payload.test_steps.length === 0) delete payload.test_steps;
+      await testCasesAPI.create(id, payload);
+      setShowAddTc(false);
+      setNewTc({
+        test_case_id: '', title: '', description: '', preconditions: '',
+        priority: 'P2', category: 'functional', execution_type: 'manual', expected_result: '',
+        test_steps: [{ step_number: 1, action: '', expected_result: '' }],
+      });
+      loadTestCases();
+      loadProject();
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to add test case.');
+    }
+  };
+
+  const addStep = () => {
+    setNewTc(prev => ({
+      ...prev,
+      test_steps: [...prev.test_steps, { step_number: prev.test_steps.length + 1, action: '', expected_result: '' }],
+    }));
+  };
+
+  const removeStep = (idx) => {
+    setNewTc(prev => ({
+      ...prev,
+      test_steps: prev.test_steps.filter((_, i) => i !== idx).map((s, i) => ({ ...s, step_number: i + 1 })),
+    }));
+  };
+
+  const updateStep = (idx, field, value) => {
+    setNewTc(prev => ({
+      ...prev,
+      test_steps: prev.test_steps.map((s, i) => i === idx ? { ...s, [field]: value } : s),
+    }));
+  };
+
+  const handleDownloadTemplate = async () => {
+    try {
+      const res = await testCasesAPI.downloadTemplate(id);
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `test_case_template.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Failed to download template.');
+    }
+  };
+
+  const handleBulkUpload = async () => {
+    if (!uploadFile) return;
+    setUploading(true);
+    setUploadResult(null);
+    try {
+      const res = await testCasesAPI.bulkUpload(id, uploadFile);
+      setUploadResult(res.data);
+      if (res.data.created > 0) {
+        loadTestCases();
+        loadProject();
+      }
+    } catch (err) {
+      setUploadResult({ error: err.response?.data?.detail || 'Upload failed.' });
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -488,6 +579,257 @@ export default function ProjectDetail() {
       {/* Test Cases tab */}
       {activeTab === 'test_cases' && (
         <div className="animate-fade-in">
+          {/* Action buttons row */}
+          <div className="flex flex-wrap gap-3 mb-4">
+            <button
+              onClick={() => {
+                if (!showAddTc) {
+                  const nextNum = testCases.length + 1;
+                  setNewTc(prev => ({
+                    ...prev,
+                    test_case_id: `TC-${String(nextNum).padStart(3, '0')}`,
+                  }));
+                }
+                setShowAddTc(!showAddTc);
+                setShowBulkUpload(false);
+              }}
+              className="btn-secondary flex items-center gap-2 text-sm"
+            >
+              <PlusIcon className="w-4 h-4" />
+              Add Test Case
+            </button>
+            <button
+              onClick={() => { setShowBulkUpload(!showBulkUpload); setShowAddTc(false); setUploadResult(null); setUploadFile(null); }}
+              className="btn-secondary flex items-center gap-2 text-sm"
+            >
+              <ArrowUpTrayIcon className="w-4 h-4" />
+              Bulk Upload
+            </button>
+          </div>
+
+          {/* Inline Add Test Case form */}
+          {showAddTc && (
+            <div className="card-static p-5 mb-5 animate-slide-up">
+              <h3 className="text-sm font-bold text-fg-navy mb-3">Add Test Case</h3>
+              <form onSubmit={handleAddTestCase} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="label">Test Case ID *</label>
+                    <input
+                      value={newTc.test_case_id}
+                      onChange={(e) => setNewTc({ ...newTc, test_case_id: e.target.value })}
+                      placeholder="TC-001"
+                      className="input-field"
+                      required
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="label">Title *</label>
+                    <input
+                      value={newTc.title}
+                      onChange={(e) => setNewTc({ ...newTc, title: e.target.value })}
+                      placeholder="Verify user login returns JWT token"
+                      className="input-field"
+                      autoFocus
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">Description</label>
+                    <textarea
+                      value={newTc.description}
+                      onChange={(e) => setNewTc({ ...newTc, description: e.target.value })}
+                      rows={2}
+                      placeholder="What does this test validate?"
+                      className="input-field"
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Preconditions</label>
+                    <textarea
+                      value={newTc.preconditions}
+                      onChange={(e) => setNewTc({ ...newTc, preconditions: e.target.value })}
+                      rows={2}
+                      placeholder="Setup required before running this test"
+                      className="input-field"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="label">Priority</label>
+                    <select
+                      value={newTc.priority}
+                      onChange={(e) => setNewTc({ ...newTc, priority: e.target.value })}
+                      className="input-field"
+                    >
+                      <option value="P1">P1 — Critical</option>
+                      <option value="P2">P2 — High</option>
+                      <option value="P3">P3 — Medium</option>
+                      <option value="P4">P4 — Low</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Category</label>
+                    <select
+                      value={newTc.category}
+                      onChange={(e) => setNewTc({ ...newTc, category: e.target.value })}
+                      className="input-field"
+                    >
+                      <option value="functional">Functional</option>
+                      <option value="integration">Integration</option>
+                      <option value="regression">Regression</option>
+                      <option value="smoke">Smoke</option>
+                      <option value="e2e">E2E</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Execution Type</label>
+                    <select
+                      value={newTc.execution_type}
+                      onChange={(e) => setNewTc({ ...newTc, execution_type: e.target.value })}
+                      className="input-field"
+                    >
+                      <option value="api">API</option>
+                      <option value="ui">UI (Playwright)</option>
+                      <option value="sql">SQL (Database)</option>
+                      <option value="manual">Manual</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Test Steps */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="label mb-0">Test Steps</label>
+                    <button type="button" onClick={addStep} className="text-xs text-fg-teal hover:text-fg-tealDark font-medium">
+                      + Add Step
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {newTc.test_steps.map((step, idx) => (
+                      <div key={idx} className="flex items-start gap-2">
+                        <span className="text-xs text-fg-mid font-mono mt-2 w-6 text-right flex-shrink-0">{idx + 1}.</span>
+                        <input
+                          value={step.action}
+                          onChange={(e) => updateStep(idx, 'action', e.target.value)}
+                          placeholder="Action (e.g. POST /api/login with credentials)"
+                          className="input-field flex-1 text-sm"
+                        />
+                        <span className="text-xs text-fg-mid mt-2 flex-shrink-0">&rarr;</span>
+                        <input
+                          value={step.expected_result}
+                          onChange={(e) => updateStep(idx, 'expected_result', e.target.value)}
+                          placeholder="Expected result"
+                          className="input-field flex-1 text-sm"
+                        />
+                        {newTc.test_steps.length > 1 && (
+                          <button type="button" onClick={() => removeStep(idx)} className="text-gray-300 hover:text-red-500 mt-2">
+                            <XMarkIcon className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="label">Expected Result</label>
+                  <input
+                    value={newTc.expected_result}
+                    onChange={(e) => setNewTc({ ...newTc, expected_result: e.target.value })}
+                    placeholder="Overall expected outcome"
+                    className="input-field"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-3">
+                  <button type="button" onClick={() => setShowAddTc(false)} className="btn-ghost text-sm">Cancel</button>
+                  <button type="submit" className="btn-primary text-sm">Add Test Case</button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* Bulk Upload panel */}
+          {showBulkUpload && (
+            <div className="card-static p-5 mb-5 animate-slide-up">
+              <h3 className="text-sm font-bold text-fg-navy mb-3">Bulk Upload Test Cases</h3>
+              <p className="text-xs text-fg-mid mb-4">
+                Download the Excel template, fill in your test cases, then upload the completed file.
+              </p>
+
+              <div className="flex flex-wrap items-center gap-4 mb-4">
+                <button
+                  onClick={handleDownloadTemplate}
+                  className="btn-secondary text-sm flex items-center gap-2"
+                >
+                  <ArrowDownTrayIcon className="w-4 h-4" />
+                  Download Template
+                </button>
+
+                <div className="flex-1 min-w-[200px]">
+                  <label className="flex items-center gap-3 px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-fg-teal hover:bg-teal-50/30 transition-colors">
+                    <ArrowUpTrayIcon className="w-5 h-5 text-fg-mid" />
+                    <span className="text-sm text-fg-mid">
+                      {uploadFile ? uploadFile.name : 'Choose Excel file (.xlsx)'}
+                    </span>
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={(e) => { setUploadFile(e.target.files[0] || null); setUploadResult(null); }}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Upload result */}
+              {uploadResult && !uploadResult.error && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4 text-sm">
+                  <p className="font-medium text-green-800">
+                    Upload complete: {uploadResult.created} created, {uploadResult.skipped} skipped, {uploadResult.errors} errors
+                  </p>
+                  {uploadResult.errors > 0 && uploadResult.details?.errors?.length > 0 && (
+                    <ul className="mt-2 text-xs text-red-600 space-y-1">
+                      {uploadResult.details.errors.map((e, i) => (
+                        <li key={i}>Row {e.row}: {e.error}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {uploadResult.skipped > 0 && uploadResult.details?.skipped?.length > 0 && (
+                    <ul className="mt-2 text-xs text-yellow-600 space-y-1">
+                      {uploadResult.details.skipped.map((s, i) => (
+                        <li key={i}>Row {s.row}: {s.tc_id} — {s.reason}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+              {uploadResult?.error && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-700">
+                  {uploadResult.error}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <button onClick={() => { setShowBulkUpload(false); setUploadFile(null); setUploadResult(null); }} className="btn-ghost text-sm">Cancel</button>
+                <button
+                  onClick={handleBulkUpload}
+                  disabled={!uploadFile || uploading}
+                  className="btn-primary text-sm flex items-center gap-2 disabled:opacity-50"
+                >
+                  <ArrowUpTrayIcon className="w-4 h-4" />
+                  {uploading ? 'Uploading...' : 'Upload & Create'}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Filters + actions */}
           <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
             <div className="flex flex-wrap items-center gap-3">

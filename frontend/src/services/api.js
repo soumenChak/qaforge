@@ -84,6 +84,15 @@ export const testCasesAPI = {
   rate: (projectId, tcId, data) => api.post(`/projects/${projectId}/test-cases/${tcId}/rate`, data),
   exportExcel: (projectId, data) =>
     api.post(`/projects/${projectId}/test-cases/export`, data, { responseType: 'blob' }),
+  downloadTemplate: (projectId) =>
+    api.get(`/projects/${projectId}/test-cases/upload-template`, { responseType: 'blob' }),
+  bulkUpload: (projectId, file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post(`/projects/${projectId}/test-cases/bulk-upload`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
 };
 
 // -- Templates --
@@ -91,6 +100,7 @@ export const templatesAPI = {
   getAll: (params = {}) => api.get('/templates/', { params }),
   getById: (id) => api.get(`/templates/${id}`),
   create: (data) => api.post('/templates/', data),
+  update: (id, data) => api.put(`/templates/${id}`, data),
   delete: (id) => api.delete(`/templates/${id}`),
   preview: (id) => api.get(`/templates/${id}/preview`),
 };

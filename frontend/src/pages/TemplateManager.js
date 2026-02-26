@@ -5,6 +5,7 @@ import {
   XMarkIcon,
   TrashIcon,
   EyeIcon,
+  PencilSquareIcon,
   DocumentTextIcon,
 } from '@heroicons/react/24/outline';
 
@@ -12,12 +13,14 @@ const DOMAIN_COLORS = {
   mdm: 'bg-purple-100 text-purple-700',
   ai: 'bg-blue-100 text-blue-700',
   data_eng: 'bg-orange-100 text-orange-700',
+  general: 'bg-gray-100 text-gray-700',
 };
 
 const DOMAIN_NAMES = {
   mdm: 'MDM',
   ai: 'AI / GenAI',
   data_eng: 'Data Engineering',
+  general: 'General',
 };
 
 const FORMAT_COLORS = {
@@ -32,7 +35,8 @@ export default function TemplateManager() {
   const [showCreate, setShowCreate] = useState(false);
   const [preview, setPreview] = useState(null);
 
-  // Create form
+  // Create / Edit form
+  const [editingId, setEditingId] = useState(null); // null = create mode, UUID = edit mode
   const [formName, setFormName] = useState('');
   const [formDomain, setFormDomain] = useState('mdm');
   const [formFormat, setFormFormat] = useState('excel');
@@ -89,6 +93,52 @@ export default function TemplateManager() {
     }
   };
 
+  const handleUpdate = async (e) => {
+    e.preventDefault();
+    if (!formName.trim()) {
+      setError('Template name is required.');
+      return;
+    }
+    setCreating(true);
+    setError('');
+    try {
+      await templatesAPI.update(editingId, {
+        name: formName.trim(),
+        domain: formDomain,
+        format: formFormat,
+        column_mapping: formColumns,
+      });
+      setShowCreate(false);
+      resetForm();
+      loadTemplates();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to update template.');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleEdit = (template) => {
+    setEditingId(template.id);
+    setFormName(template.name);
+    setFormDomain(template.domain);
+    setFormFormat(template.format);
+    setFormColumns(template.column_mapping || {
+      A: 'Test Case ID',
+      B: 'Title',
+      C: 'Description',
+      D: 'Preconditions',
+      E: 'Test Steps',
+      F: 'Expected Result',
+      G: 'Priority',
+      H: 'Category',
+      I: 'Status',
+      J: 'Test Data',
+    });
+    setError('');
+    setShowCreate(true);
+  };
+
   const handleDelete = async (id, name) => {
     if (!window.confirm(`Delete template "${name}"?`)) return;
     try {
@@ -109,10 +159,36 @@ export default function TemplateManager() {
   };
 
   const resetForm = () => {
+    setEditingId(null);
     setFormName('');
     setFormDomain('mdm');
     setFormFormat('excel');
+    setFormColumns({
+      A: 'Test Case ID',
+      B: 'Title',
+      C: 'Description',
+      D: 'Preconditions',
+      E: 'Test Steps',
+      F: 'Expected Result',
+      G: 'Priority',
+      H: 'Category',
+      I: 'Status',
+      J: 'Test Data',
+    });
     setError('');
+  };
+
+  const addColumn = () => {
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const existingCols = Object.keys(formColumns);
+    const nextLetter = letters[existingCols.length] || `Col${existingCols.length + 1}`;
+    setFormColumns({ ...formColumns, [nextLetter]: '' });
+  };
+
+  const removeColumn = (col) => {
+    const updated = { ...formColumns };
+    delete updated[col];
+    setFormColumns(updated);
   };
 
   if (loading) {
@@ -135,7 +211,7 @@ export default function TemplateManager() {
           <h1 className="text-2xl font-bold text-fg-navy">Templates</h1>
           <p className="text-sm text-fg-mid mt-1">Manage export templates for test case output</p>
         </div>
-        <button onClick={() => setShowCreate(true)} className="btn-primary flex items-center gap-2">
+        <button onClick={() => { resetForm(); setShowCreate(true); }} className="btn-primary flex items-center gap-2">
           <PlusIcon className="w-4 h-4" />
           Create Template
         </button>
@@ -146,7 +222,7 @@ export default function TemplateManager() {
         <div className="card-static p-12 text-center">
           <DocumentTextIcon className="w-12 h-12 text-gray-300 mx-auto mb-4" />
           <p className="text-fg-mid mb-4">No templates yet.</p>
-          <button onClick={() => setShowCreate(true)} className="btn-primary">Create Your First Template</button>
+          <button onClick={() => { resetForm(); setShowCreate(true); }} className="btn-primary">Create Your First Template</button>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -157,6 +233,13 @@ export default function TemplateManager() {
                 <div className="flex items-start justify-between mb-3">
                   <h3 className="text-sm font-bold text-fg-navy truncate flex-1 mr-2">{t.name}</h3>
                   <div className="flex items-center gap-1 flex-shrink-0">
+                    <button
+                      onClick={() => handleEdit(t)}
+                      className="text-gray-300 hover:text-fg-teal p-1"
+                      title="Edit"
+                    >
+                      <PencilSquareIcon className="w-4 h-4" />
+                    </button>
                     <button
                       onClick={() => handlePreview(t.id)}
                       className="text-gray-300 hover:text-fg-teal p-1"
@@ -235,13 +318,15 @@ export default function TemplateManager() {
         </div>
       )}
 
-      {/* Create modal */}
+      {/* Create / Edit modal */}
       {showCreate && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto animate-slide-up">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-bold text-fg-navy">Create Template</h2>
+                <h2 className="text-lg font-bold text-fg-navy">
+                  {editingId ? 'Edit Template' : 'Create Template'}
+                </h2>
                 <button onClick={() => { setShowCreate(false); resetForm(); }} className="text-fg-mid hover:text-fg-dark">
                   <XMarkIcon className="w-5 h-5" />
                 </button>
@@ -253,7 +338,7 @@ export default function TemplateManager() {
                 </div>
               )}
 
-              <form onSubmit={handleCreate} className="space-y-5">
+              <form onSubmit={editingId ? handleUpdate : handleCreate} className="space-y-5">
                 <div>
                   <label className="label">Template Name</label>
                   <input
@@ -272,6 +357,7 @@ export default function TemplateManager() {
                       <option value="mdm">MDM</option>
                       <option value="ai">AI / GenAI</option>
                       <option value="data_eng">Data Engineering</option>
+                      <option value="general">General</option>
                     </select>
                   </div>
                   <div>
@@ -285,7 +371,12 @@ export default function TemplateManager() {
                 </div>
 
                 <div>
-                  <label className="label">Column Configuration</label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="label mb-0">Column Configuration</label>
+                    <button type="button" onClick={addColumn} className="text-xs text-fg-teal hover:text-fg-tealDark font-medium">
+                      + Add Column
+                    </button>
+                  </div>
                   <div className="space-y-2 max-h-60 overflow-y-auto">
                     {Object.entries(formColumns).map(([col, field]) => (
                       <div key={col} className="flex items-center gap-3">
@@ -294,7 +385,16 @@ export default function TemplateManager() {
                           value={field}
                           onChange={(e) => setFormColumns({ ...formColumns, [col]: e.target.value })}
                           className="input-field flex-1 text-sm py-1.5"
+                          placeholder="Column header name"
                         />
+                        <button
+                          type="button"
+                          onClick={() => removeColumn(col)}
+                          className="text-gray-300 hover:text-red-500 p-1"
+                          title="Remove column"
+                        >
+                          <XMarkIcon className="w-4 h-4" />
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -305,7 +405,10 @@ export default function TemplateManager() {
                     Cancel
                   </button>
                   <button type="submit" disabled={creating} className="btn-primary">
-                    {creating ? 'Creating...' : 'Create Template'}
+                    {creating
+                      ? (editingId ? 'Saving...' : 'Creating...')
+                      : (editingId ? 'Save Changes' : 'Create Template')
+                    }
                   </button>
                 </div>
               </form>

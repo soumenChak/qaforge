@@ -26,7 +26,7 @@ from dependencies import (
     get_current_user,
     sanitize_string,
 )
-from models import MessageResponse, TemplateCreate, TemplateResponse
+from models import MessageResponse, TemplateCreate, TemplateResponse, TemplateUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +153,53 @@ def preview_template(
         "column_mapping": template.column_mapping or _default_column_mapping(),
         "branding_config": template.branding_config,
     }
+
+
+# ---------------------------------------------------------------------------
+# PUT /{id}
+# ---------------------------------------------------------------------------
+@router.put(
+    "/{template_id}",
+    response_model=TemplateResponse,
+    summary="Update a template",
+)
+def update_template(
+    template_id: uuid.UUID,
+    body: TemplateUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update an existing export template (partial update)."""
+    template = db.query(TestTemplate).filter(TestTemplate.id == template_id).first()
+    if template is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Template not found",
+        )
+
+    update_data = body.model_dump(exclude_unset=True)
+    if "name" in update_data and update_data["name"]:
+        update_data["name"] = sanitize_string(update_data["name"]) or update_data["name"]
+
+    for field, value in update_data.items():
+        setattr(template, field, value)
+
+    db.flush()
+
+    audit_log(
+        db,
+        user_id=current_user.id,
+        action="update_template",
+        entity_type="template",
+        entity_id=str(template_id),
+        details={"fields_updated": list(update_data.keys())},
+        ip_address=get_client_ip(request),
+    )
+
+    logger.info("Template updated: %s by %s", template.name, current_user.email)
+
+    return TemplateResponse.model_validate(template)
 
 
 # ---------------------------------------------------------------------------

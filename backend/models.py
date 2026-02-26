@@ -323,6 +323,16 @@ class TemplateCreate(BaseModel):
     branding_config: Optional[Dict[str, Any]] = None
 
 
+class TemplateUpdate(BaseModel):
+    """Payload to update an export template (partial)."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    domain: Optional[str] = None
+    format: Optional[str] = Field(None, pattern=r"^(excel|word|json)$")
+    column_mapping: Optional[Dict[str, Any]] = None
+    branding_config: Optional[Dict[str, Any]] = None
+
+
 class TemplateResponse(BaseModel):
     """Single template returned to clients."""
 
