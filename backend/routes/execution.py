@@ -9,6 +9,7 @@ Endpoints:
     GET    /{run_id}      — full run detail with results
     GET    /{run_id}/status — lightweight poll (status + progress)
     POST   /{run_id}/cancel — cancel a running execution
+    DELETE /{run_id}      — delete a completed/failed/cancelled run
 """
 
 import logging
@@ -236,3 +237,43 @@ def cancel_execution_run(
     )
 
     return MessageResponse(message="Execution run cancelled")
+
+
+# ---------------------------------------------------------------------------
+# DELETE /{run_id}
+# ---------------------------------------------------------------------------
+@router.delete(
+    "/{run_id}",
+    response_model=MessageResponse,
+    summary="Delete an execution run",
+)
+def delete_execution_run(
+    run_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    run = db.query(ExecutionRun).filter(ExecutionRun.id == run_id).first()
+    if run is None:
+        raise HTTPException(status_code=404, detail="Execution run not found")
+
+    if run.status in ("queued", "running"):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete a run that is still in progress. Cancel it first.",
+        )
+
+    audit_log(
+        db,
+        user_id=current_user.id,
+        action="delete_execution_run",
+        entity_type="execution_run",
+        entity_id=str(run_id),
+        details={"project_id": str(run.project_id), "status": run.status},
+        ip_address=get_client_ip(request),
+    )
+
+    db.delete(run)
+    db.flush()
+
+    return MessageResponse(message="Execution run deleted")

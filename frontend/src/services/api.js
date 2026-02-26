@@ -157,6 +157,7 @@ export const executionAPI = {
   getById: (id) => api.get(`/execution/${id}`),
   getStatus: (id) => api.get(`/execution/${id}/status`),
   cancel: (id) => api.post(`/execution/${id}/cancel`),
+  delete: (id) => api.delete(`/execution/${id}`),
 };
 
 // -- Settings --

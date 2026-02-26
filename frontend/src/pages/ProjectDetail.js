@@ -448,6 +448,18 @@ export default function ProjectDetail() {
     loadExecutionRuns();
   };
 
+  const handleDeleteExecution = async (e, runId) => {
+    e.stopPropagation(); // Don't navigate to detail page
+    if (!window.confirm('Delete this execution run? This cannot be undone.')) return;
+    try {
+      await executionAPI.delete(runId);
+      loadExecutionRuns();
+    } catch (err) {
+      const msg = err.response?.data?.detail || 'Failed to delete execution run';
+      alert(msg);
+    }
+  };
+
   if (loading || !project) {
     return (
       <div className="page-container">
@@ -1258,6 +1270,15 @@ export default function ProjectDetail() {
                           }
                         </span>
                         <EyeIcon className="w-4 h-4 text-gray-400" />
+                        {!isActive && (
+                          <button
+                            onClick={(e) => handleDeleteExecution(e, run.id)}
+                            className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
+                            title="Delete execution run"
+                          >
+                            <TrashIcon className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
