@@ -183,18 +183,22 @@ export default function ProjectDetail() {
     if (!uploadText.trim()) return;
     setExtracting(true);
     try {
-      await requirementsAPI.extract(id, {
+      const resp = await requirementsAPI.extract(id, {
         document_text: uploadText,
         document_type: 'brd',
         domain: project?.domain,
         sub_domain: project?.sub_domain,
       });
+      const count = resp.data?.length || 0;
       setShowUpload(false);
       setUploadText('');
       loadRequirements();
       loadProject();
+      if (count > 0) {
+        alert(`✅ Successfully extracted ${count} requirements from your document using AI.`);
+      }
     } catch (err) {
-      alert(err.response?.data?.detail || 'Extraction failed.');
+      alert(err.response?.data?.detail || 'Extraction failed. Please try again.');
     } finally {
       setExtracting(false);
     }
@@ -543,24 +547,57 @@ export default function ProjectDetail() {
           {/* Upload/Extract panel */}
           {showUpload && (
             <div className="card-static p-5 mb-5 animate-slide-up">
-              <h3 className="text-sm font-bold text-fg-navy mb-3">Upload BRD/PRD Text</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-bold text-fg-navy">Upload BRD / PRD Document</h3>
+                {uploadText.trim() && (
+                  <span className="text-xs text-fg-mid">
+                    {uploadText.length.toLocaleString()} chars
+                    {uploadText.length > 30000 && ' — will be processed in multiple chunks'}
+                  </span>
+                )}
+              </div>
+              {/* Domain hint */}
+              {project?.domain && (
+                <div className="flex items-center gap-2 mb-3 p-2 bg-blue-50 rounded-lg">
+                  <SparklesIcon className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                  <span className="text-xs text-blue-700">
+                    AI will extract <strong>{project.domain === 'mdm' ? 'MDM-specific' : project.domain === 'ai' ? 'AI/GenAI-specific' : project.domain === 'data_eng' ? 'Data Engineering-specific' : 'domain-specific'}</strong> testable requirements using Sonnet — including data quality rules, integration points, edge cases, and acceptance criteria.
+                  </span>
+                </div>
+              )}
               <textarea
                 value={uploadText}
                 onChange={(e) => setUploadText(e.target.value)}
-                placeholder="Paste your BRD/PRD document text here..."
-                rows={6}
-                className="input-field mb-3"
+                placeholder={project?.domain === 'mdm'
+                  ? 'Paste your BRD/PRD here... The AI will extract MDM requirements including match/merge rules, data quality checks, survivorship logic, integration specs, and stewardship workflows.'
+                  : project?.domain === 'ai'
+                  ? 'Paste your BRD/PRD here... The AI will extract AI/GenAI requirements including model validation, prompt engineering, RAG pipeline, safety guardrails, and evaluation criteria.'
+                  : project?.domain === 'data_eng'
+                  ? 'Paste your BRD/PRD here... The AI will extract Data Engineering requirements including pipeline specs, data quality rules, orchestration, schema management, and SLA definitions.'
+                  : 'Paste your BRD/PRD document text here... The AI will extract testable requirements with priority, category, and acceptance criteria.'}
+                rows={10}
+                className="input-field mb-3 font-mono text-xs"
               />
-              <div className="flex justify-end gap-3">
-                <button onClick={() => setShowUpload(false)} className="btn-ghost text-sm">Cancel</button>
-                <button
-                  onClick={handleExtract}
-                  disabled={extracting || !uploadText.trim()}
-                  className="btn-primary text-sm flex items-center gap-2"
-                >
-                  <DocumentMagnifyingGlassIcon className="w-4 h-4" />
-                  {extracting ? 'Extracting...' : 'Extract Requirements'}
-                </button>
+              <div className="flex items-center justify-between">
+                <div className="text-xs text-fg-mid">
+                  💡 Tip: Paste the entire document — longer docs produce better requirements. Headings and sections are preserved for traceability.
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={() => { setShowUpload(false); setUploadText(''); }} className="btn-ghost text-sm">Cancel</button>
+                  <button
+                    onClick={handleExtract}
+                    disabled={extracting || !uploadText.trim()}
+                    className="btn-primary text-sm flex items-center gap-2"
+                  >
+                    <DocumentMagnifyingGlassIcon className="w-4 h-4" />
+                    {extracting ? (
+                      <>
+                        <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                        Extracting with AI...
+                      </>
+                    ) : `Extract Requirements${uploadText.trim() ? ` (${Math.ceil(uploadText.length / 1000)}K chars)` : ''}`}
+                  </button>
+                </div>
               </div>
             </div>
           )}

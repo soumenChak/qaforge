@@ -184,9 +184,16 @@ class RequirementExtractRequest(BaseModel):
     """Request to extract requirements from a document using AI."""
 
     document_text: str = Field(..., min_length=10)
-    document_type: str = Field(default="brd", pattern=r"^(brd|prd|manual)$")
+    document_type: str = Field(
+        default="brd",
+        pattern=r"^(brd|prd|srs|fsd|user_story|manual|jira|confluence)$",
+    )
     domain: Optional[str] = None
     sub_domain: Optional[str] = None
+    focus_areas: Optional[str] = Field(
+        None,
+        description="Optional guidance for extraction focus (e.g., 'focus on data quality rules and API integrations')",
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
