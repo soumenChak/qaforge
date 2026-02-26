@@ -1575,7 +1575,7 @@ def _export_csv(
 # POST /chat  (Feature 6: Chat-Based Test Generation Agent)
 # ---------------------------------------------------------------------------
 @router.post(
-    "/{project_id}/chat",
+    "/{project_id}/test-cases/chat",
     summary="Chat-based test case generation",
 )
 def chat_generate(
