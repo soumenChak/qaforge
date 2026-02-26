@@ -175,9 +175,20 @@ async def execute(
                             contains_ok = False
                             logs.append(f"  FAIL: Expected key '{key}' not in response body")
                         elif val is not None and str(val) not in ("non-empty-string", "any"):
-                            if str(check_target[key]) != str(val):
+                            actual_val = check_target[key]
+                            # For nested dict: check subset match (expected keys in actual)
+                            if isinstance(val, dict) and isinstance(actual_val, dict):
+                                for sub_key, sub_val in val.items():
+                                    if sub_key not in actual_val:
+                                        contains_ok = False
+                                        logs.append(f"  FAIL: body['{key}']['{sub_key}'] not found")
+                                    elif sub_val is not None and str(sub_val) not in ("non-empty-string", "any"):
+                                        if str(actual_val[sub_key]) != str(sub_val):
+                                            contains_ok = False
+                                            logs.append(f"  FAIL: body['{key}']['{sub_key}'] expected '{sub_val}', got '{actual_val[sub_key]}'")
+                            elif str(actual_val) != str(val):
                                 contains_ok = False
-                                logs.append(f"  FAIL: body['{key}'] expected '{val}', got '{check_target[key]}'")
+                                logs.append(f"  FAIL: body['{key}'] expected '{val}', got '{actual_val}'")
                 else:
                     contains_ok = False
                     logs.append("  FAIL: Response is not a JSON object for body_contains dict check")
