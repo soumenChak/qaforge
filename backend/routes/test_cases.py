@@ -176,6 +176,9 @@ def generate_test_cases(
             reference_tc_context = "\n".join(ref_lines)
             logger.info("Reference TCs: %d loaded", len(ref_tcs))
 
+    # Extract app profile for generation context
+    app_profile = project.app_profile
+
     # Try the real pipeline first
     generated = _generate_via_pipeline(
         description=body.description,
@@ -189,6 +192,7 @@ def generate_test_cases(
         db=db,
         brd_prd_context=brd_prd_context,
         reference_tc_context=reference_tc_context,
+        app_profile=app_profile,
     )
 
     # Save generated test cases to DB
@@ -300,6 +304,7 @@ def _generate_via_pipeline(
     db: Session,
     brd_prd_context: str = "",
     reference_tc_context: str = "",
+    app_profile: Optional[dict] = None,
 ) -> list[dict]:
     """
     Call the pipeline orchestrator to generate test cases.
@@ -347,6 +352,7 @@ def _generate_via_pipeline(
             db=db,
             brd_prd_context=brd_prd_context,
             reference_tc_context=reference_tc_context,
+            app_profile=app_profile,
         )
     except Exception:
         logger.warning("LLM generation failed; using mock fallback", exc_info=True)
@@ -367,6 +373,7 @@ def _generate_via_llm(
     db: Session,
     brd_prd_context: str = "",
     reference_tc_context: str = "",
+    app_profile: Optional[dict] = None,
 ) -> list[dict]:
     """Generate test cases by calling the LLM provider directly (uses smart model)."""
     from core.llm_provider import get_llm_provider
@@ -421,6 +428,84 @@ Return ONLY a JSON array — no markdown fences, no explanation."""
     user_prompt_parts = [f"Generate exactly {count} EXECUTION-READY test cases for the following system."]
 
     user_prompt_parts.append(f"\n=== SYSTEM DESCRIPTION ===\n{description[:4000]}")
+
+    # ── Inject Application Profile (CRITICAL for generation accuracy) ──
+    if app_profile and isinstance(app_profile, dict):
+        ap_parts = []
+
+        if app_profile.get("app_url"):
+            ap_parts.append(f"Application URL: {app_profile['app_url']}")
+        if app_profile.get("api_base_url"):
+            ap_parts.append(f"API Base URL: {app_profile['api_base_url']}")
+
+        if app_profile.get("tech_stack") and isinstance(app_profile["tech_stack"], dict):
+            ts = app_profile["tech_stack"]
+            stack_str = ", ".join(f"{k}: {v}" for k, v in ts.items() if v)
+            if stack_str:
+                ap_parts.append(f"Tech Stack: {stack_str}")
+
+        if app_profile.get("auth") and isinstance(app_profile["auth"], dict):
+            auth = app_profile["auth"]
+            auth_lines = []
+            if auth.get("login_endpoint"):
+                auth_lines.append(f"Login: {auth['login_endpoint']}")
+            if auth.get("request_body"):
+                auth_lines.append(f"Body format: {auth['request_body']}")
+            if auth.get("token_header"):
+                auth_lines.append(f"Auth header: {auth['token_header']}")
+            if auth.get("test_credentials") and isinstance(auth["test_credentials"], dict):
+                creds = auth["test_credentials"]
+                auth_lines.append(f"Test credentials: {json.dumps(creds)}")
+            if auth.get("response_fields"):
+                auth_lines.append(f"Login response fields: {', '.join(auth['response_fields'])}")
+            if auth_lines:
+                ap_parts.append("Authentication:\n  " + "\n  ".join(auth_lines))
+
+        if app_profile.get("api_endpoints") and isinstance(app_profile["api_endpoints"], list):
+            ep_lines = []
+            for ep in app_profile["api_endpoints"][:30]:
+                if not isinstance(ep, dict):
+                    continue
+                line = f"{ep.get('method', 'GET')} {ep.get('path', '/')}"
+                if ep.get("description"):
+                    line += f" -- {ep['description']}"
+                if ep.get("required_fields") and isinstance(ep["required_fields"], list):
+                    line += f" (required: {', '.join(ep['required_fields'])})"
+                if ep.get("response_fields") and isinstance(ep["response_fields"], list):
+                    line += f" (returns: {', '.join(ep['response_fields'])})"
+                ep_lines.append(line)
+            if ep_lines:
+                ap_parts.append("Known API Endpoints:\n  " + "\n  ".join(ep_lines))
+
+        if app_profile.get("ui_pages") and isinstance(app_profile["ui_pages"], list):
+            page_lines = []
+            for pg in app_profile["ui_pages"][:20]:
+                if not isinstance(pg, dict):
+                    continue
+                line = f"{pg.get('route', '/')}"
+                if pg.get("description"):
+                    line += f" -- {pg['description']}"
+                if pg.get("key_elements") and isinstance(pg["key_elements"], list):
+                    line += f" (selectors: {', '.join(pg['key_elements'])})"
+                page_lines.append(line)
+            if page_lines:
+                ap_parts.append("Known UI Pages:\n  " + "\n  ".join(page_lines))
+
+        if app_profile.get("rbac_model"):
+            ap_parts.append(f"RBAC Model: {app_profile['rbac_model']}")
+
+        if app_profile.get("notes"):
+            ap_parts.append(f"Important Notes: {app_profile['notes']}")
+
+        if ap_parts:
+            app_profile_text = "\n".join(ap_parts)
+            user_prompt_parts.append(
+                f"\n=== APPLICATION PROFILE (use these EXACT URLs, endpoints, field names, and selectors) ===\n"
+                f"CRITICAL: Do NOT invent or guess URLs, endpoints, field names, CSS selectors, or auth flows.\n"
+                f"Use ONLY the information below. If an endpoint or page is not listed, do not fabricate one.\n\n"
+                f"{app_profile_text[:5000]}"
+            )
+            logger.info("App profile context injected: %d chars", len(app_profile_text[:5000]))
 
     if brd_prd_context:
         user_prompt_parts.append(

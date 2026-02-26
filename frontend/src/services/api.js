@@ -59,6 +59,7 @@ export const projectsAPI = {
   getById: (id) => api.get(`/projects/${id}`),
   create: (data) => api.post('/projects/', data),
   update: (id, data) => api.put(`/projects/${id}`, data),
+  updateAppProfile: (id, data) => api.put(`/projects/${id}/app-profile`, data),
   archive: (id) => api.post(`/projects/${id}/archive`),
   delete: (id) => api.delete(`/projects/${id}`),
 };

@@ -12,13 +12,15 @@ Endpoints:
     DELETE /{id}         — delete project (cascades test cases & requirements)
 """
 
+import json
 import logging
 import uuid
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from db_models import Project, Requirement, TestCase, User
 from db_session import get_db
@@ -63,6 +65,7 @@ def create_project(
         sub_domain=sanitize_string(body.sub_domain) or body.sub_domain,
         description=sanitize_string(body.description) if body.description else None,
         template_id=body.template_id,
+        app_profile=body.app_profile,
         created_by=current_user.id,
     )
     db.add(project)
@@ -223,6 +226,9 @@ def update_project(
         project.status = body.status
     if body.template_id is not None:
         project.template_id = body.template_id
+    if body.app_profile is not None:
+        project.app_profile = body.app_profile
+        flag_modified(project, "app_profile")
 
     db.flush()
 
@@ -237,6 +243,48 @@ def update_project(
     )
 
     logger.info("Project updated: %s by %s", project.name, current_user.email)
+
+    return ProjectResponse.model_validate(project)
+
+
+# ---------------------------------------------------------------------------
+# PUT /{id}/app-profile
+# ---------------------------------------------------------------------------
+@router.put(
+    "/{project_id}/app-profile",
+    response_model=ProjectResponse,
+    summary="Update project application profile",
+)
+def update_app_profile(
+    project_id: uuid.UUID,
+    body: Dict[str, Any],
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update the application profile (URLs, auth config, endpoints, UI pages) for a project."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    project.app_profile = body
+    flag_modified(project, "app_profile")
+    db.flush()
+
+    audit_log(
+        db,
+        user_id=current_user.id,
+        action="update_app_profile",
+        entity_type="project",
+        entity_id=str(project.id),
+        details={"keys": list(body.keys())},
+        ip_address=get_client_ip(request),
+    )
+
+    logger.info("App profile updated for project %s by %s", project.name, current_user.email)
 
     return ProjectResponse.model_validate(project)
 

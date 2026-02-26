@@ -91,10 +91,37 @@ export default function ProjectDetail() {
   const [execLoading, setExecLoading] = useState(false);
   const executionRunsRef = useRef([]);
 
+  // App Profile state
+  const EMPTY_PROFILE = {
+    app_url: '', api_base_url: '',
+    tech_stack: { frontend: '', backend: '', database: '' },
+    auth: { login_endpoint: '', request_body: '', token_header: '', test_credentials: { email: '', password: '' }, response_fields: [] },
+    api_endpoints: [],
+    ui_pages: [],
+    rbac_model: '',
+    notes: '',
+  };
+  const [appProfile, setAppProfile] = useState(EMPTY_PROFILE);
+  const [appProfileDirty, setAppProfileDirty] = useState(false);
+  const [appProfileSaving, setAppProfileSaving] = useState(false);
+  const [appProfileMsg, setAppProfileMsg] = useState('');
+
   const loadProject = useCallback(async () => {
     try {
       const res = await projectsAPI.getById(id);
       setProject(res.data);
+      // Load app profile (merge with defaults so all keys exist)
+      if (res.data.app_profile) {
+        setAppProfile(prev => {
+          const merged = { ...prev, ...res.data.app_profile };
+          merged.tech_stack = { ...prev.tech_stack, ...(res.data.app_profile.tech_stack || {}) };
+          merged.auth = { ...prev.auth, ...(res.data.app_profile.auth || {}) };
+          merged.auth.test_credentials = { ...prev.auth.test_credentials, ...(res.data.app_profile.auth?.test_credentials || {}) };
+          merged.api_endpoints = res.data.app_profile.api_endpoints || [];
+          merged.ui_pages = res.data.app_profile.ui_pages || [];
+          return merged;
+        });
+      }
     } catch (err) {
       console.error('Failed to load project:', err);
     } finally {
@@ -441,6 +468,7 @@ export default function ProjectDetail() {
           { key: 'requirements', label: `Requirements (${requirements.length})` },
           { key: 'test_cases', label: `Test Cases (${project.test_case_count || 0})` },
           { key: 'executions', label: `Executions (${executionRuns.length})` },
+          { key: 'app_profile', label: `App Profile${appProfile.app_url || appProfile.api_base_url ? ' \u2713' : ''}` },
         ].map((tab) => (
           <button
             key={tab.key}
@@ -1111,6 +1139,239 @@ export default function ProjectDetail() {
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* App Profile tab */}
+      {activeTab === 'app_profile' && (
+        <div className="animate-fade-in space-y-6 max-w-4xl">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <h3 className="text-lg font-semibold text-fg-dark">Application Profile</h3>
+              <p className="text-sm text-fg-mid mt-1">
+                Provide details about the application under test. This information is injected into the AI prompt
+                so generated test cases use <strong>exact URLs, endpoints, field names, and selectors</strong> instead of guessing.
+              </p>
+            </div>
+            <button
+              onClick={async () => {
+                setAppProfileSaving(true);
+                setAppProfileMsg('');
+                try {
+                  await projectsAPI.updateAppProfile(id, appProfile);
+                  setAppProfileDirty(false);
+                  setAppProfileMsg('Saved successfully');
+                  setTimeout(() => setAppProfileMsg(''), 3000);
+                } catch (err) {
+                  setAppProfileMsg('Failed to save: ' + (err.response?.data?.detail || err.message));
+                } finally {
+                  setAppProfileSaving(false);
+                }
+              }}
+              disabled={appProfileSaving || !appProfileDirty}
+              className={`btn ${appProfileDirty ? 'btn-primary' : 'btn-secondary'} text-sm flex items-center gap-2`}
+            >
+              {appProfileSaving ? 'Saving...' : 'Save Profile'}
+            </button>
+          </div>
+          {appProfileMsg && (
+            <div className={`text-sm px-3 py-2 rounded ${appProfileMsg.startsWith('Failed') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+              {appProfileMsg}
+            </div>
+          )}
+
+          {/* URLs */}
+          <div className="card p-5">
+            <h4 className="text-sm font-semibold text-fg-dark mb-3">Target URLs</h4>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-fg-mid mb-1">Application URL (for UI tests)</label>
+                <input type="text" className="input w-full" placeholder="https://myapp.example.com"
+                  value={appProfile.app_url} onChange={e => { setAppProfile(p => ({...p, app_url: e.target.value})); setAppProfileDirty(true); }} />
+              </div>
+              <div>
+                <label className="block text-xs text-fg-mid mb-1">API Base URL (for API tests)</label>
+                <input type="text" className="input w-full" placeholder="https://myapp.example.com/api"
+                  value={appProfile.api_base_url} onChange={e => { setAppProfile(p => ({...p, api_base_url: e.target.value})); setAppProfileDirty(true); }} />
+              </div>
+            </div>
+          </div>
+
+          {/* Tech Stack */}
+          <div className="card p-5">
+            <h4 className="text-sm font-semibold text-fg-dark mb-3">Tech Stack</h4>
+            <div className="grid grid-cols-3 gap-4">
+              {['frontend', 'backend', 'database'].map(field => (
+                <div key={field}>
+                  <label className="block text-xs text-fg-mid mb-1 capitalize">{field}</label>
+                  <input type="text" className="input w-full" placeholder={field === 'frontend' ? 'React' : field === 'backend' ? 'FastAPI' : 'PostgreSQL'}
+                    value={appProfile.tech_stack?.[field] || ''} onChange={e => {
+                      setAppProfile(p => ({...p, tech_stack: {...p.tech_stack, [field]: e.target.value}}));
+                      setAppProfileDirty(true);
+                    }} />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Authentication */}
+          <div className="card p-5">
+            <h4 className="text-sm font-semibold text-fg-dark mb-3">Authentication</h4>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-fg-mid mb-1">Login Endpoint</label>
+                <input type="text" className="input w-full" placeholder="POST /api/auth/login"
+                  value={appProfile.auth?.login_endpoint || ''} onChange={e => {
+                    setAppProfile(p => ({...p, auth: {...p.auth, login_endpoint: e.target.value}}));
+                    setAppProfileDirty(true);
+                  }} />
+              </div>
+              <div>
+                <label className="block text-xs text-fg-mid mb-1">Auth Header Format</label>
+                <input type="text" className="input w-full" placeholder='Authorization: Bearer <access_token>'
+                  value={appProfile.auth?.token_header || ''} onChange={e => {
+                    setAppProfile(p => ({...p, auth: {...p.auth, token_header: e.target.value}}));
+                    setAppProfileDirty(true);
+                  }} />
+              </div>
+              <div>
+                <label className="block text-xs text-fg-mid mb-1">Request Body Format</label>
+                <input type="text" className="input w-full" placeholder='{"email": "...", "password": "..."}'
+                  value={appProfile.auth?.request_body || ''} onChange={e => {
+                    setAppProfile(p => ({...p, auth: {...p.auth, request_body: e.target.value}}));
+                    setAppProfileDirty(true);
+                  }} />
+              </div>
+              <div>
+                <label className="block text-xs text-fg-mid mb-1">Login Response Fields (comma-separated)</label>
+                <input type="text" className="input w-full" placeholder="access_token, token_type, user"
+                  value={(appProfile.auth?.response_fields || []).join(', ')} onChange={e => {
+                    setAppProfile(p => ({...p, auth: {...p.auth, response_fields: e.target.value.split(',').map(s => s.trim()).filter(Boolean)}}));
+                    setAppProfileDirty(true);
+                  }} />
+              </div>
+              <div>
+                <label className="block text-xs text-fg-mid mb-1">Test Email</label>
+                <input type="text" className="input w-full" placeholder="admin@example.com"
+                  value={appProfile.auth?.test_credentials?.email || ''} onChange={e => {
+                    setAppProfile(p => ({...p, auth: {...p.auth, test_credentials: {...(p.auth?.test_credentials || {}), email: e.target.value}}}));
+                    setAppProfileDirty(true);
+                  }} />
+              </div>
+              <div>
+                <label className="block text-xs text-fg-mid mb-1">Test Password</label>
+                <input type="password" className="input w-full" placeholder="test123"
+                  value={appProfile.auth?.test_credentials?.password || ''} onChange={e => {
+                    setAppProfile(p => ({...p, auth: {...p.auth, test_credentials: {...(p.auth?.test_credentials || {}), password: e.target.value}}}));
+                    setAppProfileDirty(true);
+                  }} />
+              </div>
+            </div>
+          </div>
+
+          {/* API Endpoints */}
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-semibold text-fg-dark">API Endpoints</h4>
+              <button onClick={() => {
+                setAppProfile(p => ({...p, api_endpoints: [...p.api_endpoints, {method: 'GET', path: '', description: '', required_fields: [], response_fields: []}]}));
+                setAppProfileDirty(true);
+              }} className="btn btn-secondary text-xs">+ Add Endpoint</button>
+            </div>
+            {appProfile.api_endpoints.length === 0 && (
+              <p className="text-sm text-fg-mid italic">No endpoints defined. Add API endpoints so test cases use correct paths and fields.</p>
+            )}
+            <div className="space-y-3">
+              {appProfile.api_endpoints.map((ep, idx) => (
+                <div key={idx} className="bg-gray-50 rounded p-3 grid grid-cols-12 gap-2 items-start">
+                  <select className="input col-span-2 text-xs" value={ep.method} onChange={e => {
+                    const eps = [...appProfile.api_endpoints]; eps[idx] = {...eps[idx], method: e.target.value};
+                    setAppProfile(p => ({...p, api_endpoints: eps})); setAppProfileDirty(true);
+                  }}>
+                    {['GET','POST','PUT','PATCH','DELETE'].map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                  <input className="input col-span-3 text-xs" placeholder="/api/endpoint" value={ep.path} onChange={e => {
+                    const eps = [...appProfile.api_endpoints]; eps[idx] = {...eps[idx], path: e.target.value};
+                    setAppProfile(p => ({...p, api_endpoints: eps})); setAppProfileDirty(true);
+                  }} />
+                  <input className="input col-span-2 text-xs" placeholder="Description" value={ep.description || ''} onChange={e => {
+                    const eps = [...appProfile.api_endpoints]; eps[idx] = {...eps[idx], description: e.target.value};
+                    setAppProfile(p => ({...p, api_endpoints: eps})); setAppProfileDirty(true);
+                  }} />
+                  <input className="input col-span-2 text-xs" placeholder="Required fields" value={(ep.required_fields || []).join(', ')} onChange={e => {
+                    const eps = [...appProfile.api_endpoints]; eps[idx] = {...eps[idx], required_fields: e.target.value.split(',').map(s => s.trim()).filter(Boolean)};
+                    setAppProfile(p => ({...p, api_endpoints: eps})); setAppProfileDirty(true);
+                  }} />
+                  <input className="input col-span-2 text-xs" placeholder="Response fields" value={(ep.response_fields || []).join(', ')} onChange={e => {
+                    const eps = [...appProfile.api_endpoints]; eps[idx] = {...eps[idx], response_fields: e.target.value.split(',').map(s => s.trim()).filter(Boolean)};
+                    setAppProfile(p => ({...p, api_endpoints: eps})); setAppProfileDirty(true);
+                  }} />
+                  <button className="col-span-1 text-red-400 hover:text-red-600 text-xs p-1" onClick={() => {
+                    setAppProfile(p => ({...p, api_endpoints: p.api_endpoints.filter((_,i) => i !== idx)}));
+                    setAppProfileDirty(true);
+                  }}>
+                    <TrashIcon className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* UI Pages */}
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-semibold text-fg-dark">UI Pages</h4>
+              <button onClick={() => {
+                setAppProfile(p => ({...p, ui_pages: [...p.ui_pages, {route: '', description: '', key_elements: []}]}));
+                setAppProfileDirty(true);
+              }} className="btn btn-secondary text-xs">+ Add Page</button>
+            </div>
+            {appProfile.ui_pages.length === 0 && (
+              <p className="text-sm text-fg-mid italic">No pages defined. Add UI pages so test cases use correct routes and selectors.</p>
+            )}
+            <div className="space-y-3">
+              {appProfile.ui_pages.map((pg, idx) => (
+                <div key={idx} className="bg-gray-50 rounded p-3 grid grid-cols-12 gap-2 items-start">
+                  <input className="input col-span-3 text-xs" placeholder="/login" value={pg.route} onChange={e => {
+                    const pgs = [...appProfile.ui_pages]; pgs[idx] = {...pgs[idx], route: e.target.value};
+                    setAppProfile(p => ({...p, ui_pages: pgs})); setAppProfileDirty(true);
+                  }} />
+                  <input className="input col-span-4 text-xs" placeholder="Description" value={pg.description || ''} onChange={e => {
+                    const pgs = [...appProfile.ui_pages]; pgs[idx] = {...pgs[idx], description: e.target.value};
+                    setAppProfile(p => ({...p, ui_pages: pgs})); setAppProfileDirty(true);
+                  }} />
+                  <input className="input col-span-4 text-xs" placeholder="Key selectors (comma-sep)" value={(pg.key_elements || []).join(', ')} onChange={e => {
+                    const pgs = [...appProfile.ui_pages]; pgs[idx] = {...pgs[idx], key_elements: e.target.value.split(',').map(s => s.trim()).filter(Boolean)};
+                    setAppProfile(p => ({...p, ui_pages: pgs})); setAppProfileDirty(true);
+                  }} />
+                  <button className="col-span-1 text-red-400 hover:text-red-600 text-xs p-1" onClick={() => {
+                    setAppProfile(p => ({...p, ui_pages: p.ui_pages.filter((_,i) => i !== idx)}));
+                    setAppProfileDirty(true);
+                  }}>
+                    <TrashIcon className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* RBAC & Notes */}
+          <div className="card p-5">
+            <h4 className="text-sm font-semibold text-fg-dark mb-3">Additional Context</h4>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs text-fg-mid mb-1">RBAC Model</label>
+                <input type="text" className="input w-full" placeholder="e.g., Filtered-data: users see only their allowed data, no 403 responses"
+                  value={appProfile.rbac_model} onChange={e => { setAppProfile(p => ({...p, rbac_model: e.target.value})); setAppProfileDirty(true); }} />
+              </div>
+              <div>
+                <label className="block text-xs text-fg-mid mb-1">Important Notes (corrections, naming conventions, gotchas)</label>
+                <textarea className="input w-full" rows={4}
+                  placeholder="e.g., Uses pipeline_stage not stage. Dashboard endpoint is /api/dashboard/stats not /api/dashboard."
+                  value={appProfile.notes} onChange={e => { setAppProfile(p => ({...p, notes: e.target.value})); setAppProfileDirty(true); }} />
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

@@ -94,6 +94,10 @@ class Project(Base):
         comment="reltio / semarchy / databricks / snowflake / talend / boomi / etc."
     )
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    app_profile: Mapped[Any] = mapped_column(
+        JSONB, nullable=True, default=None,
+        comment="Application profile: URLs, auth config, endpoints, UI pages for test generation context"
+    )
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="active",
         comment="active / completed / archived"
