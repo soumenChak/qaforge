@@ -124,8 +124,30 @@ async def execute(
                     await page.fill(password_sel, login_config["password"])
                     await page.click(submit_sel)
                     await page.wait_for_load_state("networkidle")
-                    logs.append("[Login] Login submitted successfully")
-                    assertions.append({"type": "login", "expected": "success", "actual": "success", "passed": True})
+
+                    # For SPAs: wait for URL to change away from login page
+                    # (React Router may redirect after JWT is saved to localStorage)
+                    login_path = login_url.rstrip("/")
+                    try:
+                        await page.wait_for_function(
+                            f"() => !window.location.pathname.startsWith('{login_path}')",
+                            timeout=10000,
+                        )
+                    except Exception:
+                        # If URL didn't change, try waiting a bit more — some SPAs
+                        # need extra time for the auth context to update
+                        await page.wait_for_timeout(2000)
+                        await page.wait_for_load_state("networkidle")
+
+                    final_url = page.url
+                    login_success = login_path not in final_url or final_url.rstrip("/") == app_url
+                    logs.append(f"[Login] Login submitted — final URL: {final_url}")
+                    assertions.append({"type": "login", "expected": "success", "actual": "redirected" if login_success else "still_on_login", "passed": login_success})
+                    if not login_success:
+                        passed = False
+                        logs.append("[Login] WARNING: Still on login page after submit — auth may have failed")
+                        if screenshot_on_failure:
+                            await _async_capture_screenshot(page, screenshots, "login_no_redirect", logs)
                 except Exception as e:
                     logs.append(f"[Login] FAILED: {e}")
                     assertions.append({"type": "login", "expected": "success", "actual": str(e)[:100], "passed": False})
