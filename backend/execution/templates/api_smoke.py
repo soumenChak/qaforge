@@ -163,6 +163,9 @@ async def execute(
 
         # -- Assertion 4: Body contains --
         if expected_body_contains:
+            # Ensure it's a string (LLM sometimes extracts a dict)
+            if not isinstance(expected_body_contains, str):
+                expected_body_contains = str(expected_body_contains)
             body_text = resp.text
             contains_ok = expected_body_contains.lower() in body_text.lower()
             assertions.append({
