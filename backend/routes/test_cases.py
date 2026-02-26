@@ -500,50 +500,106 @@ Return ONLY the JSON array, no other text.""")
     messages = [{"role": "user", "content": user_prompt}]
 
     # Use the smart model for generation (Sonnet instead of Haiku)
+    # 16K tokens allows ~10-15 detailed test cases with full steps
     response = provider.complete(
         system=system_prompt,
         messages=messages,
-        max_tokens=4096,
+        max_tokens=16384,
         temperature=0.4,
         model=provider.smart_model,
     )
 
-    # Parse response — strip markdown fences if present
+    logger.info(
+        "LLM response: model=%s, tokens_in=%d, tokens_out=%d, response_len=%d chars",
+        response.model, response.tokens_in, response.tokens_out, len(response.text),
+    )
+
+    # Robust JSON parsing — handle markdown fences, truncated responses, trailing commas
+    import re as _re
+
     text = response.text.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[-1]  # remove first line
-        if text.endswith("```"):
-            text = text[:-3].strip()
 
-    parsed = json.loads(text)
+    # Step 1: Strip markdown code fences
+    md_match = _re.search(r"```(?:json)?\s*\n?(.*?)```", text, _re.DOTALL)
+    if md_match:
+        text = md_match.group(1).strip()
+    elif text.startswith("```"):
+        # Truncated response — opening fence but no closing fence
+        md_open = _re.match(r"^```(?:json)?\s*\n?", text)
+        if md_open:
+            text = text[md_open.end():]
+            if text.rstrip().endswith("```"):
+                text = text.rstrip()[:-3]
+            text = text.strip()
 
-    if isinstance(parsed, list):
-        provider_name = response.provider or "unknown"
-        model_name = response.model or "unknown"
-        for item in parsed:
-            item["provider"] = provider_name
-            item["model"] = model_name
-        track_cost(
-            db,
-            user_id=user_id,
-            project_id=project_id,
-            operation_type="llm",
-            provider=provider_name,
-            model=model_name,
-            tokens_in=response.tokens_in,
-            tokens_out=response.tokens_out,
+    # Step 2: Extract JSON array
+    arr_start = text.find("[")
+    arr_end = text.rfind("]")
+    if arr_start != -1 and arr_end != -1 and arr_end > arr_start:
+        text = text[arr_start : arr_end + 1]
+
+    # Step 3: Fix trailing commas (common LLM error)
+    text = _re.sub(r",\s*(\]|\})", r"\1", text)
+
+    # Step 4: Try to parse, with truncation repair
+    parsed = None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        logger.warning(
+            "JSON parse error at pos %d: %s — attempting truncation repair",
+            exc.pos, exc.msg,
         )
-        logger.info(
-            "LLM generated %d test cases (%s/%s, %d tokens, %d KB entries used)",
-            len(parsed), provider_name, model_name,
-            response.tokens_in + response.tokens_out, kb_count,
-        )
-        # Attach KB metadata so the generate endpoint can track it
-        for item in parsed:
-            item["_kb_entries_used"] = kb_count
-        return parsed
+        # Try closing open brackets/strings to salvage partial results
+        for suffix in ["]", "}", "}]", "\"}]", "\"}]}", "null}]", "\"\"}}]"]:
+            try:
+                parsed = json.loads(text + suffix)
+                logger.info("Fixed truncated JSON with suffix: %s — salvaged %d items",
+                            suffix, len(parsed) if isinstance(parsed, list) else 0)
+                break
+            except json.JSONDecodeError:
+                continue
 
-    raise ValueError("LLM did not return a JSON array")
+    if not parsed or not isinstance(parsed, list):
+        raise ValueError(
+            f"LLM did not return a parseable JSON array "
+            f"(response length: {len(response.text)} chars, "
+            f"tokens: {response.tokens_in}+{response.tokens_out})"
+        )
+
+    # Filter out incomplete items (from truncation)
+    valid_items = []
+    for item in parsed:
+        if isinstance(item, dict) and item.get("title") and len(str(item.get("title", ""))) >= 5:
+            valid_items.append(item)
+
+    if not valid_items:
+        raise ValueError("LLM returned JSON array but no valid test case items")
+
+    provider_name = response.provider or "unknown"
+    model_name = response.model or "unknown"
+    for item in valid_items:
+        item["provider"] = provider_name
+        item["model"] = model_name
+    track_cost(
+        db,
+        user_id=user_id,
+        project_id=project_id,
+        operation_type="llm",
+        provider=provider_name,
+        model=model_name,
+        tokens_in=response.tokens_in,
+        tokens_out=response.tokens_out,
+    )
+    logger.info(
+        "LLM generated %d test cases (%s/%s, %d+%d tokens, %d KB entries used)",
+        len(valid_items), provider_name, model_name,
+        response.tokens_in, response.tokens_out, kb_count,
+    )
+    # Attach KB metadata so the generate endpoint can track it
+    for item in valid_items:
+        item["_kb_entries_used"] = kb_count
+    return valid_items
 
 
 def _mock_generate(
@@ -1115,6 +1171,64 @@ def delete_test_case(
     )
 
     return MessageResponse(message=f"Test case '{tc_display}' deleted")
+
+
+# ---------------------------------------------------------------------------
+# POST /{project_id}/test-cases/bulk-delete
+# ---------------------------------------------------------------------------
+@router.post(
+    "/{project_id}/test-cases/bulk-delete",
+    response_model=MessageResponse,
+    summary="Bulk delete test cases by IDs",
+)
+def bulk_delete_test_cases(
+    project_id: uuid.UUID,
+    body: dict,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete multiple test cases at once (used for rejecting generated TCs)."""
+    _get_project_or_404(project_id, db)
+
+    tc_ids = body.get("test_case_ids", [])
+    if not tc_ids:
+        raise HTTPException(status_code=400, detail="No test_case_ids provided")
+    if len(tc_ids) > 200:
+        raise HTTPException(status_code=400, detail="Maximum 200 test cases per bulk delete")
+
+    # Convert to UUIDs
+    try:
+        tc_uuids = [uuid.UUID(str(tid)) for tid in tc_ids]
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Invalid test case ID format")
+
+    deleted_count = (
+        db.query(TestCase)
+        .filter(
+            TestCase.id.in_(tc_uuids),
+            TestCase.project_id == project_id,
+        )
+        .delete(synchronize_session="fetch")
+    )
+    db.flush()
+
+    audit_log(
+        db,
+        user_id=current_user.id,
+        action="bulk_delete_test_cases",
+        entity_type="test_case",
+        entity_id=str(project_id),
+        details={"requested": len(tc_ids), "deleted": deleted_count},
+        ip_address=get_client_ip(request),
+    )
+
+    logger.info("Bulk deleted %d test cases for project %s", deleted_count, project_id)
+
+    return MessageResponse(
+        message=f"Deleted {deleted_count} test cases",
+        detail=f"Requested: {len(tc_ids)}, deleted: {deleted_count}",
+    )
 
 
 # ---------------------------------------------------------------------------

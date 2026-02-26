@@ -81,6 +81,8 @@ export const testCasesAPI = {
   getById: (projectId, tcId) => api.get(`/projects/${projectId}/test-cases/${tcId}`),
   update: (projectId, tcId, data) => api.put(`/projects/${projectId}/test-cases/${tcId}`, data),
   delete: (projectId, tcId) => api.delete(`/projects/${projectId}/test-cases/${tcId}`),
+  bulkDelete: (projectId, testCaseIds) =>
+    api.post(`/projects/${projectId}/test-cases/bulk-delete`, { test_case_ids: testCaseIds }),
   rate: (projectId, tcId, data) => api.post(`/projects/${projectId}/test-cases/${tcId}/rate`, data),
   exportExcel: (projectId, data) =>
     api.post(`/projects/${projectId}/test-cases/export`, data, { responseType: 'blob' }),

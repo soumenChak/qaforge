@@ -277,6 +277,26 @@ export default function TestCaseGenerator() {
   const approvedCount = Object.values(decisions).filter((d) => d === 'approve').length;
   const rejectedCount = Object.values(decisions).filter((d) => d === 'reject').length;
 
+  // Finalize: delete rejected TCs from DB, then navigate to project
+  const [finalizing, setFinalizing] = useState(false);
+  const handleFinalize = async () => {
+    const rejectedIds = Object.entries(decisions)
+      .filter(([, d]) => d === 'reject')
+      .map(([tcId]) => tcId);
+
+    if (rejectedIds.length > 0) {
+      setFinalizing(true);
+      try {
+        await testCasesAPI.bulkDelete(id, rejectedIds);
+      } catch (err) {
+        console.error('Failed to delete rejected TCs:', err);
+        // Still navigate even if delete fails
+      }
+      setFinalizing(false);
+    }
+    navigate(`/projects/${id}`);
+  };
+
   // Count total context sources being used
   const contextSourceCount =
     (requirements.length > 0 ? 1 : 0) +
@@ -877,10 +897,20 @@ export default function TestCaseGenerator() {
               <span className="text-red-500 font-medium">{rejectedCount} rejected</span>
             </div>
             <button
-              onClick={() => navigate(`/projects/${id}`)}
-              className="btn-primary text-sm"
+              onClick={handleFinalize}
+              disabled={finalizing}
+              className="btn-primary text-sm flex items-center gap-2"
             >
-              Done -- View Project
+              {finalizing ? (
+                <>
+                  <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                  Removing rejected...
+                </>
+              ) : rejectedCount > 0 ? (
+                `Confirm — Keep ${approvedCount}, Remove ${rejectedCount}`
+              ) : (
+                'Done — View Project'
+              )}
             </button>
           </div>
 
