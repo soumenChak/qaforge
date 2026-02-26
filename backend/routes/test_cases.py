@@ -109,7 +109,8 @@ def generate_test_cases(
     project = _get_project_or_404(project_id, db)
     start_time = time.time()
 
-    # Gather requirement context if IDs provided
+    # ── Gather requirement context ──
+    # If specific IDs provided, use those; otherwise auto-fetch ALL project requirements
     requirement_context = ""
     if body.requirement_ids:
         reqs = (
@@ -120,9 +121,60 @@ def generate_test_cases(
             )
             .all()
         )
-        requirement_context = "\n".join(
-            f"- {r.req_id}: {r.title} -- {r.description or ''}" for r in reqs
+    else:
+        # Auto-fetch all active requirements for the project
+        reqs = (
+            db.query(Requirement)
+            .filter(
+                Requirement.project_id == project_id,
+                Requirement.status != "deferred",
+            )
+            .order_by(Requirement.created_at.asc())
+            .limit(50)
+            .all()
         )
+
+    if reqs:
+        requirement_context = "\n".join(
+            f"- [{r.priority.upper()}] {r.req_id}: {r.title} -- {r.description or ''}" for r in reqs
+        )
+        logger.info("Requirements context: %d entries for project %s", len(reqs), project.name)
+
+    # ── Gather BRD/PRD document text ──
+    brd_prd_context = ""
+    if body.brd_prd_text and body.brd_prd_text.strip():
+        brd_prd_context = body.brd_prd_text.strip()[:8000]
+        logger.info("BRD/PRD context: %d chars", len(brd_prd_context))
+
+    # ── Gather reference test cases ──
+    reference_tc_context = ""
+    if body.reference_test_case_ids:
+        ref_tcs = (
+            db.query(TestCase)
+            .filter(
+                TestCase.id.in_(body.reference_test_case_ids),
+                TestCase.project_id == project_id,
+            )
+            .limit(10)
+            .all()
+        )
+        if ref_tcs:
+            ref_lines = []
+            for tc in ref_tcs:
+                steps_summary = ""
+                if tc.test_steps:
+                    steps_summary = " | ".join(
+                        f"Step {s.get('step_number', '?')}: {s.get('action', '')}"
+                        for s in tc.test_steps[:5]
+                    )
+                ref_lines.append(
+                    f"- {tc.test_case_id} [{tc.execution_type}] {tc.title}\n"
+                    f"  Description: {tc.description or 'N/A'}\n"
+                    f"  Steps: {steps_summary or 'N/A'}\n"
+                    f"  Expected: {tc.expected_result or 'N/A'}"
+                )
+            reference_tc_context = "\n".join(ref_lines)
+            logger.info("Reference TCs: %d loaded", len(ref_tcs))
 
     # Try the real pipeline first
     generated = _generate_via_pipeline(
@@ -135,6 +187,8 @@ def generate_test_cases(
         project_id=project_id,
         user_id=current_user.id,
         db=db,
+        brd_prd_context=brd_prd_context,
+        reference_tc_context=reference_tc_context,
     )
 
     # Save generated test cases to DB
@@ -244,11 +298,14 @@ def _generate_via_pipeline(
     project_id: uuid.UUID,
     user_id: uuid.UUID,
     db: Session,
+    brd_prd_context: str = "",
+    reference_tc_context: str = "",
 ) -> list[dict]:
     """
     Call the pipeline orchestrator to generate test cases.
 
-    Falls back to mock generation if the pipeline is not importable.
+    Falls back to direct LLM generation if the pipeline is not importable.
+    Falls back to mock generation if LLM also fails.
     """
     # Try importing the real pipeline (async orchestrator)
     try:
@@ -288,6 +345,8 @@ def _generate_via_pipeline(
             project_id=project_id,
             user_id=user_id,
             db=db,
+            brd_prd_context=brd_prd_context,
+            reference_tc_context=reference_tc_context,
         )
     except Exception:
         logger.warning("LLM generation failed; using mock fallback", exc_info=True)
@@ -306,8 +365,10 @@ def _generate_via_llm(
     project_id: uuid.UUID,
     user_id: uuid.UUID,
     db: Session,
+    brd_prd_context: str = "",
+    reference_tc_context: str = "",
 ) -> list[dict]:
-    """Generate test cases by calling the LLM provider directly."""
+    """Generate test cases by calling the LLM provider directly (uses smart model)."""
     from core.llm_provider import get_llm_provider
 
     # ── Query Knowledge Base for domain-relevant context ──
@@ -350,17 +411,47 @@ You understand three execution modes:
 Your test steps must be CONCRETE and SPECIFIC — never vague like "verify the page works".
 Instead: "GET /api/users returns 200 with fields: id, name, email" or "Click button#submit, assert .success-toast is visible".
 
+IMPORTANT: You have been provided with the system description, requirements from BRD/PRD documents,
+and possibly reference test cases. Use ALL of this context to generate high-quality, domain-specific
+test cases that thoroughly cover the described system's functionality, edge cases, and integration points.
+
 Return ONLY a JSON array — no markdown fences, no explanation."""
 
-    user_prompt = f"""Generate exactly {count} EXECUTION-READY test cases for the following system.
+    # ── Build rich user prompt with all available context ──
+    user_prompt_parts = [f"Generate exactly {count} EXECUTION-READY test cases for the following system."]
 
-System Description:
-{description[:4000]}
+    user_prompt_parts.append(f"\n=== SYSTEM DESCRIPTION ===\n{description[:4000]}")
 
-{f"Requirements Context:{chr(10)}{requirement_context[:3000]}" if requirement_context else ""}
-{f"Additional Context:{chr(10)}{additional_context[:2000]}" if additional_context else ""}
-{f"{chr(10)}=== KNOWLEDGE BASE REFERENCE (use these patterns to improve test quality) ==={chr(10)}{kb_context}" if kb_context else ""}
+    if brd_prd_context:
+        user_prompt_parts.append(
+            f"\n=== BRD/PRD DOCUMENT CONTEXT ===\n"
+            f"The following is extracted from the project's BRD/PRD documents. "
+            f"Use this to understand the business requirements, acceptance criteria, "
+            f"and expected system behavior:\n{brd_prd_context[:6000]}"
+        )
 
+    if requirement_context:
+        user_prompt_parts.append(
+            f"\n=== REQUIREMENTS / USE CASES ===\n"
+            f"Generate test cases that cover these specific requirements:\n{requirement_context[:4000]}"
+        )
+
+    if reference_tc_context:
+        user_prompt_parts.append(
+            f"\n=== REFERENCE TEST CASES (match this style and level of detail) ===\n"
+            f"Use these existing test cases as examples of the expected format, "
+            f"detail level, and naming conventions:\n{reference_tc_context[:3000]}"
+        )
+
+    if additional_context:
+        user_prompt_parts.append(f"\n=== ADDITIONAL CONTEXT ===\n{additional_context[:2000]}")
+
+    if kb_context:
+        user_prompt_parts.append(
+            f"\n=== KNOWLEDGE BASE REFERENCE (use these patterns to improve test quality) ===\n{kb_context}"
+        )
+
+    user_prompt_parts.append(f"""
 For each test case, return a JSON object with ALL of these fields:
 
 - "title": Concise test case title (e.g. "Verify user login API returns JWT token")
@@ -398,16 +489,23 @@ For "sql" test cases, each step MUST include actual SQL queries:
 - API tests: include the full endpoint path starting with /
 - Make test data realistic but safe (use example.com emails, test passwords, etc.)
 - Each test case should be independently executable (no dependencies between test cases)
+- If requirements are provided, ensure EACH requirement has at least one corresponding test case
+- If BRD/PRD context is provided, derive test scenarios from the business rules and acceptance criteria described
 
-Return ONLY the JSON array, no other text."""
+Return ONLY the JSON array, no other text.""")
+
+    user_prompt = "\n".join(user_prompt_parts)
 
     provider = get_llm_provider()
     messages = [{"role": "user", "content": user_prompt}]
+
+    # Use the smart model for generation (Sonnet instead of Haiku)
     response = provider.complete(
         system=system_prompt,
         messages=messages,
         max_tokens=4096,
         temperature=0.4,
+        model=provider.smart_model,
     )
 
     # Parse response — strip markdown fences if present

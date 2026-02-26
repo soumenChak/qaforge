@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { projectsAPI, testCasesAPI, templatesAPI, knowledgeAPI } from '../services/api';
+import { projectsAPI, testCasesAPI, templatesAPI, knowledgeAPI, requirementsAPI } from '../services/api';
 import {
   SparklesIcon,
   CheckCircleIcon,
@@ -10,6 +10,10 @@ import {
   ClockIcon,
   CpuChipIcon,
   BookOpenIcon,
+  DocumentTextIcon,
+  ClipboardDocumentListIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
 } from '@heroicons/react/24/outline';
 
 const STEPS = [
@@ -39,6 +43,20 @@ export default function TestCaseGenerator() {
   const [category, setCategory] = useState('');
   const [executionType, setExecutionType] = useState('');
 
+  // Requirements context
+  const [requirements, setRequirements] = useState([]);
+  const [selectedReqIds, setSelectedReqIds] = useState(new Set());
+  const [showReqPanel, setShowReqPanel] = useState(false);
+
+  // BRD/PRD context
+  const [brdPrdText, setBrdPrdText] = useState('');
+  const [showBrdPanel, setShowBrdPanel] = useState(false);
+
+  // Reference test cases
+  const [existingTestCases, setExistingTestCases] = useState([]);
+  const [selectedRefTcIds, setSelectedRefTcIds] = useState(new Set());
+  const [showRefPanel, setShowRefPanel] = useState(false);
+
   // Knowledge Base context
   const [kbCount, setKbCount] = useState(0);
   const [kbEntries, setKbEntries] = useState([]);
@@ -66,6 +84,7 @@ export default function TestCaseGenerator() {
 
   useEffect(() => { loadProject(); }, [loadProject]);
 
+  // Load templates
   useEffect(() => {
     const loadTemplates = async () => {
       try {
@@ -77,6 +96,38 @@ export default function TestCaseGenerator() {
     };
     loadTemplates();
   }, []);
+
+  // Load project requirements
+  useEffect(() => {
+    if (!id) return;
+    const loadRequirements = async () => {
+      try {
+        const res = await requirementsAPI.list(id);
+        setRequirements(res.data || []);
+        // Auto-select all requirements by default
+        if (res.data?.length > 0) {
+          setSelectedReqIds(new Set(res.data.map((r) => r.id)));
+        }
+      } catch (err) {
+        // Requirements are optional
+      }
+    };
+    loadRequirements();
+  }, [id]);
+
+  // Load existing test cases (for reference selection)
+  useEffect(() => {
+    if (!id) return;
+    const loadExistingTCs = async () => {
+      try {
+        const res = await testCasesAPI.list(id, { limit: 100 });
+        setExistingTestCases(res.data || []);
+      } catch (err) {
+        // Reference TCs are optional
+      }
+    };
+    loadExistingTCs();
+  }, [id]);
 
   // Load KB entries count for the project's domain
   useEffect(() => {
@@ -109,6 +160,9 @@ export default function TestCaseGenerator() {
     const startTime = Date.now();
 
     try {
+      const reqIds = selectedReqIds.size > 0 ? Array.from(selectedReqIds) : null;
+      const refTcIds = selectedRefTcIds.size > 0 ? Array.from(selectedRefTcIds) : null;
+
       const res = await testCasesAPI.generate(id, {
         description,
         domain: project?.domain,
@@ -119,6 +173,9 @@ export default function TestCaseGenerator() {
         priority: priority || null,
         category: category || null,
         execution_type: executionType || null,
+        requirement_ids: reqIds,
+        brd_prd_text: brdPrdText.trim() || null,
+        reference_test_case_ids: refTcIds,
       });
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -139,8 +196,29 @@ export default function TestCaseGenerator() {
     }
   };
 
+  const toggleReq = (reqId) => {
+    const next = new Set(selectedReqIds);
+    if (next.has(reqId)) next.delete(reqId);
+    else next.add(reqId);
+    setSelectedReqIds(next);
+  };
+
+  const toggleRefTc = (tcId) => {
+    const next = new Set(selectedRefTcIds);
+    if (next.has(tcId)) next.delete(tcId);
+    else next.add(tcId);
+    setSelectedRefTcIds(next);
+  };
+
   const approvedCount = Object.values(decisions).filter((d) => d === 'approve').length;
   const rejectedCount = Object.values(decisions).filter((d) => d === 'reject').length;
+
+  // Count total context sources being used
+  const contextSourceCount =
+    (requirements.length > 0 ? 1 : 0) +
+    (brdPrdText.trim() ? 1 : 0) +
+    (selectedRefTcIds.size > 0 ? 1 : 0) +
+    (kbCount > 0 ? 1 : 0);
 
   if (loading || !project) {
     return (
@@ -236,7 +314,220 @@ export default function TestCaseGenerator() {
             </div>
           )}
 
+          {/* Context sources summary */}
+          {contextSourceCount > 0 && (
+            <div className="mb-5 p-3 rounded-lg bg-gradient-to-r from-teal-50 to-green-50 border border-teal-200">
+              <div className="flex items-center gap-2 text-sm text-teal-800 font-medium">
+                <SparklesIcon className="w-4 h-4 text-teal-600" />
+                Generation will use {contextSourceCount} context {contextSourceCount === 1 ? 'source' : 'sources'}:
+                <span className="flex gap-1 flex-wrap">
+                  {requirements.length > 0 && (
+                    <span className="badge text-xs bg-teal-100 text-teal-700">{selectedReqIds.size} requirements</span>
+                  )}
+                  {brdPrdText.trim() && (
+                    <span className="badge text-xs bg-blue-100 text-blue-700">BRD/PRD</span>
+                  )}
+                  {selectedRefTcIds.size > 0 && (
+                    <span className="badge text-xs bg-purple-100 text-purple-700">{selectedRefTcIds.size} reference TCs</span>
+                  )}
+                  {kbCount > 0 && (
+                    <span className="badge text-xs bg-green-100 text-green-700">{kbCount} KB entries</span>
+                  )}
+                </span>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-5">
+            {/* ═══ Requirements / Use Cases Panel ═══ */}
+            {requirements.length > 0 && (
+              <div className="border border-teal-200 rounded-lg overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowReqPanel(!showReqPanel)}
+                  className="w-full flex items-center justify-between p-3 bg-teal-50 hover:bg-teal-100 transition-colors"
+                >
+                  <div className="flex items-center gap-2 text-sm font-medium text-teal-800">
+                    <ClipboardDocumentListIcon className="w-4 h-4 text-teal-600" />
+                    Requirements / Use Cases
+                    <span className="badge text-xs bg-teal-200 text-teal-800">
+                      {selectedReqIds.size}/{requirements.length} selected
+                    </span>
+                  </div>
+                  {showReqPanel ? (
+                    <ChevronUpIcon className="w-4 h-4 text-teal-600" />
+                  ) : (
+                    <ChevronDownIcon className="w-4 h-4 text-teal-600" />
+                  )}
+                </button>
+                {showReqPanel && (
+                  <div className="p-3 space-y-2 max-h-60 overflow-y-auto bg-white">
+                    <div className="flex justify-between mb-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedReqIds(new Set(requirements.map((r) => r.id)))}
+                        className="text-xs text-teal-600 hover:text-teal-800 font-medium"
+                      >
+                        Select All
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedReqIds(new Set())}
+                        className="text-xs text-gray-500 hover:text-gray-700 font-medium"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    {requirements.map((req) => (
+                      <label
+                        key={req.id}
+                        className="flex items-start gap-2 p-2 rounded-lg hover:bg-gray-50 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedReqIds.has(req.id)}
+                          onChange={() => toggleReq(req.id)}
+                          className="mt-0.5 rounded border-gray-300 text-fg-teal focus:ring-fg-teal"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono font-bold text-teal-700">{req.req_id}</span>
+                            <span className={`badge text-[10px] ${
+                              req.priority === 'high' ? 'bg-red-100 text-red-700' :
+                              req.priority === 'medium' ? 'bg-orange-100 text-orange-700' :
+                              'bg-gray-100 text-gray-600'
+                            }`}>
+                              {req.priority}
+                            </span>
+                            {req.source && (
+                              <span className="badge text-[10px] bg-blue-50 text-blue-600">{req.source}</span>
+                            )}
+                          </div>
+                          <p className="text-sm text-fg-dark mt-0.5">{req.title}</p>
+                          {req.description && (
+                            <p className="text-xs text-fg-mid mt-0.5 line-clamp-2">{req.description}</p>
+                          )}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ═══ BRD/PRD Document Context ═══ */}
+            <div className="border border-blue-200 rounded-lg overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowBrdPanel(!showBrdPanel)}
+                className="w-full flex items-center justify-between p-3 bg-blue-50 hover:bg-blue-100 transition-colors"
+              >
+                <div className="flex items-center gap-2 text-sm font-medium text-blue-800">
+                  <DocumentTextIcon className="w-4 h-4 text-blue-600" />
+                  BRD / PRD Document Text
+                  {brdPrdText.trim() && (
+                    <span className="badge text-xs bg-blue-200 text-blue-800">
+                      {brdPrdText.trim().split(/\s+/).length} words
+                    </span>
+                  )}
+                </div>
+                {showBrdPanel ? (
+                  <ChevronUpIcon className="w-4 h-4 text-blue-600" />
+                ) : (
+                  <ChevronDownIcon className="w-4 h-4 text-blue-600" />
+                )}
+              </button>
+              {showBrdPanel && (
+                <div className="p-3 bg-white">
+                  <p className="text-xs text-fg-mid mb-2">
+                    Paste BRD/PRD content here for richer, more accurate test generation. The AI will use business rules, acceptance criteria, and feature descriptions to create targeted test cases.
+                  </p>
+                  <textarea
+                    value={brdPrdText}
+                    onChange={(e) => setBrdPrdText(e.target.value)}
+                    placeholder="Paste your BRD/PRD document content here...&#10;&#10;e.g., Feature: User Authentication&#10;- Users must be able to login with email and password&#10;- Failed login attempts should be rate-limited after 5 tries&#10;- Password reset via email link with 24h expiry..."
+                    rows={8}
+                    className="input-field text-sm"
+                  />
+                  <p className="text-xs text-fg-mid mt-1">
+                    {brdPrdText.length > 0 ? `${brdPrdText.length.toLocaleString()} characters` : 'No content yet'} • Max ~8,000 characters will be sent
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* ═══ Reference Test Cases ═══ */}
+            {existingTestCases.length > 0 && (
+              <div className="border border-purple-200 rounded-lg overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowRefPanel(!showRefPanel)}
+                  className="w-full flex items-center justify-between p-3 bg-purple-50 hover:bg-purple-100 transition-colors"
+                >
+                  <div className="flex items-center gap-2 text-sm font-medium text-purple-800">
+                    <ClipboardDocumentListIcon className="w-4 h-4 text-purple-600" />
+                    Reference Test Cases (style guide)
+                    {selectedRefTcIds.size > 0 && (
+                      <span className="badge text-xs bg-purple-200 text-purple-800">
+                        {selectedRefTcIds.size} selected
+                      </span>
+                    )}
+                  </div>
+                  {showRefPanel ? (
+                    <ChevronUpIcon className="w-4 h-4 text-purple-600" />
+                  ) : (
+                    <ChevronDownIcon className="w-4 h-4 text-purple-600" />
+                  )}
+                </button>
+                {showRefPanel && (
+                  <div className="p-3 space-y-2 max-h-60 overflow-y-auto bg-white">
+                    <p className="text-xs text-fg-mid mb-2">
+                      Select existing test cases as examples — the AI will match their style, detail level, and format.
+                    </p>
+                    {existingTestCases.slice(0, 20).map((tc) => (
+                      <label
+                        key={tc.id}
+                        className="flex items-start gap-2 p-2 rounded-lg hover:bg-gray-50 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedRefTcIds.has(tc.id)}
+                          onChange={() => toggleRefTc(tc.id)}
+                          className="mt-0.5 rounded border-gray-300 text-purple-500 focus:ring-purple-500"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono font-bold text-purple-700">{tc.test_case_id}</span>
+                            <span className={`badge text-[10px] ${
+                              tc.execution_type === 'api' ? 'bg-indigo-100 text-indigo-700' :
+                              tc.execution_type === 'ui' ? 'bg-purple-100 text-purple-700' :
+                              tc.execution_type === 'sql' ? 'bg-amber-100 text-amber-700' :
+                              'bg-gray-100 text-gray-600'
+                            }`}>
+                              {tc.execution_type}
+                            </span>
+                            <span className={`badge text-[10px] ${
+                              tc.priority === 'P1' ? 'bg-red-100 text-red-700' :
+                              tc.priority === 'P2' ? 'bg-orange-100 text-orange-700' :
+                              'bg-gray-100 text-gray-600'
+                            }`}>
+                              {tc.priority}
+                            </span>
+                          </div>
+                          <p className="text-sm text-fg-dark mt-0.5 truncate">{tc.title}</p>
+                        </div>
+                      </label>
+                    ))}
+                    {existingTestCases.length > 20 && (
+                      <p className="text-xs text-fg-mid text-center py-1">
+                        Showing first 20 of {existingTestCases.length} test cases
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Count slider */}
             <div>
               <label className="label">Number of Test Cases: <strong>{count}</strong></label>
@@ -404,15 +695,29 @@ export default function TestCaseGenerator() {
             <SparklesIcon className="w-8 h-8 text-fg-teal animate-pulse" />
           </div>
           <h2 className="text-lg font-bold text-fg-navy mb-2">Generating Test Cases</h2>
-          <p className="text-sm text-fg-mid mb-6">
-            Our AI agents are analyzing your description and creating comprehensive test cases...
+          <p className="text-sm text-fg-mid mb-4">
+            Using Claude Sonnet with {contextSourceCount > 0 ? `${contextSourceCount} context sources` : 'your description'}...
           </p>
+          <div className="flex justify-center gap-3 mb-6 flex-wrap">
+            {requirements.length > 0 && selectedReqIds.size > 0 && (
+              <span className="badge text-xs bg-teal-100 text-teal-700">📋 {selectedReqIds.size} requirements</span>
+            )}
+            {brdPrdText.trim() && (
+              <span className="badge text-xs bg-blue-100 text-blue-700">📄 BRD/PRD context</span>
+            )}
+            {selectedRefTcIds.size > 0 && (
+              <span className="badge text-xs bg-purple-100 text-purple-700">📎 {selectedRefTcIds.size} reference TCs</span>
+            )}
+            {kbCount > 0 && (
+              <span className="badge text-xs bg-green-100 text-green-700">📚 {kbCount} KB patterns</span>
+            )}
+          </div>
           <div className="w-64 mx-auto">
             <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
               <div className="h-full bg-gradient-to-r from-fg-teal to-fg-green rounded-full animate-pulse" style={{ width: '75%' }} />
             </div>
           </div>
-          <p className="text-xs text-fg-mid mt-3">This may take 15-60 seconds depending on complexity</p>
+          <p className="text-xs text-fg-mid mt-3">This may take 30-90 seconds with full context</p>
         </div>
       )}
 
@@ -484,6 +789,16 @@ export default function TestCaseGenerator() {
                           {tc.priority}
                         </span>
                         <span className="badge badge-gray text-xs capitalize">{tc.category}</span>
+                        {tc.execution_type && (
+                          <span className={`badge text-xs ${
+                            tc.execution_type === 'api' ? 'bg-indigo-100 text-indigo-700' :
+                            tc.execution_type === 'ui' ? 'bg-purple-100 text-purple-700' :
+                            tc.execution_type === 'sql' ? 'bg-amber-100 text-amber-700' :
+                            'bg-gray-100 text-gray-600'
+                          }`}>
+                            {tc.execution_type}
+                          </span>
+                        )}
                       </div>
                       <p className="text-sm font-medium text-fg-dark">{tc.title}</p>
                       {tc.description && (

@@ -283,6 +283,10 @@ class TestCaseGenerateRequest(BaseModel):
     requirement_ids: Optional[List[uuid.UUID]] = None
     template_id: Optional[uuid.UUID] = None
     additional_context: Optional[str] = None
+    brd_prd_text: Optional[str] = Field(None, description="BRD/PRD document text for richer context")
+    reference_test_case_ids: Optional[List[uuid.UUID]] = Field(
+        None, description="Existing test case IDs to use as reference examples"
+    )
     count: int = Field(default=10, ge=1, le=100)
     priority: Optional[str] = Field(None, pattern=r"^(P1|P2|P3|P4)$")
     category: Optional[str] = Field(
