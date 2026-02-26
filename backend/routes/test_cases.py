@@ -589,6 +589,7 @@ def create_test_case(
         priority=body.priority,
         category=body.category,
         domain_tags=body.domain_tags,
+        execution_type=body.execution_type,
         source=body.source,
         status="draft",
         created_by=current_user.id,
@@ -607,6 +608,301 @@ def create_test_case(
     )
 
     return TestCaseResponse.model_validate(tc)
+
+
+# ---------------------------------------------------------------------------
+# GET /{project_id}/test-cases/upload-template
+# ---------------------------------------------------------------------------
+@router.get(
+    "/{project_id}/test-cases/upload-template",
+    summary="Download blank Excel template for bulk upload",
+)
+def download_upload_template(
+    project_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns a pre-formatted Excel template with headers, validation notes,
+    and 2 example rows so users know what format to use for bulk upload.
+    """
+    _get_project_or_404(project_id, db)
+
+    import openpyxl
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Test Cases"
+
+    # Header style
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    header_fill = PatternFill(start_color="2E5090", end_color="2E5090", fill_type="solid")
+    note_font = Font(italic=True, color="888888", size=9)
+
+    headers = [
+        "Test Case ID *",
+        "Title *",
+        "Description",
+        "Preconditions",
+        "Priority",
+        "Category",
+        "Execution Type",
+        "Test Steps",
+        "Expected Result",
+    ]
+
+    # Write headers
+    for col_idx, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+
+    # Validation notes row
+    notes = [
+        "Unique ID, e.g. TC-001",
+        "Short descriptive title",
+        "What does this test validate?",
+        "Setup steps needed before test",
+        "P1 / P2 / P3 / P4",
+        "functional / integration / regression / smoke / e2e",
+        "api / ui / sql / manual",
+        "Format: 1. Action -> Expected\n2. Action -> Expected",
+        "Overall expected outcome",
+    ]
+    for col_idx, note in enumerate(notes, 1):
+        cell = ws.cell(row=2, column=col_idx, value=note)
+        cell.font = note_font
+        cell.alignment = Alignment(wrap_text=True)
+
+    # Example rows
+    examples = [
+        [
+            "TC-001",
+            "Verify user login returns JWT",
+            "Test that valid credentials return a JWT access token",
+            "Test user exists: test@example.com / pass123",
+            "P1",
+            "functional",
+            "api",
+            '1. POST /api/auth/login with {"email":"test@example.com","password":"pass123"} -> Returns 200 with access_token\n2. Decode JWT -> Contains user_id and exp fields',
+            "User receives a valid JWT token on successful login",
+        ],
+        [
+            "TC-002",
+            "Verify dashboard loads after login",
+            "Test that authenticated user can see the dashboard",
+            "User is logged in with valid session",
+            "P2",
+            "ui",
+            "ui",
+            "1. Navigate to /dashboard -> Page loads with heading 'Dashboard'\n2. Assert sidebar menu has 'Projects' link -> Link is visible and clickable",
+            "Dashboard page renders correctly with navigation",
+        ],
+    ]
+    for row_idx, example in enumerate(examples, 3):
+        for col_idx, value in enumerate(example, 1):
+            cell = ws.cell(row=row_idx, column=col_idx, value=value)
+            cell.alignment = Alignment(wrap_text=True)
+
+    # Column widths
+    widths = [16, 35, 35, 30, 10, 15, 15, 60, 35]
+    for col_idx, width in enumerate(widths, 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = width
+
+    # Freeze top 2 rows
+    ws.freeze_panes = "A3"
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename=test_case_template_{project_id}.xlsx"
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /{project_id}/test-cases/bulk-upload — MUST be before {tc_id} routes
+# ---------------------------------------------------------------------------
+@router.post(
+    "/{project_id}/test-cases/bulk-upload",
+    summary="Bulk upload test cases from Excel file",
+    status_code=status.HTTP_201_CREATED,
+)
+async def bulk_upload_test_cases(
+    project_id: uuid.UUID,
+    request: Request,
+    file: UploadFile = File(..., description="Excel (.xlsx) file with test cases"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Parse an uploaded Excel file and create test cases in bulk.
+
+    Expects columns matching the download template:
+    Test Case ID, Title, Description, Preconditions, Priority, Category,
+    Execution Type, Test Steps, Expected Result.
+
+    Skips the notes row (row 2) and example rows if present.
+    Returns a summary of created / skipped / errored rows.
+    """
+    _get_project_or_404(project_id, db)
+
+    if not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="Only Excel files (.xlsx) are supported. Download the template first.",
+        )
+
+    import openpyxl
+
+    try:
+        content = await file.read()
+        wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+        ws = wb.active
+    except Exception as exc:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot read Excel file: {exc}",
+        )
+
+    # Parse rows (skip header row 1 and notes row 2)
+    created = []
+    skipped = []
+    errors = []
+
+    # Get the next TC number for auto-ID generation
+    max_tc = (
+        db.query(TestCase.test_case_id)
+        .filter(TestCase.project_id == project_id)
+        .all()
+    )
+    existing_ids = {row[0] for row in max_tc}
+
+    VALID_PRIORITIES = {"P1", "P2", "P3", "P4"}
+    VALID_CATEGORIES = {"functional", "integration", "regression", "smoke", "e2e"}
+    VALID_EXEC_TYPES = {"api", "ui", "sql", "manual"}
+
+    for row_idx, row in enumerate(ws.iter_rows(min_row=3, values_only=True), start=3):
+        # Skip completely empty rows
+        if not row or all(cell is None or str(cell).strip() == "" for cell in row):
+            continue
+
+        # Pad row to 9 columns
+        cells = list(row) + [None] * max(0, 9 - len(row))
+        tc_id = str(cells[0] or "").strip()
+        title = str(cells[1] or "").strip()
+
+        # Skip notes/example hint rows
+        if tc_id.lower().startswith("unique id") or title.lower().startswith("short descriptive"):
+            continue
+
+        # Validate required fields
+        if not tc_id or not title:
+            errors.append({"row": row_idx, "error": "Missing Test Case ID or Title"})
+            continue
+
+        if tc_id in existing_ids:
+            skipped.append({"row": row_idx, "tc_id": tc_id, "reason": "Duplicate ID"})
+            continue
+
+        description = str(cells[2] or "").strip() or None
+        preconditions = str(cells[3] or "").strip() or None
+        priority = str(cells[4] or "P2").strip().upper()
+        category = str(cells[5] or "functional").strip().lower()
+        exec_type = str(cells[6] or "manual").strip().lower()
+        steps_text = str(cells[7] or "").strip()
+        expected_result = str(cells[8] or "").strip() or None
+
+        # Validate enum values
+        if priority not in VALID_PRIORITIES:
+            priority = "P2"
+        if category not in VALID_CATEGORIES:
+            category = "functional"
+        if exec_type not in VALID_EXEC_TYPES:
+            exec_type = "manual"
+
+        # Parse test steps from text format: "1. Action -> Expected\n2. ..."
+        test_steps = None
+        if steps_text:
+            test_steps = []
+            import re
+            step_lines = re.split(r"\n+", steps_text)
+            for snum, line in enumerate(step_lines, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                # Remove leading step number like "1." or "1)"
+                line = re.sub(r"^\d+[\.\)]\s*", "", line)
+                if " -> " in line:
+                    action, exp = line.split(" -> ", 1)
+                else:
+                    action, exp = line, ""
+                test_steps.append({
+                    "step_number": snum,
+                    "action": action.strip(),
+                    "expected_result": exp.strip(),
+                })
+
+        try:
+            tc = TestCase(
+                project_id=project_id,
+                test_case_id=tc_id,
+                title=sanitize_string(title) or title,
+                description=sanitize_string(description) if description else None,
+                preconditions=sanitize_string(preconditions) if preconditions else None,
+                test_steps=test_steps,
+                expected_result=sanitize_string(expected_result) if expected_result else None,
+                priority=priority,
+                category=category,
+                execution_type=exec_type,
+                source="manual",
+                status="draft",
+                created_by=current_user.id,
+            )
+            db.add(tc)
+            db.flush()
+            existing_ids.add(tc_id)
+            created.append({"row": row_idx, "tc_id": tc_id, "title": title})
+        except Exception as exc:
+            db.rollback()
+            errors.append({"row": row_idx, "tc_id": tc_id, "error": str(exc)})
+
+    # Commit all successful creates
+    if created:
+        db.commit()
+
+    audit_log(
+        db,
+        user_id=current_user.id,
+        action="bulk_upload_test_cases",
+        entity_type="test_case",
+        entity_id=str(project_id),
+        details={
+            "created": len(created),
+            "skipped": len(skipped),
+            "errors": len(errors),
+            "filename": file.filename,
+        },
+        ip_address=get_client_ip(request),
+    )
+
+    return {
+        "created": len(created),
+        "skipped": len(skipped),
+        "errors": len(errors),
+        "details": {
+            "created": created,
+            "skipped": skipped,
+            "errors": errors,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -920,301 +1216,6 @@ def export_test_cases(
         # Fallback to CSV if openpyxl not installed
         logger.warning("openpyxl not installed; falling back to CSV export")
         return _export_csv(test_cases, project_id, body, current_user, request, db)
-
-
-# ---------------------------------------------------------------------------
-# GET /{project_id}/test-cases/upload-template
-# ---------------------------------------------------------------------------
-@router.get(
-    "/{project_id}/test-cases/upload-template",
-    summary="Download blank Excel template for bulk upload",
-)
-def download_upload_template(
-    project_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Returns a pre-formatted Excel template with headers, validation notes,
-    and 2 example rows so users know what format to use for bulk upload.
-    """
-    _get_project_or_404(project_id, db)
-
-    import openpyxl
-    from openpyxl.styles import Alignment, Font, PatternFill
-
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Test Cases"
-
-    # Header style
-    header_font = Font(bold=True, color="FFFFFF", size=11)
-    header_fill = PatternFill(start_color="2E5090", end_color="2E5090", fill_type="solid")
-    note_font = Font(italic=True, color="888888", size=9)
-
-    headers = [
-        "Test Case ID *",
-        "Title *",
-        "Description",
-        "Preconditions",
-        "Priority",
-        "Category",
-        "Execution Type",
-        "Test Steps",
-        "Expected Result",
-    ]
-
-    # Write headers
-    for col_idx, header in enumerate(headers, 1):
-        cell = ws.cell(row=1, column=col_idx, value=header)
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = Alignment(horizontal="center", wrap_text=True)
-
-    # Validation notes row
-    notes = [
-        "Unique ID, e.g. TC-001",
-        "Short descriptive title",
-        "What does this test validate?",
-        "Setup steps needed before test",
-        "P1 / P2 / P3 / P4",
-        "functional / integration / regression / smoke / e2e",
-        "api / ui / sql / manual",
-        "Format: 1. Action -> Expected\n2. Action -> Expected",
-        "Overall expected outcome",
-    ]
-    for col_idx, note in enumerate(notes, 1):
-        cell = ws.cell(row=2, column=col_idx, value=note)
-        cell.font = note_font
-        cell.alignment = Alignment(wrap_text=True)
-
-    # Example rows
-    examples = [
-        [
-            "TC-001",
-            "Verify user login returns JWT",
-            "Test that valid credentials return a JWT access token",
-            "Test user exists: test@example.com / pass123",
-            "P1",
-            "functional",
-            "api",
-            '1. POST /api/auth/login with {"email":"test@example.com","password":"pass123"} -> Returns 200 with access_token\n2. Decode JWT -> Contains user_id and exp fields',
-            "User receives a valid JWT token on successful login",
-        ],
-        [
-            "TC-002",
-            "Verify dashboard loads after login",
-            "Test that authenticated user can see the dashboard",
-            "User is logged in with valid session",
-            "P2",
-            "ui",
-            "ui",
-            "1. Navigate to /dashboard -> Page loads with heading 'Dashboard'\n2. Assert sidebar menu has 'Projects' link -> Link is visible and clickable",
-            "Dashboard page renders correctly with navigation",
-        ],
-    ]
-    for row_idx, example in enumerate(examples, 3):
-        for col_idx, value in enumerate(example, 1):
-            cell = ws.cell(row=row_idx, column=col_idx, value=value)
-            cell.alignment = Alignment(wrap_text=True)
-
-    # Column widths
-    widths = [16, 35, 35, 30, 10, 15, 15, 60, 35]
-    for col_idx, width in enumerate(widths, 1):
-        ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = width
-
-    # Freeze top 2 rows
-    ws.freeze_panes = "A3"
-
-    buffer = io.BytesIO()
-    wb.save(buffer)
-    buffer.seek(0)
-
-    return StreamingResponse(
-        buffer,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={
-            "Content-Disposition": f"attachment; filename=test_case_template_{project_id}.xlsx"
-        },
-    )
-
-
-# ---------------------------------------------------------------------------
-# POST /{project_id}/test-cases/bulk-upload
-# ---------------------------------------------------------------------------
-@router.post(
-    "/{project_id}/test-cases/bulk-upload",
-    summary="Bulk upload test cases from Excel file",
-    status_code=status.HTTP_201_CREATED,
-)
-async def bulk_upload_test_cases(
-    project_id: uuid.UUID,
-    request: Request,
-    file: UploadFile = File(..., description="Excel (.xlsx) file with test cases"),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Parse an uploaded Excel file and create test cases in bulk.
-
-    Expects columns matching the download template:
-    Test Case ID, Title, Description, Preconditions, Priority, Category,
-    Execution Type, Test Steps, Expected Result.
-
-    Skips the notes row (row 2) and example rows if present.
-    Returns a summary of created / skipped / errored rows.
-    """
-    _get_project_or_404(project_id, db)
-
-    if not file.filename.endswith((".xlsx", ".xls")):
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            detail="Only Excel files (.xlsx) are supported. Download the template first.",
-        )
-
-    import openpyxl
-
-    try:
-        content = await file.read()
-        wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
-        ws = wb.active
-    except Exception as exc:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot read Excel file: {exc}",
-        )
-
-    # Parse rows (skip header row 1 and notes row 2)
-    created = []
-    skipped = []
-    errors = []
-
-    # Get the next TC number for auto-ID generation
-    max_tc = (
-        db.query(TestCase.test_case_id)
-        .filter(TestCase.project_id == project_id)
-        .all()
-    )
-    existing_ids = {row[0] for row in max_tc}
-
-    VALID_PRIORITIES = {"P1", "P2", "P3", "P4"}
-    VALID_CATEGORIES = {"functional", "integration", "regression", "smoke", "e2e"}
-    VALID_EXEC_TYPES = {"api", "ui", "sql", "manual"}
-
-    for row_idx, row in enumerate(ws.iter_rows(min_row=3, values_only=True), start=3):
-        # Skip completely empty rows
-        if not row or all(cell is None or str(cell).strip() == "" for cell in row):
-            continue
-
-        # Pad row to 9 columns
-        cells = list(row) + [None] * max(0, 9 - len(row))
-        tc_id = str(cells[0] or "").strip()
-        title = str(cells[1] or "").strip()
-
-        # Skip notes/example hint rows
-        if tc_id.lower().startswith("unique id") or title.lower().startswith("short descriptive"):
-            continue
-
-        # Validate required fields
-        if not tc_id or not title:
-            errors.append({"row": row_idx, "error": "Missing Test Case ID or Title"})
-            continue
-
-        if tc_id in existing_ids:
-            skipped.append({"row": row_idx, "tc_id": tc_id, "reason": "Duplicate ID"})
-            continue
-
-        description = str(cells[2] or "").strip() or None
-        preconditions = str(cells[3] or "").strip() or None
-        priority = str(cells[4] or "P2").strip().upper()
-        category = str(cells[5] or "functional").strip().lower()
-        exec_type = str(cells[6] or "manual").strip().lower()
-        steps_text = str(cells[7] or "").strip()
-        expected_result = str(cells[8] or "").strip() or None
-
-        # Validate enum values
-        if priority not in VALID_PRIORITIES:
-            priority = "P2"
-        if category not in VALID_CATEGORIES:
-            category = "functional"
-        if exec_type not in VALID_EXEC_TYPES:
-            exec_type = "manual"
-
-        # Parse test steps from text format: "1. Action -> Expected\n2. ..."
-        test_steps = None
-        if steps_text:
-            test_steps = []
-            import re
-            step_lines = re.split(r"\n+", steps_text)
-            for snum, line in enumerate(step_lines, 1):
-                line = line.strip()
-                if not line:
-                    continue
-                # Remove leading step number like "1." or "1)"
-                line = re.sub(r"^\d+[\.\)]\s*", "", line)
-                if " -> " in line:
-                    action, exp = line.split(" -> ", 1)
-                else:
-                    action, exp = line, ""
-                test_steps.append({
-                    "step_number": snum,
-                    "action": action.strip(),
-                    "expected_result": exp.strip(),
-                })
-
-        try:
-            tc = TestCase(
-                project_id=project_id,
-                test_case_id=tc_id,
-                title=sanitize_string(title) or title,
-                description=sanitize_string(description) if description else None,
-                preconditions=sanitize_string(preconditions) if preconditions else None,
-                test_steps=test_steps,
-                expected_result=sanitize_string(expected_result) if expected_result else None,
-                priority=priority,
-                category=category,
-                execution_type=exec_type,
-                source="manual",
-                status="draft",
-                created_by=current_user.id,
-            )
-            db.add(tc)
-            db.flush()
-            existing_ids.add(tc_id)
-            created.append({"row": row_idx, "tc_id": tc_id, "title": title})
-        except Exception as exc:
-            db.rollback()
-            errors.append({"row": row_idx, "tc_id": tc_id, "error": str(exc)})
-
-    # Commit all successful creates
-    if created:
-        db.commit()
-
-    audit_log(
-        db,
-        user_id=current_user.id,
-        action="bulk_upload_test_cases",
-        entity_type="test_case",
-        entity_id=str(project_id),
-        details={
-            "created": len(created),
-            "skipped": len(skipped),
-            "errors": len(errors),
-            "filename": file.filename,
-        },
-        ip_address=get_client_ip(request),
-    )
-
-    return {
-        "created": len(created),
-        "skipped": len(skipped),
-        "errors": len(errors),
-        "details": {
-            "created": created,
-            "skipped": skipped,
-            "errors": errors,
-        },
-    }
 
 
 def _export_csv(
