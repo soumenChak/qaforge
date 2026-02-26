@@ -163,19 +163,48 @@ async def execute(
 
         # -- Assertion 4: Body contains --
         if expected_body_contains:
-            # Ensure it's a string (LLM sometimes extracts a dict)
-            if not isinstance(expected_body_contains, str):
-                expected_body_contains = str(expected_body_contains)
-            body_text = resp.text
-            contains_ok = expected_body_contains.lower() in body_text.lower()
-            assertions.append({
-                "type": "body_contains",
-                "expected": expected_body_contains,
-                "passed": contains_ok,
-            })
-            if not contains_ok:
-                passed = False
-                logs.append(f"  FAIL: Response body does not contain '{expected_body_contains}'")
+            if isinstance(expected_body_contains, dict) and resp_json is not None:
+                # Structural comparison: check each key-value in the response
+                contains_ok = True
+                check_target = resp_json
+                if isinstance(check_target, list) and len(check_target) > 0:
+                    check_target = check_target[0]
+                if isinstance(check_target, dict):
+                    for key, val in expected_body_contains.items():
+                        if key not in check_target:
+                            contains_ok = False
+                            logs.append(f"  FAIL: Expected key '{key}' not in response body")
+                        elif val is not None and str(val) not in ("non-empty-string", "any"):
+                            if str(check_target[key]) != str(val):
+                                contains_ok = False
+                                logs.append(f"  FAIL: body['{key}'] expected '{val}', got '{check_target[key]}'")
+                else:
+                    contains_ok = False
+                    logs.append("  FAIL: Response is not a JSON object for body_contains dict check")
+                assertions.append({
+                    "type": "body_contains",
+                    "expected": expected_body_contains,
+                    "passed": contains_ok,
+                })
+                if not contains_ok:
+                    passed = False
+            elif isinstance(expected_body_contains, list):
+                # Skip list body_contains gracefully
+                logs.append("  WARN: body_contains is a list — skipping (use expected_fields instead)")
+            else:
+                # String comparison (original behavior)
+                if not isinstance(expected_body_contains, str):
+                    expected_body_contains = str(expected_body_contains)
+                body_text = resp.text
+                contains_ok = expected_body_contains.lower() in body_text.lower()
+                assertions.append({
+                    "type": "body_contains",
+                    "expected": expected_body_contains,
+                    "passed": contains_ok,
+                })
+                if not contains_ok:
+                    passed = False
+                    logs.append(f"  FAIL: Response body does not contain '{expected_body_contains}'")
 
     except httpx.ConnectError as exc:
         passed = False
