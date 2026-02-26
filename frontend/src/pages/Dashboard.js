@@ -31,6 +31,7 @@ export default function Dashboard() {
   const [projects, setProjects] = useState([]);
   const [metrics, setMetrics] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [showProjectPicker, setShowProjectPicker] = useState(false);
 
   useEffect(() => {
     const loadData = async () => {
@@ -118,8 +119,8 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Quick Actions */}
         <div className="lg:col-span-1">
-          <div className="card-static overflow-hidden h-full">
-            <div className="h-1 bg-gradient-to-r from-fg-teal to-fg-green" />
+          <div className="card-static overflow-visible h-full">
+            <div className="h-1 bg-gradient-to-r from-fg-teal to-fg-green rounded-t-xl" />
             <div className="p-6">
             <h3 className="text-sm font-bold text-fg-navy uppercase tracking-wider mb-4">
               Quick Actions
@@ -133,13 +134,32 @@ export default function Dashboard() {
                 New Project
               </button>
               {projects.length > 0 && (
-                <button
-                  onClick={() => navigate(`/projects/${projects[0].id}/generate`)}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-gray-200 text-sm font-medium text-fg-dark hover:bg-fg-tealLight hover:border-fg-teal/30 transition-all"
-                >
-                  <SparklesIcon className="w-5 h-5 text-fg-green" />
-                  Generate Test Cases
-                </button>
+                <div className="relative">
+                  <button
+                    onClick={() => setShowProjectPicker(!showProjectPicker)}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-gray-200 text-sm font-medium text-fg-dark hover:bg-fg-tealLight hover:border-fg-teal/30 transition-all"
+                  >
+                    <SparklesIcon className="w-5 h-5 text-fg-green" />
+                    Generate Test Cases
+                  </button>
+                  {showProjectPicker && (
+                    <div className="absolute left-0 right-0 mt-1 bg-white rounded-lg border border-gray-200 shadow-lg z-10 py-1 max-h-48 overflow-y-auto">
+                      <p className="px-3 py-1.5 text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Select project</p>
+                      {projects.map((p) => (
+                        <button
+                          key={p.id}
+                          onClick={() => { setShowProjectPicker(false); navigate(`/projects/${p.id}/generate`); }}
+                          className="w-full text-left px-3 py-2 text-sm text-fg-dark hover:bg-fg-tealLight transition-colors flex items-center gap-2"
+                        >
+                          <span className="truncate">{p.name}</span>
+                          <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded-full ${DOMAIN_COLORS[p.domain] || 'bg-gray-100 text-gray-600'}`}>
+                            {DOMAIN_NAMES[p.domain] || p.domain}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
             </div>

@@ -9,6 +9,7 @@ Endpoints:
     GET    /{id}         — project detail with counts
     PUT    /{id}         — update project
     POST   /{id}/archive — archive project
+    DELETE /{id}         — delete project (cascades test cases & requirements)
 """
 
 import logging
@@ -284,3 +285,48 @@ def archive_project(
     logger.info("Project archived: %s by %s", project.name, current_user.email)
 
     return MessageResponse(message=f"Project '{project.name}' has been archived")
+
+
+# ---------------------------------------------------------------------------
+# DELETE /{id}
+# ---------------------------------------------------------------------------
+@router.delete(
+    "/{project_id}",
+    response_model=MessageResponse,
+    summary="Delete a project and all its data",
+)
+def delete_project(
+    project_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Permanently delete a project and cascade-delete its requirements and test cases."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    project_name = project.name
+
+    # Cascade delete test cases and requirements
+    db.query(TestCase).filter(TestCase.project_id == project_id).delete()
+    db.query(Requirement).filter(Requirement.project_id == project_id).delete()
+    db.delete(project)
+    db.flush()
+
+    audit_log(
+        db,
+        user_id=current_user.id,
+        action="delete_project",
+        entity_type="project",
+        entity_id=str(project_id),
+        details={"name": project_name},
+        ip_address=get_client_ip(request),
+    )
+
+    logger.info("Project deleted: %s by %s", project_name, current_user.email)
+
+    return MessageResponse(message=f"Project '{project_name}' has been deleted")

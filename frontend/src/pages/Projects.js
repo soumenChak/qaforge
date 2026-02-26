@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { projectsAPI } from '../services/api';
 import DomainSelector from '../components/DomainSelector';
-import { PlusIcon, FunnelIcon, XMarkIcon, FolderIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, FunnelIcon, XMarkIcon, FolderIcon, EllipsisVerticalIcon, ArchiveBoxIcon, TrashIcon } from '@heroicons/react/24/outline';
 
 const DOMAIN_COLORS = {
   mdm: 'bg-purple-100 text-purple-700',
@@ -45,6 +45,8 @@ export default function Projects() {
   const [newDescription, setNewDescription] = useState('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
+  const [menuOpen, setMenuOpen] = useState(null); // project id with open menu
+  const [confirmDelete, setConfirmDelete] = useState(null); // project to confirm delete
 
   const loadProjects = useCallback(async () => {
     try {
@@ -63,6 +65,14 @@ export default function Projects() {
   useEffect(() => {
     loadProjects();
   }, [loadProjects]);
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = () => setMenuOpen(null);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [menuOpen]);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -102,6 +112,29 @@ export default function Projects() {
     setNewSubDomain('');
     setNewDescription('');
     setCreateError('');
+  };
+
+  const handleArchive = async (e, project) => {
+    e.stopPropagation();
+    setMenuOpen(null);
+    try {
+      await projectsAPI.archive(project.id);
+      loadProjects();
+    } catch (err) {
+      console.error('Failed to archive project:', err);
+    }
+  };
+
+  const handleDelete = async (e) => {
+    e.stopPropagation();
+    if (!confirmDelete) return;
+    try {
+      await projectsAPI.delete(confirmDelete.id);
+      setConfirmDelete(null);
+      loadProjects();
+    } catch (err) {
+      console.error('Failed to delete project:', err);
+    }
   };
 
   if (loading) {
@@ -199,9 +232,39 @@ export default function Projects() {
                     <h3 className="text-base font-bold text-fg-navy truncate flex-1 mr-3">
                       {project.name}
                     </h3>
-                    <span className={`badge flex-shrink-0 ${STATUS_COLORS[project.status] || 'badge-gray'}`}>
-                      {project.status}
-                    </span>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className={`badge ${STATUS_COLORS[project.status] || 'badge-gray'}`}>
+                        {project.status}
+                      </span>
+                      <div className="relative">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === project.id ? null : project.id); }}
+                          className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+                        >
+                          <EllipsisVerticalIcon className="w-4 h-4" />
+                        </button>
+                        {menuOpen === project.id && (
+                          <div className="absolute right-0 top-8 bg-white rounded-lg border border-gray-200 shadow-lg z-20 py-1 w-40">
+                            {project.status !== 'archived' && (
+                              <button
+                                onClick={(e) => handleArchive(e, project)}
+                                className="w-full text-left px-3 py-2 text-sm text-fg-dark hover:bg-gray-50 flex items-center gap-2 transition-colors"
+                              >
+                                <ArchiveBoxIcon className="w-4 h-4 text-gray-500" />
+                                Archive
+                              </button>
+                            )}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setMenuOpen(null); setConfirmDelete(project); }}
+                              className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors"
+                            >
+                              <TrashIcon className="w-4 h-4" />
+                              Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
                   {/* Domain badges */}
@@ -237,6 +300,35 @@ export default function Projects() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {confirmDelete && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setConfirmDelete(null)}>
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full animate-slide-up" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+                  <TrashIcon className="w-5 h-5 text-red-600" />
+                </div>
+                <h2 className="text-lg font-bold text-fg-navy">Delete Project</h2>
+              </div>
+              <p className="text-sm text-fg-mid mb-1">
+                Are you sure you want to permanently delete
+              </p>
+              <p className="text-sm font-semibold text-fg-dark mb-4">"{confirmDelete.name}"?</p>
+              <p className="text-xs text-red-500 mb-6">
+                This will also delete all {confirmDelete.test_case_count || 0} test cases and {confirmDelete.requirement_count || 0} requirements. This action cannot be undone.
+              </p>
+              <div className="flex justify-end gap-3">
+                <button onClick={() => setConfirmDelete(null)} className="btn-secondary">Cancel</button>
+                <button onClick={handleDelete} className="px-4 py-2 rounded-lg text-sm font-semibold bg-red-600 text-white hover:bg-red-700 transition-colors">
+                  Delete Project
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
