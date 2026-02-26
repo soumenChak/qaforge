@@ -630,7 +630,12 @@ async def validate_app_profile(
         parts = login_ep.strip().split(None, 1)
         method = parts[0].upper() if len(parts) > 1 else "POST"
         path = parts[-1] if parts else "/api/auth/login"
-        login_url = f"{base_url.rstrip('/')}{path}" if base_url and not path.startswith("http") else path
+        # Use app_url (root) if available, to avoid double /api prefix
+        # If path starts with /api and base_url ends with /api, use app_url instead
+        root_url = profile.get("app_url", "").rstrip("/") or base_url.rstrip("/")
+        if root_url.endswith("/api") and path.startswith("/api"):
+            root_url = root_url[:-4]  # Strip trailing /api
+        login_url = f"{root_url}{path}" if root_url and not path.startswith("http") else path
 
         if not _is_safe_url(login_url):
             checks.append({
@@ -695,7 +700,12 @@ async def validate_app_profile(
                 break
 
     if sample_ep and base_url:
-        sample_url = f"{base_url.rstrip('/')}{sample_ep['path']}"
+        # Use root URL to avoid double /api prefix
+        sample_root = profile.get("app_url", "").rstrip("/") or base_url.rstrip("/")
+        ep_path = sample_ep['path']
+        if sample_root.endswith("/api") and ep_path.startswith("/api"):
+            sample_root = sample_root[:-4]
+        sample_url = f"{sample_root}{ep_path}"
         if not _is_safe_url(sample_url):
             checks.append({
                 "name": "Sample Endpoint",
