@@ -225,9 +225,6 @@ def _register_routes() -> None:
         "knowledge": "/api/knowledge",
         "feedback": "/api/feedback",
         "settings": "/api/settings",
-        "dashboard": "/api/dashboard",
-        "generation": "/api/generation",
-        "export": "/api/export",
     }
 
     for importer, module_name, is_pkg in pkgutil.iter_modules(package_path):

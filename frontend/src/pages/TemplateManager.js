@@ -8,20 +8,7 @@ import {
   PencilSquareIcon,
   DocumentTextIcon,
 } from '@heroicons/react/24/outline';
-
-const DOMAIN_COLORS = {
-  mdm: 'bg-purple-100 text-purple-700',
-  ai: 'bg-blue-100 text-blue-700',
-  data_eng: 'bg-orange-100 text-orange-700',
-  general: 'bg-gray-100 text-gray-700',
-};
-
-const DOMAIN_NAMES = {
-  mdm: 'MDM',
-  ai: 'AI / GenAI',
-  data_eng: 'Data Engineering',
-  general: 'General',
-};
+import { DOMAIN_COLORS, DOMAIN_NAMES } from '../constants/domains';
 
 const FORMAT_COLORS = {
   excel: 'bg-green-100 text-green-700',

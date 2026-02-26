@@ -7,21 +7,8 @@ import {
   BookOpenIcon,
   SparklesIcon,
 } from '@heroicons/react/24/outline';
+import { DOMAIN_COLORS, DOMAIN_NAMES } from '../constants/domains';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-
-const DOMAIN_COLORS = {
-  general: 'bg-gray-100 text-gray-700',
-  mdm: 'bg-purple-100 text-purple-700',
-  ai: 'bg-blue-100 text-blue-700',
-  data_eng: 'bg-orange-100 text-orange-700',
-};
-
-const DOMAIN_NAMES = {
-  general: 'General',
-  mdm: 'MDM',
-  ai: 'AI / GenAI',
-  data_eng: 'Data Engineering',
-};
 
 const TYPE_COLORS = {
   pattern: 'bg-teal-100 text-teal-700',

@@ -1,20 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { projectsAPI } from '../services/api';
+import { DOMAIN_COLORS, DOMAIN_NAMES } from '../constants/domains';
 import DomainSelector from '../components/DomainSelector';
 import { PlusIcon, FunnelIcon, XMarkIcon, FolderIcon, EllipsisVerticalIcon, ArchiveBoxIcon, TrashIcon } from '@heroicons/react/24/outline';
-
-const DOMAIN_COLORS = {
-  mdm: 'bg-purple-100 text-purple-700',
-  ai: 'bg-blue-100 text-blue-700',
-  data_eng: 'bg-orange-100 text-orange-700',
-};
-
-const DOMAIN_NAMES = {
-  mdm: 'MDM',
-  ai: 'AI / GenAI',
-  data_eng: 'Data Engineering',
-};
 
 const STATUS_COLORS = {
   active: 'badge-green',
@@ -117,6 +106,7 @@ export default function Projects() {
   const handleArchive = async (e, project) => {
     e.stopPropagation();
     setMenuOpen(null);
+    if (!window.confirm('Archive this project? It will be hidden from the main list.')) return;
     try {
       await projectsAPI.archive(project.id);
       loadProjects();

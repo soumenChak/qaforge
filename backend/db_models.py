@@ -67,7 +67,7 @@ class User(Base):
 
     # -- relationships (back-populated from child tables) --
     projects: Mapped[List["Project"]] = relationship(
-        "Project", back_populates="creator", lazy="selectin"
+        "Project", back_populates="creator", lazy="select"
     )
 
     def __repr__(self) -> str:
@@ -121,16 +121,16 @@ class Project(Base):
         "TestTemplate", lazy="joined"
     )
     requirements: Mapped[List["Requirement"]] = relationship(
-        "Requirement", back_populates="project", cascade="all, delete-orphan", lazy="selectin"
+        "Requirement", back_populates="project", cascade="all, delete-orphan", lazy="select"
     )
     test_cases: Mapped[List["TestCase"]] = relationship(
-        "TestCase", back_populates="project", cascade="all, delete-orphan", lazy="selectin"
+        "TestCase", back_populates="project", cascade="all, delete-orphan", lazy="select"
     )
     execution_runs: Mapped[List["ExecutionRun"]] = relationship(
-        "ExecutionRun", back_populates="project", lazy="selectin"
+        "ExecutionRun", back_populates="project", lazy="select"
     )
     generation_runs: Mapped[List["GenerationRun"]] = relationship(
-        "GenerationRun", back_populates="project", lazy="selectin"
+        "GenerationRun", back_populates="project", lazy="select"
     )
 
     def __repr__(self) -> str:
@@ -173,7 +173,7 @@ class Requirement(Base):
     # -- relationships --
     project: Mapped["Project"] = relationship("Project", back_populates="requirements")
     test_cases: Mapped[List["TestCase"]] = relationship(
-        "TestCase", back_populates="requirement", lazy="selectin"
+        "TestCase", back_populates="requirement", lazy="select"
     )
 
     __table_args__ = (

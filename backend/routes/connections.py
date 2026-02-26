@@ -12,8 +12,10 @@ Endpoints:
     POST   /{id}/test    — test connection health
 """
 
+import ipaddress
 import logging
 import uuid
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -196,6 +198,27 @@ def delete_connection(
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+def _is_safe_url(url: str) -> bool:
+    """Check that a URL is not targeting localhost or private IPs (SSRF prevention)."""
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
+            return False
+        try:
+            ip = ipaddress.ip_address(hostname)
+            return not ip.is_private and not ip.is_loopback
+        except ValueError:
+            return True
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
 # POST /{id}/test
 # ---------------------------------------------------------------------------
 @router.post(
@@ -219,6 +242,10 @@ async def test_connection(
         if not base_url:
             return ConnectionTestResponse(
                 success=False, message="No base_url configured"
+            )
+        if not _is_safe_url(base_url):
+            return ConnectionTestResponse(
+                success=False, message="URL targets a private/internal network (blocked)"
             )
         try:
             async with httpx.AsyncClient(verify=False, timeout=10, follow_redirects=True) as client:
@@ -245,6 +272,10 @@ async def test_connection(
         db_url = config.get("db_url", "")
         if not db_url:
             return ConnectionTestResponse(success=False, message="No db_url configured")
+        if not _is_safe_url(db_url):
+            return ConnectionTestResponse(
+                success=False, message="DB URL targets a private/internal network (blocked)"
+            )
         try:
             from sqlalchemy import create_engine, text as sa_text
             import time as _time
@@ -271,6 +302,10 @@ async def test_connection(
         app_url = config.get("app_url", "")
         if not app_url:
             return ConnectionTestResponse(success=False, message="No app_url configured")
+        if not _is_safe_url(app_url):
+            return ConnectionTestResponse(
+                success=False, message="URL targets a private/internal network (blocked)"
+            )
         try:
             async with httpx.AsyncClient(verify=False, timeout=10, follow_redirects=True) as client:
                 resp = await client.get(app_url)

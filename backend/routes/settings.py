@@ -37,7 +37,7 @@ PROVIDER_INFO: Dict[str, Dict[str, Any]] = {
     "anthropic": {
         "name": "Anthropic (Claude)",
         "env_key": "ANTHROPIC_API_KEY",
-        "models": ["claude-sonnet-4-20250514", "claude-3-5-haiku-20241022"],
+        "models": ["claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001"],
     },
     "openai": {
         "name": "OpenAI (GPT)",

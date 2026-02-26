@@ -75,11 +75,6 @@ def search_knowledge(
         .all()
     )
 
-    # Increment usage_count for returned entries
-    for entry in entries:
-        entry.usage_count += 1
-    db.flush()
-
     return [KnowledgeEntryResponse.model_validate(e) for e in entries]
 
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { projectsAPI, requirementsAPI, testCasesAPI, executionAPI } from '../services/api';
 import TestCaseTable from '../components/TestCaseTable';
+import { DOMAIN_COLORS, DOMAIN_NAMES } from '../constants/domains';
 import ExecutionRunModal from '../components/ExecutionRunModal';
 import {
   SparklesIcon,
@@ -19,18 +20,6 @@ import {
   TrashIcon,
   ArrowPathIcon,
 } from '@heroicons/react/24/outline';
-
-const DOMAIN_COLORS = {
-  mdm: 'bg-purple-100 text-purple-700',
-  ai: 'bg-blue-100 text-blue-700',
-  data_eng: 'bg-orange-100 text-orange-700',
-};
-
-const DOMAIN_NAMES = {
-  mdm: 'MDM',
-  ai: 'AI / GenAI',
-  data_eng: 'Data Engineering',
-};
 
 const PRIORITY_COLORS = {
   high: 'badge-red',

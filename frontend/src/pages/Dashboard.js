@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { projectsAPI, feedbackAPI } from '../services/api';
+import { DOMAIN_COLORS, DOMAIN_NAMES } from '../constants/domains';
+import Spinner from '../components/Spinner';
 import StatCard from '../components/StatCard';
 import {
   FolderIcon,
@@ -11,18 +13,6 @@ import {
   PlusIcon,
   SparklesIcon,
 } from '@heroicons/react/24/outline';
-
-const DOMAIN_COLORS = {
-  mdm: 'bg-purple-100 text-purple-700',
-  ai: 'bg-blue-100 text-blue-700',
-  data_eng: 'bg-orange-100 text-orange-700',
-};
-
-const DOMAIN_NAMES = {
-  mdm: 'MDM',
-  ai: 'AI / GenAI',
-  data_eng: 'Data Engineering',
-};
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -67,12 +57,7 @@ export default function Dashboard() {
   if (loading) {
     return (
       <div className="page-container">
-        <div className="flex items-center justify-center py-20">
-          <svg className="animate-spin w-8 h-8 text-fg-teal" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-        </div>
+        <Spinner />
       </div>
     );
   }
