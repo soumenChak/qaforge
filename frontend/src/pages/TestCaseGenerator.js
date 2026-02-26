@@ -14,6 +14,7 @@ import {
   ClipboardDocumentListIcon,
   ChevronDownIcon,
   ChevronUpIcon,
+  LightBulbIcon,
 } from '@heroicons/react/24/outline';
 
 const STEPS = [
@@ -210,6 +211,69 @@ export default function TestCaseGenerator() {
     setSelectedRefTcIds(next);
   };
 
+  // ── Smart Prompt Suggestion Builder ──
+  const buildSuggestedPrompt = () => {
+    if (!project) return null;
+
+    const domain = project.domain;
+    const subDomain = project.sub_domain || 'General';
+    const projName = project.name;
+    const projDesc = project.description || '';
+
+    // Gather key requirements (high priority first)
+    const highReqs = requirements.filter((r) => r.priority === 'high').slice(0, 5);
+    const medReqs = requirements.filter((r) => r.priority === 'medium').slice(0, 3);
+    const keyReqs = [...highReqs, ...medReqs];
+
+    // Gather unique categories from existing TCs
+    const existingCategories = [...new Set(existingTestCases.map((tc) => tc.category).filter(Boolean))];
+    const existingExecTypes = [...new Set(existingTestCases.map((tc) => tc.execution_type).filter(Boolean))];
+
+    // Build smart prompt
+    let prompt = `Test the ${projName} system`;
+    if (projDesc) {
+      prompt += ` — ${projDesc.substring(0, 200)}`;
+    }
+    prompt += `.\n\n`;
+
+    // Add domain-specific focus areas
+    const domainFocus = {
+      mdm: 'Focus on data quality, match/merge rules, survivorship logic, golden record integrity, cross-reference validation, and data stewardship workflows.',
+      ai: 'Focus on model accuracy, prompt injection prevention, response validation, hallucination detection, latency testing, and API integration correctness.',
+      data_eng: 'Focus on pipeline reliability, data freshness, schema evolution, ETL reconciliation, incremental loads, and data quality checks.',
+      integration: 'Focus on API contract validation, event-driven flows, error handling, retry logic, idempotency, and end-to-end data flow integrity.',
+      digital: 'Focus on user workflows, form validation, responsive behavior, authentication flows, error states, and cross-browser compatibility.',
+    };
+    if (domainFocus[domain]) {
+      prompt += domainFocus[domain] + '\n\n';
+    }
+
+    // Add key requirements as bullet points
+    if (keyReqs.length > 0) {
+      prompt += 'Key requirements to cover:\n';
+      keyReqs.forEach((r) => {
+        prompt += `• ${r.title}${r.description ? ': ' + r.description.substring(0, 100) : ''}\n`;
+      });
+      prompt += '\n';
+    }
+
+    // Add guidance on what types to generate
+    if (existingTestCases.length > 0) {
+      prompt += `There are already ${existingTestCases.length} test cases`;
+      if (existingCategories.length > 0) {
+        prompt += ` covering ${existingCategories.join(', ')}`;
+      }
+      prompt += `. Generate NEW test cases for scenarios not yet covered — focus on edge cases, error handling, negative testing, and integration points.\n`;
+    }
+
+    // Add execution type hints
+    if (existingExecTypes.length > 0) {
+      prompt += `Include a mix of ${existingExecTypes.join(' and ')} test cases.`;
+    }
+
+    return prompt.trim();
+  };
+
   const approvedCount = Object.values(decisions).filter((d) => d === 'approve').length;
   const rejectedCount = Object.values(decisions).filter((d) => d === 'reject').length;
 
@@ -283,6 +347,59 @@ export default function TestCaseGenerator() {
           <p className="text-sm text-fg-mid mb-4">
             Describe the system, feature, or workflow you need test cases for.
           </p>
+
+          {/* Smart prompt suggestion */}
+          {!description.trim() && (requirements.length > 0 || project?.description) && (
+            <div className="mb-4 p-4 rounded-xl bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200">
+              <div className="flex items-start gap-3">
+                <LightBulbIcon className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-amber-900 mb-1">
+                    Smart Prompt Available
+                  </p>
+                  <p className="text-xs text-amber-700 mb-3">
+                    We can generate a prompt based on your project's {requirements.length > 0 ? `${requirements.length} requirements` : 'description'}
+                    {existingTestCases.length > 0 ? ` and ${existingTestCases.length} existing test cases` : ''}.
+                    This gives the AI the best context for quality test generation.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const suggested = buildSuggestedPrompt();
+                      if (suggested) setDescription(suggested);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg
+                      bg-amber-100 hover:bg-amber-200 text-amber-800 transition-colors"
+                  >
+                    <SparklesIcon className="w-3.5 h-3.5" />
+                    Use Suggested Prompt
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Context indicators */}
+          {(requirements.length > 0 || existingTestCases.length > 0) && (
+            <div className="flex flex-wrap gap-2 mb-3">
+              {requirements.length > 0 && (
+                <span className="badge text-xs bg-teal-100 text-teal-700">
+                  📋 {requirements.length} requirements loaded
+                </span>
+              )}
+              {existingTestCases.length > 0 && (
+                <span className="badge text-xs bg-purple-100 text-purple-700">
+                  📎 {existingTestCases.length} existing test cases
+                </span>
+              )}
+              {kbCount > 0 && (
+                <span className="badge text-xs bg-green-100 text-green-700">
+                  📚 {kbCount} KB patterns
+                </span>
+              )}
+            </div>
+          )}
+
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -291,7 +408,10 @@ export default function TestCaseGenerator() {
             className="input-field mb-4"
             autoFocus
           />
-          <div className="flex justify-end">
+          <div className="flex justify-between">
+            <span className="text-xs text-fg-mid self-center">
+              {description.length > 0 ? `${description.length} characters` : 'Start typing or use the smart prompt'}
+            </span>
             <button
               onClick={() => setStep(1)}
               disabled={!description.trim()}
