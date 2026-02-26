@@ -54,6 +54,12 @@ export default function KnowledgeBase() {
   const [seeding, setSeeding] = useState(false);
   const [seedResult, setSeedResult] = useState(null);
 
+  // Browse state
+  const [entries, setEntries] = useState([]);
+  const [entriesLoading, setEntriesLoading] = useState(false);
+  const [browseDomain, setBrowseDomain] = useState('');
+  const [expandedId, setExpandedId] = useState(null);
+
   const loadStats = useCallback(async () => {
     try {
       const res = await knowledgeAPI.getStats();
@@ -63,7 +69,22 @@ export default function KnowledgeBase() {
     }
   }, []);
 
+  const loadEntries = useCallback(async (domain) => {
+    setEntriesLoading(true);
+    try {
+      const params = { limit: 100 };
+      if (domain) params.domain = domain;
+      const res = await knowledgeAPI.list(params);
+      setEntries(res.data || []);
+    } catch (err) {
+      console.error('Failed to load entries:', err);
+    } finally {
+      setEntriesLoading(false);
+    }
+  }, []);
+
   useEffect(() => { loadStats(); }, [loadStats]);
+  useEffect(() => { loadEntries(browseDomain); }, [loadEntries, browseDomain]);
 
   const handleSearch = async (e) => {
     e?.preventDefault();
@@ -99,6 +120,7 @@ export default function KnowledgeBase() {
       setShowAdd(false);
       setNewEntry({ title: '', content: '', domain: 'mdm', sub_domain: '', entry_type: 'pattern', tags: [] });
       loadStats();
+      loadEntries(browseDomain);
     } catch (err) {
       setAddError(err.response?.data?.detail || 'Failed to add entry.');
     } finally {
@@ -125,6 +147,7 @@ export default function KnowledgeBase() {
       const res = await knowledgeAPI.seed();
       setSeedResult(res.data);
       loadStats();
+      loadEntries(browseDomain);
     } catch (err) {
       setSeedResult({ error: err.response?.data?.detail || 'Seeding failed.' });
     } finally {
@@ -230,7 +253,7 @@ export default function KnowledgeBase() {
       {searched && (
         <div className="mb-8 animate-fade-in">
           <h3 className="text-sm font-bold text-fg-navy uppercase tracking-wider mb-4">
-            Results ({results.length})
+            Search Results ({results.length})
           </h3>
           {results.length === 0 ? (
             <div className="card-static p-6 text-center text-fg-mid text-sm">
@@ -272,15 +295,113 @@ export default function KnowledgeBase() {
         </div>
       )}
 
+      {/* Browse Entries section */}
+      {stats && stats.total_entries > 0 && (
+        <div className="mb-8">
+          {/* Domain filter tabs */}
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-fg-navy uppercase tracking-wider">
+              All Entries ({entries.length})
+            </h3>
+            <div className="flex gap-1">
+              {[
+                { key: '', label: 'All' },
+                { key: 'general', label: 'General' },
+                { key: 'mdm', label: 'MDM' },
+                { key: 'ai', label: 'AI / GenAI' },
+                { key: 'data_eng', label: 'Data Eng' },
+              ].map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setBrowseDomain(tab.key)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    browseDomain === tab.key
+                      ? 'bg-fg-teal text-white'
+                      : 'bg-gray-100 text-fg-mid hover:bg-gray-200'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {entriesLoading ? (
+            <div className="text-center py-8 text-fg-mid text-sm">Loading entries...</div>
+          ) : entries.length === 0 ? (
+            <div className="card-static p-6 text-center text-fg-mid text-sm">
+              No entries found for this domain.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {entries.map((entry) => {
+                const isExpanded = expandedId === entry.id;
+                return (
+                  <div
+                    key={entry.id}
+                    className="card-static overflow-hidden transition-all cursor-pointer hover:shadow-md"
+                    onClick={() => setExpandedId(isExpanded ? null : entry.id)}
+                  >
+                    <div className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0 mr-3">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`badge text-xs ${TYPE_COLORS[entry.entry_type] || 'badge-gray'}`}>
+                              {entry.entry_type?.replace(/_/g, ' ')}
+                            </span>
+                            <span className={`badge text-xs ${DOMAIN_COLORS[entry.domain] || 'badge-gray'}`}>
+                              {DOMAIN_NAMES[entry.domain] || entry.domain}
+                            </span>
+                            {entry.usage_count > 0 && (
+                              <span className="text-[10px] text-fg-mid">
+                                Used {entry.usage_count}x in generation
+                              </span>
+                            )}
+                          </div>
+                          <h4 className="text-sm font-bold text-fg-navy">{entry.title}</h4>
+                          {!isExpanded && (
+                            <p className="text-xs text-fg-mid mt-1 line-clamp-1">{entry.content}</p>
+                          )}
+                        </div>
+                        <span className="text-fg-mid text-xs flex-shrink-0 mt-1">
+                          {isExpanded ? '▲' : '▼'}
+                        </span>
+                      </div>
+
+                      {isExpanded && (
+                        <div className="mt-3 animate-fade-in">
+                          <p className="text-xs text-fg-dark whitespace-pre-line leading-relaxed bg-gray-50 rounded-lg p-3">
+                            {entry.content}
+                          </p>
+                          {entry.tags && entry.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-3">
+                              {entry.tags.map((tag, i) => (
+                                <span key={i} className="text-xxs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Stats section */}
-      {stats && (
+      {stats && stats.total_entries > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Stats summary */}
           <div className="card-static overflow-hidden">
             <div className="h-1 bg-gradient-to-r from-fg-teal to-fg-green" />
             <div className="p-5">
               <h3 className="text-sm font-bold text-fg-navy uppercase tracking-wider mb-4">
-                Knowledge Base Statistics
+                Statistics
               </h3>
               <div className="text-3xl font-black text-fg-navy mb-4">
                 {stats.total_entries || 0}

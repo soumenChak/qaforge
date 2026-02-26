@@ -103,6 +103,7 @@ export const feedbackAPI = {
 
 // -- Knowledge --
 export const knowledgeAPI = {
+  list: (params = {}) => api.get('/knowledge/entries', { params }),
   search: (params) => api.get('/knowledge/search', { params }),
   create: (data) => api.post('/knowledge/', data),
   getStats: () => api.get('/knowledge/stats'),
