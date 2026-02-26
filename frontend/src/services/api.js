@@ -127,6 +127,8 @@ export const knowledgeAPI = {
   list: (params = {}) => api.get('/knowledge/entries', { params }),
   search: (params) => api.get('/knowledge/search', { params }),
   create: (data) => api.post('/knowledge/', data),
+  update: (id, data) => api.put(`/knowledge/entries/${id}`, data),
+  delete: (id) => api.delete(`/knowledge/entries/${id}`),
   getStats: () => api.get('/knowledge/stats'),
   seed: () => api.post('/knowledge/seed'),
 };

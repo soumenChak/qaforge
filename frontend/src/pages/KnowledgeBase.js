@@ -6,7 +6,10 @@ import {
   XMarkIcon,
   BookOpenIcon,
   SparklesIcon,
+  PencilIcon,
+  TrashIcon,
 } from '@heroicons/react/24/outline';
+import ConfirmModal from '../components/ConfirmModal';
 import { DOMAIN_COLORS, DOMAIN_NAMES } from '../constants/domains';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -46,6 +49,12 @@ export default function KnowledgeBase() {
   const [entriesLoading, setEntriesLoading] = useState(false);
   const [browseDomain, setBrowseDomain] = useState('');
   const [expandedId, setExpandedId] = useState(null);
+
+  // Edit/delete state
+  const [editingEntry, setEditingEntry] = useState(null);
+  const [editData, setEditData] = useState({});
+  const [editSaving, setEditSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
   const loadStats = useCallback(async () => {
     try {
@@ -139,6 +148,46 @@ export default function KnowledgeBase() {
       setSeedResult({ error: err.response?.data?.detail || 'Seeding failed.' });
     } finally {
       setSeeding(false);
+    }
+  };
+
+  const handleEditStart = (entry) => {
+    setEditingEntry(entry.id);
+    setEditData({
+      title: entry.title,
+      content: entry.content,
+      domain: entry.domain,
+      sub_domain: entry.sub_domain || '',
+      entry_type: entry.entry_type,
+      tags: entry.tags || [],
+    });
+  };
+
+  const handleEditSave = async (entryId) => {
+    setEditSaving(true);
+    try {
+      await knowledgeAPI.update(entryId, {
+        ...editData,
+        tags: editData.tags.length > 0 ? editData.tags : null,
+      });
+      setEditingEntry(null);
+      loadEntries(browseDomain);
+      loadStats();
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to update entry.');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const handleDelete = async (entryId) => {
+    try {
+      await knowledgeAPI.delete(entryId);
+      setDeleteTarget(null);
+      loadEntries(browseDomain);
+      loadStats();
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to delete entry.');
     }
   };
 
@@ -323,11 +372,12 @@ export default function KnowledgeBase() {
             <div className="space-y-2">
               {entries.map((entry) => {
                 const isExpanded = expandedId === entry.id;
+                const isEditing = editingEntry === entry.id;
                 return (
                   <div
                     key={entry.id}
                     className="card-static overflow-hidden transition-all cursor-pointer hover:shadow-md"
-                    onClick={() => setExpandedId(isExpanded ? null : entry.id)}
+                    onClick={() => { if (!isEditing) setExpandedId(isExpanded ? null : entry.id); }}
                   >
                     <div className="p-4">
                       <div className="flex items-start justify-between">
@@ -346,16 +396,109 @@ export default function KnowledgeBase() {
                             )}
                           </div>
                           <h4 className="text-sm font-bold text-fg-navy">{entry.title}</h4>
-                          {!isExpanded && (
+                          {!isExpanded && !isEditing && (
                             <p className="text-xs text-fg-mid mt-1 line-clamp-1">{entry.content}</p>
                           )}
                         </div>
-                        <span className="text-fg-mid text-xs flex-shrink-0 mt-1">
-                          {isExpanded ? '▲' : '▼'}
-                        </span>
+                        <div className="flex items-center gap-2 flex-shrink-0 mt-1">
+                          {isExpanded && !isEditing && (
+                            <>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleEditStart(entry); }}
+                                className="text-fg-mid hover:text-fg-teal"
+                                title="Edit"
+                              >
+                                <PencilIcon className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setDeleteTarget(entry); }}
+                                className="text-fg-mid hover:text-red-500"
+                                title="Delete"
+                              >
+                                <TrashIcon className="w-4 h-4" />
+                              </button>
+                            </>
+                          )}
+                          <span className="text-fg-mid text-xs">
+                            {isExpanded ? '▲' : '▼'}
+                          </span>
+                        </div>
                       </div>
 
-                      {isExpanded && (
+                      {isEditing && (
+                        <div className="mt-3 animate-fade-in space-y-3" onClick={(e) => e.stopPropagation()}>
+                          <div>
+                            <label className="label">Title</label>
+                            <input
+                              value={editData.title}
+                              onChange={(e) => setEditData({ ...editData, title: e.target.value })}
+                              className="input-field text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="label">Content</label>
+                            <textarea
+                              value={editData.content}
+                              onChange={(e) => setEditData({ ...editData, content: e.target.value })}
+                              rows={4}
+                              className="input-field text-sm"
+                            />
+                          </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            <div>
+                              <label className="label">Domain</label>
+                              <select
+                                value={editData.domain}
+                                onChange={(e) => setEditData({ ...editData, domain: e.target.value })}
+                                className="input-field text-sm"
+                              >
+                                <option value="general">General</option>
+                                <option value="mdm">MDM</option>
+                                <option value="ai">AI / GenAI</option>
+                                <option value="data_eng">Data Engineering</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="label">Type</label>
+                              <select
+                                value={editData.entry_type}
+                                onChange={(e) => setEditData({ ...editData, entry_type: e.target.value })}
+                                className="input-field text-sm"
+                              >
+                                <option value="pattern">Pattern</option>
+                                <option value="defect">Known Defect</option>
+                                <option value="best_practice">Best Practice</option>
+                                <option value="test_case">Test Case</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="label">Sub-Domain</label>
+                              <input
+                                value={editData.sub_domain}
+                                onChange={(e) => setEditData({ ...editData, sub_domain: e.target.value })}
+                                className="input-field text-sm"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex justify-end gap-2 pt-1">
+                            <button
+                              onClick={() => setEditingEntry(null)}
+                              className="btn-ghost text-xs px-3 py-1"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => handleEditSave(entry.id)}
+                              disabled={editSaving}
+                              className="btn-primary text-xs px-3 py-1"
+                            >
+                              {editSaving ? 'Saving...' : 'Save'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {isExpanded && !isEditing && (
                         <div className="mt-3 animate-fade-in">
                           <p className="text-xs text-fg-dark whitespace-pre-line leading-relaxed bg-gray-50 rounded-lg p-3">
                             {entry.content}
@@ -444,6 +587,17 @@ export default function KnowledgeBase() {
           </div>
         </div>
       )}
+
+      {/* Delete confirmation */}
+      <ConfirmModal
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => handleDelete(deleteTarget?.id)}
+        title="Delete Knowledge Entry"
+        message={`Delete "${deleteTarget?.title}"? This cannot be undone.`}
+        confirmText="Delete"
+        confirmColor="red"
+      />
 
       {/* Add Entry modal */}
       {showAdd && (

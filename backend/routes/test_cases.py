@@ -1572,6 +1572,134 @@ def _export_csv(
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Domain-aware system prompt additions for chat generation
+# ---------------------------------------------------------------------------
+_DOMAIN_PROMPT_ADDITIONS = {
+    "MDM": (
+        "== DOMAIN-SPECIFIC GUIDANCE (MDM / Master Data Management) ==\n"
+        "Ask about and test: entity types (person, organization, product), match rules, "
+        "survivorship rules, data sources and their priorities. Verify crosswalk/xref mappings "
+        "between source systems. Test merge/unmerge operations, data quality rules, "
+        "golden record construction, and hierarchy management. Consider testing initial loads, "
+        "incremental updates, and real-time integration feeds.\n"
+    ),
+    "Data Engineering": (
+        "== DOMAIN-SPECIFIC GUIDANCE (Data Engineering) ==\n"
+        "Ask about and test: pipeline names, source/target systems, transformation rules, "
+        "scheduling (cron/orchestrator). Test data quality checks (null counts, schema drift, "
+        "row counts), idempotency of pipeline reruns, error handling and dead-letter queues, "
+        "partitioning strategies, and incremental vs full-load behavior. Consider testing "
+        "Medallion architecture layers (bronze/silver/gold) and CDC event ordering.\n"
+    ),
+    "AI": (
+        "== DOMAIN-SPECIFIC GUIDANCE (AI / GenAI) ==\n"
+        "Ask about and test: LLM models used, prompt templates, evaluation criteria, "
+        "guardrails and content filtering. Test RAG pipeline accuracy (retrieval + generation), "
+        "token limits, rate limiting, fallback behavior, hallucination detection, "
+        "embedding quality, and multi-turn conversation context handling. Consider testing "
+        "model switching, A/B comparison, and cost tracking.\n"
+    ),
+    "Integration": (
+        "== DOMAIN-SPECIFIC GUIDANCE (Integration / iPaaS) ==\n"
+        "Ask about and test: source/target system connectivity, message formats (JSON/XML/CSV), "
+        "transformation mappings, error handling and retry policies. Test webhook delivery, "
+        "API gateway rate limits, authentication flows (OAuth, API keys, certificates), "
+        "idempotency keys, and event ordering. Consider testing circuit breakers, "
+        "dead-letter queues, and monitoring/alerting thresholds.\n"
+    ),
+    "Cloud & DevOps": (
+        "== DOMAIN-SPECIFIC GUIDANCE (Cloud & DevOps) ==\n"
+        "Ask about and test: infrastructure provisioning (Terraform/CloudFormation), "
+        "container orchestration (K8s), CI/CD pipelines, deployment strategies (blue-green, canary). "
+        "Test auto-scaling triggers, health checks, disaster recovery, secrets rotation, "
+        "network policies, and IAM permissions. Consider testing backup/restore, "
+        "monitoring dashboards, and incident runbook automation.\n"
+    ),
+    "Digital": (
+        "== DOMAIN-SPECIFIC GUIDANCE (Digital / Web / Mobile) ==\n"
+        "Ask about and test: UI components, user flows (login, checkout, dashboard), "
+        "responsive layouts across breakpoints, accessibility (WCAG), form validation, "
+        "error states, loading states, and browser compatibility. Consider testing "
+        "deep links, push notifications, offline mode, and performance (Core Web Vitals).\n"
+    ),
+}
+
+
+def _get_domain_prompt(domain: str) -> str:
+    """Return domain-specific prompt addition, with fuzzy matching."""
+    if not domain:
+        return ""
+    # Exact match
+    if domain in _DOMAIN_PROMPT_ADDITIONS:
+        return _DOMAIN_PROMPT_ADDITIONS[domain]
+    # Case-insensitive partial match
+    domain_lower = domain.lower()
+    for key, prompt in _DOMAIN_PROMPT_ADDITIONS.items():
+        if key.lower() in domain_lower or domain_lower in key.lower():
+            return prompt
+    # Keyword match
+    keyword_map = {
+        "mdm": "MDM", "master data": "MDM", "reltio": "MDM", "semarchy": "MDM",
+        "data eng": "Data Engineering", "pipeline": "Data Engineering",
+        "databricks": "Data Engineering", "snowflake": "Data Engineering", "etl": "Data Engineering",
+        "ai": "AI", "genai": "AI", "llm": "AI", "machine learning": "AI", "ml": "AI",
+        "integration": "Integration", "ipaas": "Integration", "api": "Integration",
+        "cloud": "Cloud & DevOps", "devops": "Cloud & DevOps", "infra": "Cloud & DevOps",
+        "digital": "Digital", "web": "Digital", "mobile": "Digital", "react": "Digital",
+        "angular": "Digital", "frontend": "Digital",
+    }
+    for keyword, domain_key in keyword_map.items():
+        if keyword in domain_lower:
+            return _DOMAIN_PROMPT_ADDITIONS[domain_key]
+    return ""
+
+
+def _check_profile_completeness(domain: str, app_profile: dict) -> str:
+    """Check if the app_profile has minimum required fields for the domain.
+
+    Returns a string describing what is missing, or empty string if complete enough.
+    """
+    if not app_profile:
+        app_profile = {}
+
+    domain_lower = (domain or "").lower()
+    missing = []
+    has_base_url = bool(app_profile.get("api_base_url") or app_profile.get("app_url"))
+    endpoints = app_profile.get("api_endpoints", [])
+    has_endpoints = len(endpoints) > 0
+
+    # MDM: needs api_base_url + at least 1 endpoint
+    if any(kw in domain_lower for kw in ("mdm", "master data", "reltio", "semarchy")):
+        if not has_base_url:
+            missing.append("api_base_url (the MDM platform base URL)")
+        if not has_endpoints:
+            missing.append("at least 1 API endpoint (e.g., entity CRUD, match, merge)")
+
+    # Data Engineering: needs at least source/target info
+    elif any(kw in domain_lower for kw in ("data eng", "pipeline", "databricks", "snowflake", "etl")):
+        if not app_profile.get("notes") and not has_endpoints:
+            missing.append("source/target system information (add in notes or configure endpoints)")
+
+    # AI/GenAI: needs at least 1 endpoint
+    elif any(kw in domain_lower for kw in ("ai", "genai", "llm", "machine learning")):
+        if not has_endpoints:
+            missing.append("at least 1 API endpoint (e.g., /chat, /completions, /embeddings)")
+
+    # General: warn if no endpoints and no URL
+    elif not has_base_url and not has_endpoints:
+        missing.append("api_base_url or at least 1 API endpoint")
+
+    if not missing:
+        return ""
+
+    return (
+        "PROFILE COMPLETENESS WARNING: The following fields are missing from the app profile "
+        "and would improve test quality. Ask the user about these:\n"
+        + "\n".join(f"  - {m}" for m in missing)
+    )
+
+
 # POST /chat  (Feature 6: Chat-Based Test Generation Agent)
 # ---------------------------------------------------------------------------
 @router.post(
@@ -1614,6 +1742,21 @@ def chat_generate(
         .scalar()
     ) or 0
 
+    # Count conversation rounds (number of user messages = number of rounds)
+    user_message_count = sum(1 for msg in body.messages if msg.role == "user")
+
+    # Check if user is requesting immediate generation
+    last_user_msg = ""
+    for msg in reversed(body.messages):
+        if msg.role == "user":
+            last_user_msg = msg.content.lower().strip()
+            break
+    force_generate = any(phrase in last_user_msg for phrase in (
+        "just generate", "generate now", "go ahead", "start generating",
+        "generate them", "create them", "make them", "do it",
+        "enough questions", "stop asking",
+    ))
+
     # Build context for the agent
     context_parts = []
 
@@ -1640,7 +1783,13 @@ def chat_generate(
             ap_summary.append(f"API Endpoints: {len(endpoints)} configured")
             for ep in endpoints[:10]:
                 if isinstance(ep, dict):
-                    ap_summary.append(f"  {ep.get('method', 'GET')} {ep.get('path', '')}")
+                    desc = ep.get('description', '')
+                    ep_line = f"  {ep.get('method', 'GET')} {ep.get('path', '')}"
+                    if desc:
+                        ep_line += f" — {desc[:60]}"
+                    ap_summary.append(ep_line)
+            if len(endpoints) > 10:
+                ap_summary.append(f"  ... and {len(endpoints) - 10} more")
         ui_pages = app_profile.get("ui_pages", [])
         if ui_pages:
             ap_summary.append(f"UI Pages: {len(ui_pages)} configured")
@@ -1650,6 +1799,24 @@ def chat_generate(
 
     project_context = "\n".join(context_parts)
 
+    # Domain-specific prompt addition
+    domain_guidance = _get_domain_prompt(project.domain)
+
+    # Profile completeness check
+    completeness_warning = _check_profile_completeness(project.domain, app_profile)
+
+    # Determine if we should force generation (3+ rounds or user said "just generate")
+    should_force_generate = force_generate or user_message_count >= 3
+
+    force_generate_instruction = ""
+    if should_force_generate:
+        force_generate_instruction = (
+            "\n== IMPORTANT: GENERATE NOW ==\n"
+            "The user has had enough conversation rounds (or explicitly asked to generate). "
+            "Do NOT ask any more questions. Generate test cases NOW using the best available context. "
+            "You MUST include the JSON config block in your response.\n"
+        )
+
     # System prompt for the chat agent
     system_prompt = f"""You are an AI QA test generation assistant for the QAForge platform.
 Your job is to help users create high-quality, execution-ready test cases.
@@ -1657,6 +1824,9 @@ Your job is to help users create high-quality, execution-ready test cases.
 You have access to this project's context:
 
 {project_context}
+
+{domain_guidance}
+{completeness_warning}
 
 == YOUR WORKFLOW ==
 
@@ -1666,20 +1836,31 @@ You have access to this project's context:
    - Are the user's requirements clear and specific?
    - Is there enough detail to write concrete, executable test steps?
 
-2. If context is INCOMPLETE (first 1-2 turns), ask 1-2 focused clarifying questions.
-   Good questions:
-   - "Which specific features would you like to test? For example: authentication, CRUD operations, dashboard, etc."
-   - "Should I generate API tests, UI tests, or a mix of both?"
-   - "How many test cases would you like? And what priority level?"
-   - "I notice your app profile has 29 API endpoints. Should I focus on specific ones?"
+2. If context is INCOMPLETE (first 1-2 turns only), ask exactly 2-3 FOCUSED clarifying questions.
+   QUESTION RULES:
+   - Ask at most 2-3 questions per turn, never more
+   - Each question must be SPECIFIC to this project (reference actual endpoints, pages, requirements)
+   - Provide concrete options where possible (not open-ended)
+   - Format as a numbered list
+
+   Good example questions:
+   - "1. Which endpoints should I focus on? (a) All {len(app_profile.get('api_endpoints', []))} endpoints, (b) Just CRUD operations, (c) Authentication flows only"
+   - "2. What execution type? (a) API tests, (b) UI tests, (c) Mix of both"
+   - "3. Priority level? (a) P1 critical paths only, (b) P1+P2 comprehensive, (c) Full coverage P1-P3"
+
+   BAD questions (too generic, avoid these):
+   - "What would you like to test?" (too vague)
+   - "Can you tell me more?" (not specific)
+   - "What are your requirements?" (they are already in the context)
 
 3. If you have ENOUGH context, respond with a JSON block to trigger generation:
    ```json
    {{"action": "generate", "config": {{"description": "...", "count": 10, "execution_type": "api", "priority": "P1"}}}}
    ```
-
+{force_generate_instruction}
 RULES:
-- Ask a MAXIMUM of 2 rounds of questions, then generate with best available context
+- Ask a MAXIMUM of 2 rounds of questions (you are currently on round {user_message_count}), then generate with best available context
+- After round 2, you MUST generate — do not ask more questions
 - Be conversational and helpful, not formal
 - Reference the project's actual endpoints, pages, and requirements in your questions
 - When ready to generate, ALWAYS include the JSON config block

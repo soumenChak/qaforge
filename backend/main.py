@@ -27,6 +27,7 @@ from passlib.context import CryptContext
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from db_models import Base, User
@@ -115,7 +116,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     logger.info("Creating database tables (if not exist)...")
     Base.metadata.create_all(bind=engine)
-    logger.info("Database tables ready.")
+
+    # Create performance indexes (idempotent)
+    with engine.begin() as conn:
+        for idx_sql in [
+            "CREATE INDEX IF NOT EXISTS ix_test_cases_status ON test_cases(status)",
+            "CREATE INDEX IF NOT EXISTS ix_test_cases_execution_type ON test_cases(execution_type)",
+            "CREATE INDEX IF NOT EXISTS ix_execution_runs_status ON execution_runs(status)",
+            "CREATE INDEX IF NOT EXISTS ix_projects_domain ON projects(domain)",
+            "CREATE INDEX IF NOT EXISTS ix_projects_status ON projects(status)",
+        ]:
+            conn.execute(text(idx_sql))
+    logger.info("Database tables and indexes ready.")
 
     db = SessionLocal()
     try:

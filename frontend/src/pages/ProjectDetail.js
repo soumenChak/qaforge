@@ -4,6 +4,7 @@ import { projectsAPI, requirementsAPI, testCasesAPI, executionAPI } from '../ser
 import TestCaseTable from '../components/TestCaseTable';
 import { DOMAIN_COLORS, DOMAIN_NAMES } from '../constants/domains';
 import ExecutionRunModal from '../components/ExecutionRunModal';
+import Breadcrumb from '../components/Breadcrumb';
 import {
   SparklesIcon,
   PlusIcon,
@@ -90,6 +91,10 @@ export default function ProjectDetail() {
     ui_pages: [],
     rbac_model: '',
     notes: '',
+    // Domain-specific config
+    mdm_config: { entity_types: [], source_systems: [], match_rules: '', survivorship_rules: '', crosswalk_model: '', data_quality_rules: '' },
+    data_eng_config: { pipelines: [], source_systems: '', target_systems: '', transformation_rules: '', scheduling: '', data_quality_rules: '' },
+    ai_config: { llm_models: '', prompt_templates: '', evaluation_criteria: '', guardrails: '', rag_config: '', agent_workflows: '' },
   };
   const [appProfile, setAppProfile] = useState(EMPTY_PROFILE);
   const [appProfileDirty, setAppProfileDirty] = useState(false);
@@ -122,6 +127,9 @@ export default function ProjectDetail() {
           merged.auth.test_credentials = { ...prev.auth.test_credentials, ...(res.data.app_profile.auth?.test_credentials || {}) };
           merged.api_endpoints = res.data.app_profile.api_endpoints || [];
           merged.ui_pages = res.data.app_profile.ui_pages || [];
+          merged.mdm_config = { ...prev.mdm_config, ...(res.data.app_profile.mdm_config || {}) };
+          merged.data_eng_config = { ...prev.data_eng_config, ...(res.data.app_profile.data_eng_config || {}) };
+          merged.ai_config = { ...prev.ai_config, ...(res.data.app_profile.ai_config || {}) };
           return merged;
         });
       }
@@ -464,14 +472,12 @@ export default function ProjectDetail() {
 
   return (
     <div className="page-container">
-      {/* Header */}
+      {/* Breadcrumb + Header */}
       <div className="mb-6">
-        <button
-          onClick={() => navigate('/projects')}
-          className="text-sm text-fg-mid hover:text-fg-dark mb-3 inline-flex items-center gap-1"
-        >
-          &larr; Back to Projects
-        </button>
+        <Breadcrumb items={[
+          { label: 'Projects', to: '/projects' },
+          { label: project.name },
+        ]} />
 
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -1604,6 +1610,193 @@ export default function ProjectDetail() {
               ))}
             </div>
           </div>
+
+          {/* Domain-Specific Config: MDM */}
+          {project?.domain === 'mdm' && (
+            <div className="card p-5">
+              <div className="h-1 -mt-5 -mx-5 mb-4 bg-gradient-to-r from-purple-400 to-purple-600 rounded-t" />
+              <h4 className="text-sm font-semibold text-fg-dark mb-1">MDM Configuration</h4>
+              <p className="text-xs text-fg-mid mb-3">Reltio, Semarchy, or other MDM platform-specific settings that help generate accurate test cases.</p>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs text-fg-mid mb-1">Entity Types (e.g., Person, Organization, Product — one per line)</label>
+                  <textarea className="input w-full text-xs" rows={3}
+                    placeholder={"Person (HCP)\nOrganization (HCO)\nProduct"}
+                    value={(appProfile.mdm_config?.entity_types || []).join('\n')}
+                    onChange={e => { setAppProfile(p => ({...p, mdm_config: {...(p.mdm_config || {}), entity_types: e.target.value.split('\n').filter(Boolean)}})); setAppProfileDirty(true); }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-fg-mid mb-1">Source Systems (e.g., CRM, ERP, MDH — one per line)</label>
+                  <textarea className="input w-full text-xs" rows={2}
+                    placeholder={"Salesforce CRM\nSAP ERP\nManual Entry"}
+                    value={(appProfile.mdm_config?.source_systems || []).join('\n')}
+                    onChange={e => { setAppProfile(p => ({...p, mdm_config: {...(p.mdm_config || {}), source_systems: e.target.value.split('\n').filter(Boolean)}})); setAppProfileDirty(true); }}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-fg-mid mb-1">Match Rules</label>
+                    <textarea className="input w-full text-xs" rows={3}
+                      placeholder="Exact match on Name+DOB, Fuzzy on Address, Probabilistic on Email"
+                      value={appProfile.mdm_config?.match_rules || ''}
+                      onChange={e => { setAppProfile(p => ({...p, mdm_config: {...(p.mdm_config || {}), match_rules: e.target.value}})); setAppProfileDirty(true); }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-fg-mid mb-1">Survivorship Rules</label>
+                    <textarea className="input w-full text-xs" rows={3}
+                      placeholder="Most recent wins for Phone, CRM wins for Email, Longest value for Name"
+                      value={appProfile.mdm_config?.survivorship_rules || ''}
+                      onChange={e => { setAppProfile(p => ({...p, mdm_config: {...(p.mdm_config || {}), survivorship_rules: e.target.value}})); setAppProfileDirty(true); }}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-fg-mid mb-1">Crosswalk / Relationship Model</label>
+                  <input type="text" className="input w-full text-xs"
+                    placeholder="e.g., Crosswalks map source IDs to golden record URI, Relationships: HCP-affiliated-HCO"
+                    value={appProfile.mdm_config?.crosswalk_model || ''}
+                    onChange={e => { setAppProfile(p => ({...p, mdm_config: {...(p.mdm_config || {}), crosswalk_model: e.target.value}})); setAppProfileDirty(true); }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-fg-mid mb-1">Data Quality Rules</label>
+                  <textarea className="input w-full text-xs" rows={2}
+                    placeholder="Email format validation, Phone normalization, Address standardization, Required fields: Name, DOB"
+                    value={appProfile.mdm_config?.data_quality_rules || ''}
+                    onChange={e => { setAppProfile(p => ({...p, mdm_config: {...(p.mdm_config || {}), data_quality_rules: e.target.value}})); setAppProfileDirty(true); }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Domain-Specific Config: Data Engineering */}
+          {project?.domain === 'data_eng' && (
+            <div className="card p-5">
+              <div className="h-1 -mt-5 -mx-5 mb-4 bg-gradient-to-r from-orange-400 to-orange-600 rounded-t" />
+              <h4 className="text-sm font-semibold text-fg-dark mb-1">Data Engineering Configuration</h4>
+              <p className="text-xs text-fg-mid mb-3">Pipeline, ETL/ELT, and data platform settings for targeted test generation.</p>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs text-fg-mid mb-1">Pipelines (name, type — one per line)</label>
+                  <textarea className="input w-full text-xs" rows={3}
+                    placeholder={"orders_etl: Databricks Spark -> Delta Lake\ncustomer_sync: Kafka CDC -> Snowflake\ndaily_aggregation: dbt run"}
+                    value={(appProfile.data_eng_config?.pipelines || []).join('\n')}
+                    onChange={e => { setAppProfile(p => ({...p, data_eng_config: {...(p.data_eng_config || {}), pipelines: e.target.value.split('\n').filter(Boolean)}})); setAppProfileDirty(true); }}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-fg-mid mb-1">Source Systems</label>
+                    <textarea className="input w-full text-xs" rows={2}
+                      placeholder="PostgreSQL (OLTP), S3 bucket (raw landing), Kafka topics"
+                      value={appProfile.data_eng_config?.source_systems || ''}
+                      onChange={e => { setAppProfile(p => ({...p, data_eng_config: {...(p.data_eng_config || {}), source_systems: e.target.value}})); setAppProfileDirty(true); }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-fg-mid mb-1">Target Systems</label>
+                    <textarea className="input w-full text-xs" rows={2}
+                      placeholder="Snowflake (DWH), Delta Lake (curated layer), Redis (cache)"
+                      value={appProfile.data_eng_config?.target_systems || ''}
+                      onChange={e => { setAppProfile(p => ({...p, data_eng_config: {...(p.data_eng_config || {}), target_systems: e.target.value}})); setAppProfileDirty(true); }}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-fg-mid mb-1">Transformation Rules</label>
+                  <textarea className="input w-full text-xs" rows={3}
+                    placeholder={"Medallion: Bronze (raw) -> Silver (cleansed) -> Gold (aggregated)\nKey transforms: date normalization, currency conversion, deduplication"}
+                    value={appProfile.data_eng_config?.transformation_rules || ''}
+                    onChange={e => { setAppProfile(p => ({...p, data_eng_config: {...(p.data_eng_config || {}), transformation_rules: e.target.value}})); setAppProfileDirty(true); }}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-fg-mid mb-1">Scheduling</label>
+                    <input type="text" className="input w-full text-xs"
+                      placeholder="Airflow DAG: daily at 02:00 UTC, Databricks job: hourly"
+                      value={appProfile.data_eng_config?.scheduling || ''}
+                      onChange={e => { setAppProfile(p => ({...p, data_eng_config: {...(p.data_eng_config || {}), scheduling: e.target.value}})); setAppProfileDirty(true); }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-fg-mid mb-1">Data Quality Rules</label>
+                    <input type="text" className="input w-full text-xs"
+                      placeholder="No nulls in key columns, row count variance < 5%, freshness < 24h"
+                      value={appProfile.data_eng_config?.data_quality_rules || ''}
+                      onChange={e => { setAppProfile(p => ({...p, data_eng_config: {...(p.data_eng_config || {}), data_quality_rules: e.target.value}})); setAppProfileDirty(true); }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Domain-Specific Config: AI / GenAI */}
+          {project?.domain === 'ai' && (
+            <div className="card p-5">
+              <div className="h-1 -mt-5 -mx-5 mb-4 bg-gradient-to-r from-blue-400 to-blue-600 rounded-t" />
+              <h4 className="text-sm font-semibold text-fg-dark mb-1">AI / GenAI Configuration</h4>
+              <p className="text-xs text-fg-mid mb-3">LLM, RAG, and agent-specific settings for testing AI-powered features.</p>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-fg-mid mb-1">LLM Models Used</label>
+                    <input type="text" className="input w-full text-xs"
+                      placeholder="GPT-4o, Claude 3.5 Sonnet, Llama 3.1"
+                      value={appProfile.ai_config?.llm_models || ''}
+                      onChange={e => { setAppProfile(p => ({...p, ai_config: {...(p.ai_config || {}), llm_models: e.target.value}})); setAppProfileDirty(true); }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-fg-mid mb-1">Evaluation Criteria</label>
+                    <input type="text" className="input w-full text-xs"
+                      placeholder="Accuracy, relevance, latency < 5s, no hallucinations"
+                      value={appProfile.ai_config?.evaluation_criteria || ''}
+                      onChange={e => { setAppProfile(p => ({...p, ai_config: {...(p.ai_config || {}), evaluation_criteria: e.target.value}})); setAppProfileDirty(true); }}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-fg-mid mb-1">Prompt Templates / System Prompts</label>
+                  <textarea className="input w-full text-xs" rows={3}
+                    placeholder={"Chat: You are a helpful assistant for [domain]...\nRAG: Answer based on the provided context only..."}
+                    value={appProfile.ai_config?.prompt_templates || ''}
+                    onChange={e => { setAppProfile(p => ({...p, ai_config: {...(p.ai_config || {}), prompt_templates: e.target.value}})); setAppProfileDirty(true); }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-fg-mid mb-1">Guardrails & Safety Rules</label>
+                  <textarea className="input w-full text-xs" rows={2}
+                    placeholder="Block PII in responses, refuse harmful content, no code execution, content moderation"
+                    value={appProfile.ai_config?.guardrails || ''}
+                    onChange={e => { setAppProfile(p => ({...p, ai_config: {...(p.ai_config || {}), guardrails: e.target.value}})); setAppProfileDirty(true); }}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-fg-mid mb-1">RAG Configuration</label>
+                    <textarea className="input w-full text-xs" rows={2}
+                      placeholder="ChromaDB vector store, chunk_size=500, top_k=5, embedding=text-embedding-3-small"
+                      value={appProfile.ai_config?.rag_config || ''}
+                      onChange={e => { setAppProfile(p => ({...p, ai_config: {...(p.ai_config || {}), rag_config: e.target.value}})); setAppProfileDirty(true); }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-fg-mid mb-1">Agent Workflows</label>
+                    <textarea className="input w-full text-xs" rows={2}
+                      placeholder="Multi-step: Planner -> Researcher -> Writer -> Reviewer, Tool-use: search, calculator"
+                      value={appProfile.ai_config?.agent_workflows || ''}
+                      onChange={e => { setAppProfile(p => ({...p, ai_config: {...(p.ai_config || {}), agent_workflows: e.target.value}})); setAppProfileDirty(true); }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* RBAC & Notes */}
           <div className="card p-5">

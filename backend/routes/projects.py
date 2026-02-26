@@ -822,8 +822,116 @@ async def validate_app_profile(
 # ---------------------------------------------------------------------------
 # POST /{id}/app-profile/discover  (Feature 4: OpenAPI Auto-Discovery)
 # ---------------------------------------------------------------------------
+def _resolve_ref(spec: dict, ref_string: str) -> dict:
+    """Resolve a $ref pointer (e.g. '#/components/schemas/User') against the spec.
+
+    Works for both OpenAPI 3.x (#/components/schemas/...) and
+    Swagger 2.0 (#/definitions/...) references.
+    """
+    if not ref_string or not isinstance(ref_string, str):
+        return {}
+    parts = ref_string.split("/")
+    obj = spec
+    for part in parts[1:]:  # skip '#'
+        if isinstance(obj, dict):
+            obj = obj.get(part, {})
+        else:
+            return {}
+    return obj if isinstance(obj, dict) else {}
+
+
+def _resolve_schema(spec: dict, schema: dict) -> dict:
+    """Resolve a schema object, following $ref if present."""
+    if not isinstance(schema, dict):
+        return {}
+    if "$ref" in schema:
+        return _resolve_ref(spec, schema["$ref"])
+    return schema
+
+
+def _format_field_with_type(name: str, prop: dict, required_set: set) -> str:
+    """Format a field as 'name: type' or 'name: type (required)'."""
+    field_type = prop.get("type", "object")
+    fmt = prop.get("format")
+    if fmt:
+        field_type = f"{field_type}({fmt})"
+    if prop.get("enum"):
+        field_type = f"enum[{','.join(str(v) for v in prop['enum'][:5])}]"
+    suffix = " (required)" if name in required_set else ""
+    return f"{name}: {field_type}{suffix}"
+
+
+def _extract_schema_fields_typed(spec: dict, schema: dict) -> List[str]:
+    """Extract field names with types from a resolved schema's properties.
+
+    Returns up to 20 entries like: ["name: string (required)", "age: integer"].
+    """
+    schema = _resolve_schema(spec, schema)
+    props = schema.get("properties", {})
+    if not props:
+        return []
+    required_set = set(schema.get("required", []))
+    result = []
+    for fname, fprop in list(props.items())[:20]:
+        if not isinstance(fprop, dict):
+            fprop = {}
+        result.append(_format_field_with_type(fname, fprop, required_set))
+    return result
+
+
+def _extract_response_fields_typed(spec: dict, schema: dict) -> List[str]:
+    """Extract response field names with types, handling array wrappers."""
+    schema = _resolve_schema(spec, schema)
+    # Unwrap array -> items
+    if schema.get("type") == "array" and schema.get("items"):
+        schema = _resolve_schema(spec, schema["items"])
+    return _extract_schema_fields_typed(spec, schema)
+
+
+def _extract_examples(spec: dict, schema: dict) -> Optional[Dict[str, Any]]:
+    """Extract example data from a schema (example / examples / property-level examples).
+
+    Returns a dict of example values, or None if no examples found.
+    """
+    schema = _resolve_schema(spec, schema)
+    # Top-level example
+    if schema.get("example"):
+        return schema["example"] if isinstance(schema["example"], dict) else {"_value": schema["example"]}
+    # Top-level examples (OpenAPI 3.1)
+    if schema.get("examples"):
+        examples = schema["examples"]
+        if isinstance(examples, list) and examples:
+            return examples[0] if isinstance(examples[0], dict) else {"_value": examples[0]}
+        if isinstance(examples, dict):
+            first = next(iter(examples.values()), None)
+            if isinstance(first, dict) and "value" in first:
+                return first["value"] if isinstance(first["value"], dict) else {"_value": first["value"]}
+            return first if isinstance(first, dict) else None
+    # Property-level examples
+    props = schema.get("properties", {})
+    if props:
+        prop_examples = {}
+        for fname, fprop in props.items():
+            if not isinstance(fprop, dict):
+                continue
+            if "example" in fprop:
+                prop_examples[fname] = fprop["example"]
+            elif "default" in fprop:
+                prop_examples[fname] = fprop["default"]
+        if prop_examples:
+            return prop_examples
+    return None
+
+
 def _parse_openapi_spec(spec: dict) -> Dict[str, Any]:
-    """Parse an OpenAPI v2/v3 spec and extract app_profile fields."""
+    """Parse an OpenAPI v2/v3 spec and extract enriched app_profile fields.
+
+    Extracts:
+    - api_base_url from servers (v3) or host+basePath (v2)
+    - api_endpoints with typed required_fields, response_fields, test_data_hints
+    - auth config from securitySchemes (v3) or securityDefinitions (v2)
+    - info notes (title, version)
+    """
     result: Dict[str, Any] = {}
 
     # Detect version
@@ -845,96 +953,100 @@ def _parse_openapi_spec(spec: dict) -> Dict[str, Any]:
     paths = spec.get("paths", {})
     endpoints = []
     for path, methods in list(paths.items())[:50]:  # Limit to 50 paths
+        if not isinstance(methods, dict):
+            continue
         for method_name, details in methods.items():
-            if method_name.lower() in ("get", "post", "put", "delete", "patch"):
-                ep: Dict[str, Any] = {
-                    "method": method_name.upper(),
-                    "path": path,
-                    "description": (details.get("summary") or details.get("description") or "")[:200],
-                }
+            if method_name.lower() not in ("get", "post", "put", "delete", "patch"):
+                continue
+            if not isinstance(details, dict):
+                continue
 
-                # Extract required fields from request body (v3)
-                req_body = details.get("requestBody", {})
-                if req_body:
-                    content = req_body.get("content", {})
-                    json_schema = content.get("application/json", {}).get("schema", {})
-                    # Resolve $ref if present
-                    if "$ref" in json_schema:
-                        ref_path = json_schema["$ref"].split("/")
-                        schema_obj = spec
-                        for part in ref_path[1:]:  # skip '#'
-                            schema_obj = schema_obj.get(part, {})
-                        json_schema = schema_obj
-                    if json_schema.get("required"):
-                        ep["required_fields"] = json_schema["required"][:20]
-                    if json_schema.get("properties"):
-                        ep["response_fields"] = list(json_schema["properties"].keys())[:20]
+            ep: Dict[str, Any] = {
+                "method": method_name.upper(),
+                "path": path,
+                "description": (details.get("summary") or details.get("description") or "")[:200],
+            }
 
-                # Extract required fields from parameters (v2)
-                params = details.get("parameters", [])
-                if params:
-                    required_params = [
-                        p.get("name") for p in params
-                        if isinstance(p, dict) and p.get("required") and p.get("in") == "body"
-                    ]
-                    body_params = [p for p in params if isinstance(p, dict) and p.get("in") == "body"]
-                    if body_params:
-                        schema = body_params[0].get("schema", {})
-                        if "$ref" in schema:
-                            ref_path = schema["$ref"].split("/")
-                            schema_obj = spec
-                            for part in ref_path[1:]:
-                                schema_obj = schema_obj.get(part, {})
-                            schema = schema_obj
-                        if schema.get("required"):
-                            ep["required_fields"] = schema["required"][:20]
-                        if schema.get("properties"):
-                            ep["response_fields"] = list(schema["properties"].keys())[:20]
+            # ── Request body schema extraction ──
 
-                # Extract response fields from 200 response
-                responses = details.get("responses", {})
-                ok_resp = responses.get("200") or responses.get("201") or responses.get("2XX") or {}
-                if ok_resp:
-                    # v3
-                    resp_content = ok_resp.get("content", {})
-                    resp_schema = resp_content.get("application/json", {}).get("schema", {})
-                    if "$ref" in resp_schema:
-                        ref_path = resp_schema["$ref"].split("/")
-                        schema_obj = spec
-                        for part in ref_path[1:]:
-                            schema_obj = schema_obj.get(part, {})
-                        resp_schema = schema_obj
-                    # Handle array response with items
-                    if resp_schema.get("type") == "array" and resp_schema.get("items"):
-                        items_schema = resp_schema["items"]
-                        if "$ref" in items_schema:
-                            ref_path = items_schema["$ref"].split("/")
-                            schema_obj = spec
-                            for part in ref_path[1:]:
-                                schema_obj = schema_obj.get(part, {})
-                            items_schema = schema_obj
-                        if items_schema.get("properties"):
-                            ep["response_fields"] = list(items_schema["properties"].keys())[:20]
-                    elif resp_schema.get("properties"):
-                        ep["response_fields"] = list(resp_schema["properties"].keys())[:20]
+            # OpenAPI 3.x: requestBody -> content -> application/json -> schema
+            req_body = details.get("requestBody", {})
+            req_schema_resolved = None
+            if req_body and isinstance(req_body, dict):
+                content = req_body.get("content", {})
+                json_schema = content.get("application/json", {}).get("schema", {})
+                if json_schema:
+                    req_schema_resolved = _resolve_schema(spec, json_schema)
+                    typed_fields = _extract_schema_fields_typed(spec, json_schema)
+                    if typed_fields:
+                        ep["required_fields"] = typed_fields
 
-                    # v2 schema
-                    if not ep.get("response_fields"):
-                        v2_schema = ok_resp.get("schema", {})
-                        if "$ref" in v2_schema:
-                            ref_path = v2_schema["$ref"].split("/")
-                            schema_obj = spec
-                            for part in ref_path[1:]:
-                                schema_obj = schema_obj.get(part, {})
-                            v2_schema = schema_obj
-                        if v2_schema.get("properties"):
-                            ep["response_fields"] = list(v2_schema["properties"].keys())[:20]
+                    # Extract request body examples for test_data_hints
+                    examples = _extract_examples(spec, json_schema)
+                    # Also check requestBody-level examples (OAS 3.x)
+                    if not examples:
+                        media = content.get("application/json", {})
+                        if media.get("example"):
+                            examples = media["example"] if isinstance(media["example"], dict) else {"_value": media["example"]}
+                        elif media.get("examples"):
+                            ex_map = media["examples"]
+                            if isinstance(ex_map, dict):
+                                first_ex = next(iter(ex_map.values()), {})
+                                if isinstance(first_ex, dict) and "value" in first_ex:
+                                    examples = first_ex["value"] if isinstance(first_ex["value"], dict) else {"_value": first_ex["value"]}
+                    if examples:
+                        ep["test_data_hints"] = examples
 
-                endpoints.append(ep)
+            # Swagger 2.0: parameters with in=body -> schema (refs go to #/definitions/...)
+            params = details.get("parameters", [])
+            if params and not req_schema_resolved:
+                body_params = [p for p in params if isinstance(p, dict) and p.get("in") == "body"]
+                if body_params:
+                    schema = body_params[0].get("schema", {})
+                    req_schema_resolved = _resolve_schema(spec, schema)
+                    typed_fields = _extract_schema_fields_typed(spec, schema)
+                    if typed_fields:
+                        ep["required_fields"] = typed_fields
+                    # Extract examples from v2 body schema
+                    examples = _extract_examples(spec, schema)
+                    if examples:
+                        ep["test_data_hints"] = examples
+
+            # ── Response schema extraction (typed) ──
+
+            responses = details.get("responses", {})
+            ok_resp = responses.get("200") or responses.get("201") or responses.get("2XX") or {}
+            if ok_resp and isinstance(ok_resp, dict):
+                # v3: content -> application/json -> schema
+                resp_content = ok_resp.get("content", {})
+                resp_schema = resp_content.get("application/json", {}).get("schema", {})
+                if resp_schema:
+                    typed_resp = _extract_response_fields_typed(spec, resp_schema)
+                    if typed_resp:
+                        ep["response_fields"] = typed_resp
+
+                # v2 fallback: schema directly on response object
+                if not ep.get("response_fields"):
+                    v2_schema = ok_resp.get("schema", {})
+                    if v2_schema:
+                        typed_resp = _extract_response_fields_typed(spec, v2_schema)
+                        if typed_resp:
+                            ep["response_fields"] = typed_resp
+
+                # Extract response examples for test_data_hints (if no request examples found)
+                if not ep.get("test_data_hints"):
+                    resp_ex_schema = resp_schema if resp_schema else ok_resp.get("schema", {})
+                    if resp_ex_schema:
+                        resp_examples = _extract_examples(spec, resp_ex_schema)
+                        if resp_examples:
+                            ep["test_data_hints"] = resp_examples
+
+            endpoints.append(ep)
 
     result["api_endpoints"] = endpoints
 
-    # Extract auth schemes
+    # ── Auth schemes extraction (enriched) ──
+
     security_schemes = {}
     if is_v3:
         security_schemes = spec.get("components", {}).get("securitySchemes", {})
@@ -944,15 +1056,73 @@ def _parse_openapi_spec(spec: dict) -> Dict[str, Any]:
     if security_schemes:
         auth_info: Dict[str, Any] = {}
         for name, scheme in security_schemes.items():
+            if not isinstance(scheme, dict):
+                continue
             scheme_type = scheme.get("type", "")
-            if scheme_type == "http" and scheme.get("scheme") == "bearer":
-                auth_info["token_header"] = "Authorization: Bearer <access_token>"
+
+            # Bearer token (HTTP bearer scheme)
+            if scheme_type == "http" and scheme.get("scheme", "").lower() == "bearer":
+                auth_info["token_header"] = "Authorization"
+                auth_info["token_prefix"] = "Bearer"
+                auth_info["request_body"] = "POST to auth endpoint with credentials to obtain a Bearer token"
+                bearer_format = scheme.get("bearerFormat")
+                if bearer_format:
+                    auth_info["bearer_format"] = bearer_format
+
+            # API Key
             elif scheme_type == "apiKey":
                 key_name = scheme.get("name", "X-API-Key")
                 key_in = scheme.get("in", "header")
-                auth_info["token_header"] = f"{key_name}: <api_key> (in {key_in})"
+                if key_in == "header":
+                    auth_info["token_header"] = key_name
+                    auth_info["request_body"] = f"Include API key in header: {key_name}: <your-api-key>"
+                elif key_in == "query":
+                    auth_info["token_header"] = f"Query param: {key_name}"
+                    auth_info["request_body"] = f"Include API key as query parameter: ?{key_name}=<your-api-key>"
+                elif key_in == "cookie":
+                    auth_info["token_header"] = f"Cookie: {key_name}"
+                    auth_info["request_body"] = f"Include API key as cookie: {key_name}=<your-api-key>"
+
+            # OAuth2 (v3 and v2)
             elif scheme_type == "oauth2":
-                auth_info["token_header"] = "Authorization: Bearer <oauth2_token>"
+                auth_info["token_header"] = "Authorization"
+                auth_info["token_prefix"] = "Bearer"
+                flows = scheme.get("flows") or scheme.get("flow")
+                if isinstance(flows, dict):
+                    # v3 flows object
+                    flow_info = {}
+                    for flow_name, flow_detail in flows.items():
+                        if isinstance(flow_detail, dict):
+                            fi: Dict[str, Any] = {"type": flow_name}
+                            if flow_detail.get("authorizationUrl"):
+                                fi["authorization_url"] = flow_detail["authorizationUrl"]
+                            if flow_detail.get("tokenUrl"):
+                                fi["token_url"] = flow_detail["tokenUrl"]
+                            scopes = flow_detail.get("scopes", {})
+                            if scopes:
+                                fi["scopes"] = list(scopes.keys())[:10]
+                            flow_info[flow_name] = fi
+                    if flow_info:
+                        auth_info["oauth2_flows"] = flow_info
+                elif isinstance(flows, str):
+                    # v2: flow is a string (implicit, password, application, accessCode)
+                    auth_info["oauth2_flows"] = {flows: {"type": flows}}
+                    if scheme.get("authorizationUrl"):
+                        auth_info["oauth2_flows"][flows]["authorization_url"] = scheme["authorizationUrl"]
+                    if scheme.get("tokenUrl"):
+                        auth_info["oauth2_flows"][flows]["token_url"] = scheme["tokenUrl"]
+                    scopes = scheme.get("scopes", {})
+                    if scopes:
+                        auth_info["oauth2_flows"][flows]["scopes"] = list(scopes.keys())[:10]
+
+                auth_info["request_body"] = "OAuth2 flow - obtain token from authorization/token endpoint"
+
+            # Basic auth
+            elif scheme_type == "http" and scheme.get("scheme", "").lower() == "basic":
+                auth_info["token_header"] = "Authorization"
+                auth_info["token_prefix"] = "Basic"
+                auth_info["request_body"] = "Base64-encode 'username:password' and include as Authorization: Basic <encoded>"
+
         if auth_info:
             result["auth"] = auth_info
 

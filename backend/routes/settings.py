@@ -16,7 +16,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from db_models import User
+from db_models import AppSetting, User
 from db_session import get_db
 from dependencies import (
     audit_log,
@@ -61,16 +61,48 @@ PROVIDER_INFO: Dict[str, Dict[str, Any]] = {
     },
 }
 
-# In-memory settings (persists across requests but not restarts).
-# In a real deployment this would be stored in the DB or a config table.
-_llm_settings: Dict[str, str] = {
-    "provider": os.environ.get("LLM_PROVIDER", "mock"),
-    "model": os.environ.get("LLM_MODEL", "mock"),
-}
+# ---------------------------------------------------------------------------
+# Helpers -- DB-backed LLM settings
+# ---------------------------------------------------------------------------
+_LLM_SETTINGS_KEY = "llm_settings"
+
+
+def _get_llm_settings(db: Session) -> Dict[str, str]:
+    """
+    Read LLM settings from the ``app_settings`` table.
+
+    Falls back to environment variables (LLM_PROVIDER / LLM_MODEL) on first
+    boot when no row exists yet.
+    """
+    row = db.query(AppSetting).filter(AppSetting.key == _LLM_SETTINGS_KEY).first()
+    if row and isinstance(row.value, dict):
+        return {
+            "provider": row.value.get("provider", os.environ.get("LLM_PROVIDER", "mock")),
+            "model": row.value.get("model", os.environ.get("LLM_MODEL", "mock")),
+        }
+    # No persisted setting yet -- fall back to env vars
+    return {
+        "provider": os.environ.get("LLM_PROVIDER", "mock"),
+        "model": os.environ.get("LLM_MODEL", "mock"),
+    }
+
+
+def _save_llm_settings(db: Session, provider: str, model: str) -> None:
+    """Upsert LLM settings into the ``app_settings`` table."""
+    row = db.query(AppSetting).filter(AppSetting.key == _LLM_SETTINGS_KEY).first()
+    if row:
+        row.value = {"provider": provider, "model": model}
+    else:
+        row = AppSetting(
+            key=_LLM_SETTINGS_KEY,
+            value={"provider": provider, "model": model},
+        )
+        db.add(row)
+    db.flush()
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Helpers -- provider checks
 # ---------------------------------------------------------------------------
 def _is_provider_configured(provider_key: str) -> bool:
     """Check whether a provider's required env var is set."""
@@ -98,12 +130,14 @@ def _get_available_providers() -> list[str]:
     summary="Get current LLM configuration",
 )
 def get_llm_settings(
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Return the current LLM provider and model configuration."""
+    settings = _get_llm_settings(db)
     return LLMSettingsResponse(
-        provider=_llm_settings["provider"],
-        model=_llm_settings["model"],
+        provider=settings["provider"],
+        model=settings["model"],
         available_providers=_get_available_providers(),
     )
 
@@ -127,7 +161,10 @@ def update_llm_settings(
 
     Validates that the selected provider is configured (env var present)
     and that the model is in the provider's model list.
+    Settings are persisted to the database so they survive restarts.
     """
+    current = _get_llm_settings(db)
+
     if body.provider is not None:
         if body.provider not in PROVIDER_INFO:
             raise HTTPException(
@@ -142,14 +179,14 @@ def update_llm_settings(
                        f"Set the {PROVIDER_INFO[body.provider]['env_key']} environment variable.",
             )
 
-        _llm_settings["provider"] = body.provider
+        current["provider"] = body.provider
 
         # If provider changed but model not specified, default to first model
         if body.model is None:
-            _llm_settings["model"] = PROVIDER_INFO[body.provider]["models"][0]
+            current["model"] = PROVIDER_INFO[body.provider]["models"][0]
 
     if body.model is not None:
-        provider = body.provider or _llm_settings["provider"]
+        provider = body.provider or current["provider"]
         valid_models = PROVIDER_INFO.get(provider, {}).get("models", [])
         if body.model not in valid_models:
             raise HTTPException(
@@ -157,7 +194,9 @@ def update_llm_settings(
                 detail=f"Model '{body.model}' is not valid for provider '{provider}'. "
                        f"Available: {valid_models}",
             )
-        _llm_settings["model"] = body.model
+        current["model"] = body.model
+
+    _save_llm_settings(db, current["provider"], current["model"])
 
     audit_log(
         db,
@@ -165,22 +204,22 @@ def update_llm_settings(
         action="update_llm_settings",
         entity_type="settings",
         details={
-            "provider": _llm_settings["provider"],
-            "model": _llm_settings["model"],
+            "provider": current["provider"],
+            "model": current["model"],
         },
         ip_address=get_client_ip(request),
     )
 
     logger.info(
         "LLM settings updated to %s/%s by %s",
-        _llm_settings["provider"],
-        _llm_settings["model"],
+        current["provider"],
+        current["model"],
         current_user.email,
     )
 
     return LLMSettingsResponse(
-        provider=_llm_settings["provider"],
-        model=_llm_settings["model"],
+        provider=current["provider"],
+        model=current["model"],
         available_providers=_get_available_providers(),
     )
 

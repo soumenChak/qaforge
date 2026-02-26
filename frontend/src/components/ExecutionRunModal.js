@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { connectionsAPI, executionAPI } from '../services/api';
-import { XMarkIcon, PlayIcon, PlusIcon, BoltIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, PlayIcon, PlusIcon, BoltIcon, DocumentTextIcon, SignalIcon } from '@heroicons/react/24/outline';
+import { CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/solid';
+import Spinner from './Spinner';
 
 /**
  * ExecutionRunModal -- Configure and launch a test execution run.
@@ -59,6 +61,10 @@ export default function ExecutionRunModal({ projectId, testCaseIds, testCaseCoun
   // Execution context
   const [executionContext, setExecutionContext] = useState('');
   const [showContext, setShowContext] = useState(false);
+
+  // Test connection state
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null); // { ok, message }
 
   // Run state
   const [starting, setStarting] = useState(false);
@@ -161,6 +167,24 @@ export default function ExecutionRunModal({ projectId, testCaseIds, testCaseCoun
       setError(err.response?.data?.detail || 'Failed to create connection.');
     } finally {
       setCreatingConn(false);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    if (!selectedConnectionId) return;
+    setTesting(true);
+    setTestResult(null);
+    const startTime = Date.now();
+    try {
+      await connectionsAPI.test(selectedConnectionId);
+      const elapsed = Date.now() - startTime;
+      setTestResult({ ok: true, message: `Connected (${elapsed}ms)` });
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      const msg = typeof detail === 'string' ? detail : 'Connection failed';
+      setTestResult({ ok: false, message: msg });
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -296,17 +320,42 @@ export default function ExecutionRunModal({ projectId, testCaseIds, testCaseCoun
             </label>
             {connections.length > 0 ? (
               <div className="space-y-2">
-                <select
-                  value={selectedConnectionId}
-                  onChange={(e) => setSelectedConnectionId(e.target.value)}
-                  className="input-field"
-                >
-                  {connections.map((conn) => (
-                    <option key={conn.id} value={conn.id}>
-                      {conn.name} — {conn.config?.base_url || conn.config?.app_url || conn.config?.db_url || 'No URL'}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={selectedConnectionId}
+                    onChange={(e) => { setSelectedConnectionId(e.target.value); setTestResult(null); }}
+                    className="input-field flex-1"
+                  >
+                    {connections.map((conn) => (
+                      <option key={conn.id} value={conn.id}>
+                        {conn.name} — {conn.config?.base_url || conn.config?.app_url || conn.config?.db_url || 'No URL'}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedConnectionId && (
+                    <button
+                      onClick={handleTestConnection}
+                      disabled={testing}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border border-gray-200 bg-white text-fg-dark hover:border-teal-400 hover:text-fg-teal transition-colors disabled:opacity-50 whitespace-nowrap"
+                      title="Test connection"
+                    >
+                      {testing
+                        ? <Spinner size="sm" inline />
+                        : <SignalIcon className="w-3.5 h-3.5" />
+                      }
+                      Test
+                    </button>
+                  )}
+                </div>
+                {testResult && (
+                  <div className={`flex items-center gap-1.5 text-xs font-medium ${testResult.ok ? 'text-green-600' : 'text-red-600'}`}>
+                    {testResult.ok
+                      ? <CheckCircleIcon className="w-4 h-4 text-green-500" />
+                      : <XCircleIcon className="w-4 h-4 text-red-500" />
+                    }
+                    {testResult.message}
+                  </div>
+                )}
                 <button
                   onClick={() => setShowNewConnection(!showNewConnection)}
                   className="text-xs text-fg-teal hover:text-fg-tealDark flex items-center gap-1"

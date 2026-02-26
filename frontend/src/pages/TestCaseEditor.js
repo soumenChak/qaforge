@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { testCasesAPI } from '../services/api';
+import { testCasesAPI, projectsAPI } from '../services/api';
+import Breadcrumb from '../components/Breadcrumb';
 import RatingWidget from '../components/RatingWidget';
 import {
-  ArrowLeftIcon,
   TrashIcon,
   PlusIcon,
   ArrowsUpDownIcon,
@@ -14,6 +14,7 @@ export default function TestCaseEditor() {
   const { id: projectId, tcId } = useParams();
   const navigate = useNavigate();
 
+  const [project, setProject] = useState(null);
   const [tc, setTc] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -52,7 +53,10 @@ export default function TestCaseEditor() {
     }
   }, [projectId, tcId]);
 
-  useEffect(() => { loadTestCase(); }, [loadTestCase]);
+  useEffect(() => {
+    loadTestCase();
+    projectsAPI.getById(projectId).then(res => setProject(res.data)).catch(() => {});
+  }, [loadTestCase, projectId]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -152,14 +156,12 @@ export default function TestCaseEditor() {
 
   return (
     <div className="page-container max-w-4xl">
-      {/* Back */}
-      <button
-        onClick={() => navigate(`/projects/${projectId}`)}
-        className="text-sm text-fg-mid hover:text-fg-dark mb-4 inline-flex items-center gap-1"
-      >
-        <ArrowLeftIcon className="w-4 h-4" />
-        Back to Project
-      </button>
+      {/* Breadcrumb */}
+      <Breadcrumb items={[
+        { label: 'Projects', to: '/projects' },
+        { label: project?.name || 'Project', to: `/projects/${projectId}` },
+        { label: tc.test_case_id },
+      ]} />
 
       {/* Header */}
       <div className="flex items-start justify-between mb-6">

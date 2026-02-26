@@ -14,8 +14,8 @@ import logging
 import uuid
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import func, or_
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
+from sqlalchemy import delete, func, or_
 from sqlalchemy.orm import Session
 
 from db_models import KnowledgeEntry, TestTemplate, User
@@ -168,6 +168,124 @@ def create_knowledge_entry(
     )
 
     return KnowledgeEntryResponse.model_validate(entry)
+
+
+# ---------------------------------------------------------------------------
+# PUT /entries/{entry_id}
+# ---------------------------------------------------------------------------
+@router.put(
+    "/entries/{entry_id}",
+    response_model=KnowledgeEntryResponse,
+    summary="Update a knowledge entry",
+)
+def update_knowledge_entry(
+    body: KnowledgeEntryCreate,
+    request: Request,
+    entry_id: uuid.UUID = Path(..., description="Knowledge entry UUID"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Update an existing knowledge entry.
+
+    All fields from KnowledgeEntryCreate are applied to the entry.
+    """
+    entry = db.query(KnowledgeEntry).filter(KnowledgeEntry.id == entry_id).first()
+    if entry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Knowledge entry {entry_id} not found",
+        )
+
+    entry.domain = body.domain
+    entry.sub_domain = body.sub_domain
+    entry.entry_type = body.entry_type
+    entry.title = sanitize_string(body.title) or body.title
+    entry.content = sanitize_string(body.content) or body.content
+    entry.tags = body.tags
+    entry.source_project_id = body.source_project_id
+    db.flush()
+
+    audit_log(
+        db,
+        user_id=current_user.id,
+        action="update_knowledge_entry",
+        entity_type="knowledge_entry",
+        entity_id=str(entry.id),
+        details={
+            "domain": entry.domain,
+            "entry_type": entry.entry_type,
+            "title": entry.title,
+        },
+        ip_address=get_client_ip(request),
+    )
+
+    logger.info(
+        "Knowledge entry updated: %s [%s/%s] by %s",
+        entry.title[:50],
+        entry.domain,
+        entry.entry_type,
+        current_user.email,
+    )
+
+    return KnowledgeEntryResponse.model_validate(entry)
+
+
+# ---------------------------------------------------------------------------
+# DELETE /entries/{entry_id}
+# ---------------------------------------------------------------------------
+@router.delete(
+    "/entries/{entry_id}",
+    response_model=MessageResponse,
+    summary="Delete a knowledge entry",
+)
+def delete_knowledge_entry(
+    request: Request,
+    entry_id: uuid.UUID = Path(..., description="Knowledge entry UUID"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete a knowledge entry by ID."""
+    entry = db.query(KnowledgeEntry).filter(KnowledgeEntry.id == entry_id).first()
+    if entry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Knowledge entry {entry_id} not found",
+        )
+
+    entry_title = entry.title
+    entry_domain = entry.domain
+    entry_type = entry.entry_type
+
+    # Use query-level delete to avoid ORM cascade issues
+    db.execute(
+        delete(KnowledgeEntry).where(KnowledgeEntry.id == entry_id)
+    )
+    db.flush()
+
+    audit_log(
+        db,
+        user_id=current_user.id,
+        action="delete_knowledge_entry",
+        entity_type="knowledge_entry",
+        entity_id=str(entry_id),
+        details={
+            "domain": entry_domain,
+            "entry_type": entry_type,
+            "title": entry_title,
+        },
+        ip_address=get_client_ip(request),
+    )
+
+    logger.info(
+        "Knowledge entry deleted: %s [%s/%s] by %s",
+        entry_title[:50],
+        entry_domain,
+        entry_type,
+        current_user.email,
+    )
+
+    return MessageResponse(message=f"Knowledge entry '{entry_title}' deleted")
 
 
 # ---------------------------------------------------------------------------

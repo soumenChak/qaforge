@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { executionAPI, projectsAPI } from '../services/api';
+import Breadcrumb from '../components/Breadcrumb';
 import {
   CheckCircleIcon,
   XCircleIcon,
@@ -153,14 +154,11 @@ export default function ExecutionResults() {
   return (
     <div className="page-container">
       {/* Breadcrumb */}
-      <div className="mb-4">
-        <button
-          onClick={() => navigate(`/projects/${projectId}`)}
-          className="text-sm text-fg-mid hover:text-fg-dark inline-flex items-center gap-1"
-        >
-          &larr; Back to {project?.name || 'Project'}
-        </button>
-      </div>
+      <Breadcrumb items={[
+        { label: 'Projects', to: '/projects' },
+        { label: project?.name || 'Project', to: `/projects/${projectId}` },
+        { label: `Execution #${run.id.slice(0, 8)}` },
+      ]} />
 
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4 mb-6">

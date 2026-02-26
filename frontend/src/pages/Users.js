@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { usersAPI, authAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import { PlusIcon, XMarkIcon, PencilIcon, UsersIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, XMarkIcon, PencilIcon, UsersIcon, KeyIcon } from '@heroicons/react/24/outline';
+import Spinner from '../components/Spinner';
 
 const ROLE_COLORS = {
   admin: 'bg-red-100 text-red-700',
@@ -21,6 +22,13 @@ export default function Users() {
   const [newUser, setNewUser] = useState({ name: '', email: '', password: '', roles: ['tester'] });
   const [addError, setAddError] = useState('');
   const [adding, setAdding] = useState(false);
+
+  // Change password
+  const [showPwdForm, setShowPwdForm] = useState(false);
+  const [pwdData, setPwdData] = useState({ current_password: '', new_password: '', confirm: '' });
+  const [pwdError, setPwdError] = useState('');
+  const [pwdSuccess, setPwdSuccess] = useState('');
+  const [changingPwd, setChangingPwd] = useState(false);
 
   const loadUsers = useCallback(async () => {
     try {
@@ -89,12 +97,102 @@ export default function Users() {
     }
   };
 
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    setPwdError('');
+    setPwdSuccess('');
+    if (pwdData.new_password.length < 6) {
+      setPwdError('New password must be at least 6 characters.');
+      return;
+    }
+    if (pwdData.new_password !== pwdData.confirm) {
+      setPwdError('Passwords do not match.');
+      return;
+    }
+    setChangingPwd(true);
+    try {
+      await usersAPI.changePassword({
+        current_password: pwdData.current_password,
+        new_password: pwdData.new_password,
+      });
+      setPwdSuccess('Password changed successfully!');
+      setPwdData({ current_password: '', new_password: '', confirm: '' });
+      setTimeout(() => setPwdSuccess(''), 5000);
+    } catch (err) {
+      setPwdError(err.response?.data?.detail || 'Failed to change password.');
+    } finally {
+      setChangingPwd(false);
+    }
+  };
+
+  // Password change section — available to ALL users
+  const passwordSection = (
+    <div className="card-static mt-6">
+      <div className="h-1 bg-gradient-to-r from-amber-400 to-orange-400" />
+      <div className="p-6">
+        <button
+          onClick={() => { setShowPwdForm(!showPwdForm); setPwdError(''); setPwdSuccess(''); }}
+          className="flex items-center gap-2 text-fg-navy font-semibold hover:text-fg-teal transition-colors"
+        >
+          <KeyIcon className="w-5 h-5" />
+          Change Password
+          <span className="text-xs text-fg-mid ml-2">{showPwdForm ? '(hide)' : '(click to expand)'}</span>
+        </button>
+
+        {showPwdForm && (
+          <form onSubmit={handleChangePassword} className="mt-4 max-w-sm space-y-3">
+            {pwdError && (
+              <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">{pwdError}</div>
+            )}
+            {pwdSuccess && (
+              <div className="p-3 rounded-lg bg-green-50 border border-green-200 text-sm text-green-700">{pwdSuccess}</div>
+            )}
+            <div>
+              <label className="label">Current Password</label>
+              <input
+                type="password"
+                value={pwdData.current_password}
+                onChange={(e) => setPwdData({ ...pwdData, current_password: e.target.value })}
+                className="input-field"
+                required
+              />
+            </div>
+            <div>
+              <label className="label">New Password</label>
+              <input
+                type="password"
+                value={pwdData.new_password}
+                onChange={(e) => setPwdData({ ...pwdData, new_password: e.target.value })}
+                className="input-field"
+                required
+              />
+            </div>
+            <div>
+              <label className="label">Confirm New Password</label>
+              <input
+                type="password"
+                value={pwdData.confirm}
+                onChange={(e) => setPwdData({ ...pwdData, confirm: e.target.value })}
+                className="input-field"
+                required
+              />
+            </div>
+            <button type="submit" disabled={changingPwd} className="btn-primary text-sm">
+              {changingPwd ? 'Changing...' : 'Update Password'}
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+
   if (!isAdmin) {
     return (
       <div className="page-container">
-        <div className="card-static p-8 text-center">
-          <p className="text-fg-mid">You do not have permission to manage users.</p>
+        <div className="section-header">
+          <h1 className="text-2xl font-bold text-fg-navy">My Account</h1>
         </div>
+        {passwordSection}
       </div>
     );
   }
@@ -102,12 +200,7 @@ export default function Users() {
   if (loading) {
     return (
       <div className="page-container">
-        <div className="flex items-center justify-center py-20">
-          <svg className="animate-spin w-8 h-8 text-fg-teal" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-        </div>
+        <Spinner />
       </div>
     );
   }
@@ -234,6 +327,9 @@ export default function Users() {
           </table>
         </div>
       </div>
+
+      {/* Change password (for current user) */}
+      {passwordSection}
 
       {/* Add user modal */}
       {showAddModal && (
