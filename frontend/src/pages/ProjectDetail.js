@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { projectsAPI, requirementsAPI, testCasesAPI, executionAPI } from '../services/api';
 import TestCaseTable from '../components/TestCaseTable';
@@ -74,6 +74,7 @@ export default function ProjectDetail() {
   const [showRunModal, setShowRunModal] = useState(false);
   const [executionRuns, setExecutionRuns] = useState([]);
   const [execLoading, setExecLoading] = useState(false);
+  const executionRunsRef = useRef([]);
 
   const loadProject = useCallback(async () => {
     try {
@@ -121,15 +122,16 @@ export default function ProjectDetail() {
     }
   }, [id, tcPage, tcPageSize, tcFilter, project?.test_case_count]);
 
-  const loadExecutionRuns = useCallback(async () => {
-    setExecLoading(true);
+  const loadExecutionRuns = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setExecLoading(true);
     try {
       const res = await executionAPI.list({ project_id: id });
       setExecutionRuns(res.data);
+      executionRunsRef.current = res.data;
     } catch (err) {
       console.error('Failed to load execution runs:', err);
     } finally {
-      setExecLoading(false);
+      if (!silent) setExecLoading(false);
     }
   }, [id]);
 
@@ -138,14 +140,15 @@ export default function ProjectDetail() {
   useEffect(() => { if (activeTab === 'test_cases') loadTestCases(); }, [activeTab, loadTestCases]);
   useEffect(() => { if (activeTab === 'executions') loadExecutionRuns(); }, [activeTab, loadExecutionRuns]);
 
-  // Poll active runs
+  // Poll active runs — uses ref to avoid dependency on executionRuns state
   useEffect(() => {
     if (activeTab !== 'executions') return;
-    const activeRuns = executionRuns.filter(r => ['queued', 'running'].includes(r.status));
-    if (activeRuns.length === 0) return;
-    const interval = setInterval(loadExecutionRuns, 3000);
+    const interval = setInterval(() => {
+      const hasActive = executionRunsRef.current.some(r => ['queued', 'running'].includes(r.status));
+      if (hasActive) loadExecutionRuns({ silent: true });
+    }, 3000);
     return () => clearInterval(interval);
-  }, [activeTab, executionRuns, loadExecutionRuns]);
+  }, [activeTab, loadExecutionRuns]);
 
   const handleAddRequirement = async (e) => {
     e.preventDefault();
