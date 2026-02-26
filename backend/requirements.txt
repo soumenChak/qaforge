@@ -41,5 +41,8 @@ chromadb>=0.4.22,<0.5
 # ── Test Data Generation ────────────────────────────────────────────────────
 faker>=22.0,<30.0
 
+# ── Browser Automation (Playwright UI Testing) ─────────────────────────
+playwright>=1.40,<2.0
+
 # ── Utilities ────────────────────────────────────────────────────────────────
 python-dotenv>=1.0,<2.0

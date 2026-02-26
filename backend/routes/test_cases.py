@@ -309,12 +309,21 @@ def _generate_via_llm(
     """Generate test cases by calling the LLM provider directly."""
     from core.llm_provider import get_llm_provider
 
-    system_prompt = f"""You are a senior QA engineer specializing in {domain} / {sub_domain}.
-You generate thorough, detailed test cases that a QA team can execute immediately.
-You understand API testing, UI testing (Playwright), and SQL/database testing.
+    system_prompt = f"""You are a senior QA automation engineer specializing in {domain} / {sub_domain}.
+You generate EXECUTION-READY test cases — each test case must contain enough detail in its test_steps
+that an automated execution engine can run it without human intervention.
+
+You understand three execution modes:
+1. **API Testing** — HTTP requests with specific endpoints, methods, status codes, expected response fields
+2. **UI Testing (Playwright)** — Browser automation with CSS selectors, navigation URLs, form fills, assertions
+3. **SQL Testing** — Database queries with specific SQL, expected row counts, column checks
+
+Your test steps must be CONCRETE and SPECIFIC — never vague like "verify the page works".
+Instead: "GET /api/users returns 200 with fields: id, name, email" or "Click button#submit, assert .success-toast is visible".
+
 Return ONLY a JSON array — no markdown fences, no explanation."""
 
-    user_prompt = f"""Generate exactly {count} test cases for the following system description.
+    user_prompt = f"""Generate exactly {count} EXECUTION-READY test cases for the following system.
 
 System Description:
 {description[:4000]}
@@ -322,23 +331,43 @@ System Description:
 {f"Requirements Context:{chr(10)}{requirement_context[:3000]}" if requirement_context else ""}
 {f"Additional Context:{chr(10)}{additional_context[:2000]}" if additional_context else ""}
 
-For each test case, return a JSON array of objects with:
-- "title": Concise test case title
-- "description": What this test validates
-- "preconditions": Setup required before execution
-- "test_steps": Array of {{"step_number": N, "action": "...", "expected_result": "..."}}
+For each test case, return a JSON object with ALL of these fields:
+
+- "title": Concise test case title (e.g. "Verify user login API returns JWT token")
+- "description": What this test validates and why it matters
+- "preconditions": Setup required (e.g. "Valid user exists with email test@example.com")
+- "test_steps": Array of step objects — MUST be execution-ready (see format below)
 - "expected_result": Overall expected outcome
 - "priority": One of "P1", "P2", "P3", "P4"
 - "category": One of "functional", "integration", "regression", "smoke", "e2e"
-- "execution_type": One of "api", "ui", "sql" — how to execute this test:
-    - "api" for HTTP/REST API tests (endpoint calls, status checks, response validation)
-    - "ui" for browser/Playwright UI tests (click, navigate, fill form, assert visible)
-    - "sql" for database/SQL tests (query validation, ETL/ELT mapping, row counts, data reconciliation)
+- "execution_type": One of "api", "ui", "sql"
 - "domain_tags": Array of relevant tags
 
-Infer the execution_type from the test steps: if they involve HTTP methods/endpoints use "api",
-if they involve UI actions (click, navigate, fill, form) use "ui",
-if they involve SQL queries, database tables, ETL/ELT validation, row counts, or data mapping use "sql".
+=== CRITICAL: test_steps FORMAT by execution_type ===
+
+For "api" test cases, each step MUST reference specific HTTP details:
+  {{"step_number": 1, "action": "POST /api/auth/login with body {{\\"email\\":\\"test@example.com\\",\\"password\\":\\"pass123\\"}}", "expected_result": "Returns 200 with fields: access_token, user"}}
+  {{"step_number": 2, "action": "GET /api/users with Authorization: Bearer <token>", "expected_result": "Returns 200 with array of user objects containing id, name, email"}}
+
+For "ui" test cases, each step MUST use Playwright-compatible actions and CSS selectors:
+  {{"step_number": 1, "action": "Navigate to /login", "expected_result": "Login page loads with email and password fields visible"}}
+  {{"step_number": 2, "action": "Fill input#email with 'admin@example.com'", "expected_result": "Email field populated"}}
+  {{"step_number": 3, "action": "Fill input[type=password] with 'password123'", "expected_result": "Password field populated"}}
+  {{"step_number": 4, "action": "Click button[type=submit]", "expected_result": "Form submits, redirects to /dashboard"}}
+  {{"step_number": 5, "action": "Assert h1 contains text 'Dashboard'", "expected_result": "Dashboard heading visible"}}
+  {{"step_number": 6, "action": "Assert URL contains /dashboard", "expected_result": "URL confirms navigation"}}
+
+For "sql" test cases, each step MUST include actual SQL queries:
+  {{"step_number": 1, "action": "Execute: SELECT COUNT(*) FROM users WHERE status = 'active'", "expected_result": "Row count >= 1"}}
+  {{"step_number": 2, "action": "Execute: SELECT email FROM users WHERE id = 1", "expected_result": "Returns non-null email value"}}
+
+=== GUIDELINES ===
+- Infer execution_type from the system description: REST APIs → "api", web UI/forms/pages → "ui", databases/ETL → "sql"
+- For web applications, generate a MIX of API tests (backend endpoints) and UI tests (user flows through the browser)
+- UI test selectors: prefer #id, then [data-testid=...], then tag.class, then generic CSS
+- API tests: include the full endpoint path starting with /
+- Make test data realistic but safe (use example.com emails, test passwords, etc.)
+- Each test case should be independently executable (no dependencies between test cases)
 
 Return ONLY the JSON array, no other text."""
 
