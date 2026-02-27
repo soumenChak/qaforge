@@ -100,6 +100,7 @@ class ProjectCreate(BaseModel):
     description: Optional[str] = None
     template_id: Optional[uuid.UUID] = None
     app_profile: Optional[Dict[str, Any]] = None
+    brd_prd_text: Optional[str] = None
 
 
 class ProjectUpdate(BaseModel):
@@ -110,6 +111,7 @@ class ProjectUpdate(BaseModel):
     status: Optional[str] = Field(None, pattern=r"^(active|completed|archived)$")
     template_id: Optional[uuid.UUID] = None
     app_profile: Optional[Dict[str, Any]] = None
+    brd_prd_text: Optional[str] = None
 
 
 class ProjectResponse(BaseModel):
@@ -125,6 +127,7 @@ class ProjectResponse(BaseModel):
     status: str
     template_id: Optional[uuid.UUID] = None
     app_profile: Optional[Dict[str, Any]] = None
+    brd_prd_text: Optional[str] = None
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime

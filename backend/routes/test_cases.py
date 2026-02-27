@@ -143,6 +143,9 @@ def generate_test_cases(
         )
         logger.info("Requirements context: %d entries for project %s", len(reqs), project.name)
 
+    # Build req_id -> UUID lookup for linking LLM output back to DB requirements
+    req_id_to_uuid = {r.req_id: r.id for r in reqs} if reqs else {}
+
     # ── Gather BRD/PRD document text ──
     brd_prd_context = ""
     if body.brd_prd_text and body.brd_prd_text.strip():
@@ -247,6 +250,15 @@ def generate_test_cases(
             generation_metadata=item.get("metadata"),
             created_by=current_user.id,
         )
+
+        # Link to requirement via LLM-provided requirement_ref
+        req_ref = item.get("requirement_ref")
+        if req_ref and req_ref in req_id_to_uuid:
+            tc.requirement_id = req_id_to_uuid[req_ref]
+        elif body.requirement_ids and len(body.requirement_ids) == 1:
+            # Fallback: single requirement selected → link all to it
+            tc.requirement_id = body.requirement_ids[0]
+
         db.add(tc)
         db.flush()
         created.append(tc)
@@ -262,6 +274,9 @@ def generate_test_cases(
             "domain": body.domain,
             "sub_domain": body.sub_domain,
             "count": body.count,
+            "requirement_ids": [str(r) for r in (body.requirement_ids or [])],
+            "has_brd_prd": bool(brd_prd_context),
+            "brd_prd_chars": len(brd_prd_context) if brd_prd_context else 0,
         },
         test_cases_generated=len(created),
         llm_provider=generated[0].get("provider", "mock") if generated else "mock",
@@ -270,6 +285,11 @@ def generate_test_cases(
     )
     db.add(gen_run)
     db.flush()
+
+    # Auto-persist BRD/PRD text to project if not already saved
+    if brd_prd_context and not project.brd_prd_text:
+        project.brd_prd_text = brd_prd_context
+        db.flush()
 
     audit_log(
         db,
@@ -521,7 +541,12 @@ Return ONLY a JSON array — no markdown fences, no explanation."""
     if requirement_context:
         user_prompt_parts.append(
             f"\n=== REQUIREMENTS / USE CASES ===\n"
-            f"Generate test cases that cover these specific requirements:\n{requirement_context[:4000]}"
+            f"Generate test cases that cover these specific requirements. "
+            f"Each requirement is prefixed with its ID (e.g., REQ-001). "
+            f"You MUST link each generated test case to the most relevant requirement "
+            f"by including a \"requirement_ref\" field with the exact requirement ID string "
+            f"(e.g., \"REQ-001\"). Ensure every requirement below has at least one test case.\n"
+            f"{requirement_context[:4000]}"
         )
 
     if reference_tc_context:
@@ -551,6 +576,7 @@ For each test case, return a JSON object with ALL of these fields:
 - "category": One of "functional", "integration", "regression", "smoke", "e2e"
 - "execution_type": One of "api", "ui", "sql"
 - "domain_tags": Array of relevant tags
+- "requirement_ref": The req_id string (e.g. "REQ-001") of the requirement this test covers. Use the EXACT ID from the requirements list above. Use null if no specific requirement applies.
 
 === CRITICAL: test_steps FORMAT by execution_type ===
 

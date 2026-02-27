@@ -20,6 +20,10 @@ import {
   EyeIcon,
   TrashIcon,
   ArrowPathIcon,
+  DocumentTextIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
+  PencilSquareIcon,
 } from '@heroicons/react/24/outline';
 
 const PRIORITY_COLORS = {
@@ -101,6 +105,12 @@ export default function ProjectDetail() {
   const [appProfileSaving, setAppProfileSaving] = useState(false);
   const [appProfileMsg, setAppProfileMsg] = useState('');
 
+  // BRD/PRD context state
+  const [brdPrdText, setBrdPrdText] = useState('');
+  const [brdPrdEditing, setBrdPrdEditing] = useState(false);
+  const [brdPrdSaving, setBrdPrdSaving] = useState(false);
+  const [brdPrdExpanded, setBrdPrdExpanded] = useState(false);
+
   // Coverage score state (Feature 2)
   const [coverage, setCoverage] = useState(null);
   const [coverageLoading, setCoverageLoading] = useState(false);
@@ -132,6 +142,10 @@ export default function ProjectDetail() {
           merged.ai_config = { ...prev.ai_config, ...(res.data.app_profile.ai_config || {}) };
           return merged;
         });
+      }
+      // Load BRD/PRD text
+      if (res.data.brd_prd_text) {
+        setBrdPrdText(res.data.brd_prd_text);
       }
     } catch (err) {
       console.error('Failed to load project:', err);
@@ -511,6 +525,95 @@ export default function ProjectDetail() {
           <p className="text-sm text-fg-mid mt-3 max-w-2xl">{project.description}</p>
         )}
       </div>
+
+      {/* BRD/PRD Context — collapsible card */}
+      {(brdPrdText || brdPrdEditing) && (
+        <div className="mb-6 bg-white border border-gray-200 rounded-lg shadow-sm">
+          <button
+            type="button"
+            onClick={() => setBrdPrdExpanded(!brdPrdExpanded)}
+            className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 rounded-lg transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <DocumentTextIcon className="w-4 h-4 text-fg-teal" />
+              <span className="text-sm font-semibold text-fg-dark">BRD / PRD Context</span>
+              <span className="text-xs text-fg-mid">
+                {brdPrdText ? `${brdPrdText.trim().split(/\s+/).length} words` : 'Empty'}
+              </span>
+            </div>
+            {brdPrdExpanded
+              ? <ChevronUpIcon className="w-4 h-4 text-fg-mid" />
+              : <ChevronDownIcon className="w-4 h-4 text-fg-mid" />
+            }
+          </button>
+          {brdPrdExpanded && (
+            <div className="px-4 pb-4">
+              {brdPrdEditing ? (
+                <>
+                  <textarea
+                    value={brdPrdText}
+                    onChange={(e) => setBrdPrdText(e.target.value)}
+                    rows={10}
+                    placeholder="Paste your BRD/PRD document content here..."
+                    className="w-full text-sm border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-fg-teal focus:border-fg-teal font-mono"
+                  />
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      onClick={async () => {
+                        setBrdPrdSaving(true);
+                        try {
+                          await projectsAPI.update(id, { brd_prd_text: brdPrdText.trim() || null });
+                          setBrdPrdEditing(false);
+                          loadProject();
+                        } catch (err) {
+                          console.error('Failed to save BRD/PRD:', err);
+                        } finally {
+                          setBrdPrdSaving(false);
+                        }
+                      }}
+                      disabled={brdPrdSaving}
+                      className="btn-primary text-xs px-3 py-1.5"
+                    >
+                      {brdPrdSaving ? 'Saving…' : 'Save'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setBrdPrdText(project.brd_prd_text || '');
+                        setBrdPrdEditing(false);
+                      }}
+                      className="text-xs text-fg-mid hover:text-fg-dark"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <pre className="text-xs text-fg-dark whitespace-pre-wrap font-mono bg-gray-50 rounded-lg p-3 max-h-64 overflow-y-auto">
+                    {brdPrdText}
+                  </pre>
+                  <button
+                    onClick={() => setBrdPrdEditing(true)}
+                    className="mt-2 text-xs text-fg-teal hover:text-fg-tealDark font-medium flex items-center gap-1"
+                  >
+                    <PencilSquareIcon className="w-3.5 h-3.5" /> Edit
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      {!brdPrdText && !brdPrdEditing && (
+        <div className="mb-6">
+          <button
+            onClick={() => { setBrdPrdEditing(true); setBrdPrdExpanded(true); }}
+            className="text-xs text-fg-teal hover:text-fg-tealDark font-medium flex items-center gap-1"
+          >
+            <DocumentTextIcon className="w-3.5 h-3.5" /> Add BRD/PRD Context
+          </button>
+        </div>
+      )}
 
       {/* Tab bar */}
       <div className="flex border-b border-gray-200 mb-6">

@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { projectsAPI, testCasesAPI, templatesAPI, knowledgeAPI, requirementsAPI } from '../services/api';
 import ChatGenerator from '../components/ChatGenerator';
 import {
@@ -29,6 +29,8 @@ const STEPS = [
 export default function TestCaseGenerator() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const urlRequirementIds = searchParams.get('requirement_ids');
 
   const [project, setProject] = useState(null);
   const [step, setStep] = useState(0);
@@ -77,10 +79,17 @@ export default function TestCaseGenerator() {
   const [resultMeta, setResultMeta] = useState(null);
   const [decisions, setDecisions] = useState({}); // id -> 'approve' | 'reject'
 
+  const brdPrdLoaded = useRef(false);
   const loadProject = useCallback(async () => {
     try {
       const res = await projectsAPI.getById(id);
       setProject(res.data);
+      // Pre-fill BRD/PRD from project if stored (once)
+      if (res.data?.brd_prd_text && !brdPrdLoaded.current) {
+        brdPrdLoaded.current = true;
+        setBrdPrdText(res.data.brd_prd_text);
+        setShowBrdPanel(true);
+      }
     } catch (err) {
       console.error('Failed to load project:', err);
     } finally {
@@ -110,8 +119,13 @@ export default function TestCaseGenerator() {
       try {
         const res = await requirementsAPI.list(id);
         setRequirements(res.data || []);
-        // Auto-select all requirements by default
-        if (res.data?.length > 0) {
+        // If URL has requirement_ids (from "Generate Tests for Gaps"), pre-select only those
+        if (urlRequirementIds) {
+          const urlIds = new Set(urlRequirementIds.split(',').filter(Boolean));
+          setSelectedReqIds(urlIds);
+          setShowReqPanel(true);
+        } else if (res.data?.length > 0) {
+          // Auto-select all requirements by default
           setSelectedReqIds(new Set(res.data.map((r) => r.id)));
         }
       } catch (err) {
@@ -119,7 +133,7 @@ export default function TestCaseGenerator() {
       }
     };
     loadRequirements();
-  }, [id]);
+  }, [id, urlRequirementIds]);
 
   // Load existing test cases (for reference selection)
   useEffect(() => {

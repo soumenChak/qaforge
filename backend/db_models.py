@@ -98,6 +98,10 @@ class Project(Base):
         JSONB, nullable=True, default=None,
         comment="Application profile: URLs, auth config, endpoints, UI pages for test generation context"
     )
+    brd_prd_text: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True,
+        comment="BRD/PRD document text for test generation context"
+    )
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="active",
         comment="active / completed / archived"
