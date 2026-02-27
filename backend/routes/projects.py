@@ -42,6 +42,7 @@ from models import (
     ProjectListResponse,
     ProjectResponse,
     ProjectUpdate,
+    UIDiscoverRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -1256,6 +1257,130 @@ async def discover_openapi(
     logger.info(
         "OpenAPI discovery for project %s: %d endpoints found, %d new (from %s)",
         project.name, len(discovered.get("api_endpoints", [])), new_count, openapi_url,
+    )
+
+    return ProjectResponse.model_validate(project)
+
+
+# ---------------------------------------------------------------------------
+# POST /{id}/app-profile/discover-ui  (AI-Powered UI Discovery)
+# ---------------------------------------------------------------------------
+@router.post(
+    "/{project_id}/app-profile/discover-ui",
+    response_model=ProjectResponse,
+    summary="AI-discover UI pages using Playwright + LLM vision",
+)
+async def discover_ui_pages_route(
+    project_id: uuid.UUID,
+    body: UIDiscoverRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Launch an AI discovery agent that uses Playwright headless browser to:
+    1. Navigate to each specified route
+    2. Take a screenshot + capture accessibility tree
+    3. Send both to LLM (with vision) for analysis
+    4. Extract semantic Playwright locators (get_by_role, get_by_label, etc.)
+    5. Merge discovered pages into the project's app_profile.ui_pages
+    """
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    profile = project.app_profile or {}
+    app_url = profile.get("app_url", "")
+    if not app_url:
+        raise HTTPException(
+            status_code=400,
+            detail="No app_url configured in the App Profile. Set the Application URL first.",
+        )
+
+    if not _is_safe_url(app_url):
+        raise HTTPException(status_code=400, detail="app_url is blocked for security (private/localhost)")
+
+    # Build auth config from app profile
+    auth_config = None
+    auth = profile.get("auth", {})
+    creds = auth.get("test_credentials", {})
+    if creds.get("email") and creds.get("password"):
+        auth_config = {
+            "email": creds["email"],
+            "password": creds["password"],
+            "login_url": auth.get("login_url") or "/login",
+            "selectors": {
+                "username_selector": auth.get("username_selector"),
+                "password_selector": auth.get("password_selector"),
+                "submit_selector": auth.get("submit_selector"),
+            },
+        }
+
+    # Run discovery
+    try:
+        from execution.ui_discovery import discover_ui_pages
+
+        result = await discover_ui_pages(
+            app_url=app_url,
+            routes=body.routes,
+            auth_config=auth_config,
+            crawl=body.crawl,
+            max_pages=body.max_pages,
+        )
+    except Exception as exc:
+        logger.error("UI discovery failed for project %s: %s", project.name, exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"UI discovery failed: {type(exc).__name__}: {str(exc)[:200]}",
+        )
+
+    # Merge discovered pages into app_profile.ui_pages (additive)
+    existing_pages = profile.get("ui_pages", [])
+    existing_routes = {pg.get("route") for pg in existing_pages if isinstance(pg, dict)}
+
+    new_count = 0
+    for page_info in result.get("pages", []):
+        route = page_info.get("route", "")
+        if route in existing_routes:
+            # Update existing page with fresh discovery data
+            for i, ep in enumerate(existing_pages):
+                if ep.get("route") == route:
+                    existing_pages[i] = page_info
+                    break
+        else:
+            existing_pages.append(page_info)
+            new_count += 1
+
+    profile["ui_pages"] = existing_pages
+    project.app_profile = profile
+    flag_modified(project, "app_profile")
+    db.flush()
+
+    audit_log(
+        db,
+        user_id=current_user.id,
+        action="discover_ui",
+        entity_type="project",
+        entity_id=str(project.id),
+        details={
+            "routes_requested": body.routes,
+            "crawl": body.crawl,
+            "pages_discovered": result["stats"]["pages_discovered"],
+            "elements_found": result["stats"]["elements_found"],
+            "new_pages": new_count,
+            "duration_seconds": result["stats"]["duration_seconds"],
+            "errors": result.get("errors", []),
+        },
+        ip_address=get_client_ip(request),
+    )
+
+    logger.info(
+        "UI discovery for project %s: %d pages discovered, %d elements, %d new (%s)",
+        project.name,
+        result["stats"]["pages_discovered"],
+        result["stats"]["elements_found"],
+        new_count,
+        f"{result['stats']['duration_seconds']}s",
     )
 
     return ProjectResponse.model_validate(project)

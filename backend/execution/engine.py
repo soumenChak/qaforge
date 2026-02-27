@@ -130,18 +130,35 @@ IMPORTANT: Return ONLY the JSON, no markdown fences, no extra text.""",
 
 Use the "ui_playwright" template. Extract step-by-step browser actions from the test case.
 
+CRITICAL: Use Playwright SEMANTIC locators (resilient to CSS changes, works on any app including SaaS):
+- click_by_role — for buttons, links, headings, tabs, menu items: {"action": "click_by_role", "role": "button", "name": "Submit"}
+- click_by_text — for elements with visible text: {"action": "click_by_text", "text": "Create New"}
+- click_by_label — for labeled elements (checkboxes, radios): {"action": "click_by_label", "label": "Accept Terms"}
+- fill_by_label — for form inputs with labels: {"action": "fill_by_label", "label": "Email", "value": "test@example.com"}
+- fill_by_placeholder — for inputs with placeholder text: {"action": "fill_by_placeholder", "placeholder": "Search...", "value": "query"}
+- select_by_label — for dropdowns with labels: {"action": "select_by_label", "label": "Status", "value": "Active"}
+- assert_visible_by_role — verify element by role: {"action": "assert_visible_by_role", "role": "heading", "name": "Dashboard"}
+- assert_visible_by_text — verify text is visible: {"action": "assert_visible_by_text", "text": "Success"}
+
+Fall back to CSS-based actions ONLY if no semantic alternative exists:
+- click, fill, select_option, assert_visible, assert_text (these use CSS selectors)
+
+Other actions: navigate, wait, wait_for_selector, press_key, hover, assert_url, assert_element_count, screenshot.
+
 Return ONLY valid JSON:
 {
   "template": "ui_playwright",
   "params": {
     "steps": [
       {"action": "navigate", "url": "/page-path"},
-      {"action": "click", "selector": "button.submit"},
-      {"action": "fill", "selector": "#input-field", "value": "test data"},
+      {"action": "click_by_role", "role": "button", "name": "Create New"},
+      {"action": "fill_by_label", "label": "Email", "value": "test@example.com"},
+      {"action": "fill_by_placeholder", "placeholder": "Search entities...", "value": "John"},
+      {"action": "click_by_text", "text": "Submit"},
       {"action": "wait", "ms": 1000},
-      {"action": "assert_visible", "selector": ".success-message"},
-      {"action": "assert_text", "selector": "h1", "expected": "Expected Title"},
-      {"action": "assert_url", "pattern": "/expected-path"},
+      {"action": "assert_visible_by_role", "role": "heading", "name": "Dashboard"},
+      {"action": "assert_visible_by_text", "text": "Entity created successfully"},
+      {"action": "assert_url", "pattern": "/dashboard"},
       {"action": "screenshot", "name": "final-state"}
     ],
     "timeout_ms": 5000,
@@ -149,10 +166,8 @@ Return ONLY valid JSON:
   }
 }
 
-Supported actions: navigate, click, fill, select_option, wait, wait_for_selector, press_key, hover, assert_visible, assert_text, assert_url, assert_element_count, screenshot.
-
-For selectors, prefer: data-testid attributes, then IDs, then specific CSS classes, then generic selectors.
-Use the execution context for app-specific selectors, page structure, and navigation hints.
+PREFER semantic locators from the execution context (discovered UI pages with get_by_role, get_by_label, etc.).
+Use the execution context for app-specific elements, page structure, and navigation hints.
 
 If you cannot determine parameters, return: {"template": "unknown", "params": {}, "reason": "explanation"}
 
@@ -419,8 +434,8 @@ def _analyze_failure(test_result: Dict[str, Any]) -> List[Dict[str, str]]:
     if "selector" in logs_text and ("not found" in logs_text or "timeout" in logs_text):
         suggestions.append({
             "category": "wrong_selector",
-            "suggestion": "CSS selector not found on the page. Update the key_elements in your App Profile's UI pages section.",
-            "detail": "A CSS selector used in the test couldn't be found on the page",
+            "suggestion": "Element locator not found on the page. Run 'Discover UI' to re-scan pages with AI vision, or update the UI pages section in your App Profile.",
+            "detail": "A locator used in the test couldn't be found. Consider re-running UI discovery to refresh semantic locators.",
         })
 
     # Check template match failure
@@ -518,18 +533,58 @@ def _build_app_profile_context(app_profile: Dict[str, Any], execution_type: str)
             ep_lines.append(line)
         parts.append("API Endpoints (use these EXACT paths):\n" + "\n".join(ep_lines))
 
-    # UI pages (critical for correct CSS selectors)
+    # UI pages (with semantic locators from AI discovery)
     ui_pages = app_profile.get("ui_pages", [])
     if ui_pages and execution_type == "ui":
         page_lines = []
         for pg in ui_pages[:20]:
             line = f"  Route: {pg.get('route', '')}"
-            if pg.get("description"):
-                line += f" — {pg['description']}"
-            if pg.get("key_elements"):
-                line += f"\n    CSS selectors: {', '.join(pg['key_elements'])}"
+            purpose = pg.get("purpose") or pg.get("description", "")
+            if purpose:
+                line += f" — {purpose}"
+
+            # Rich discovery data: semantic locators (preferred)
+            interactions = pg.get("interactions", [])
+            if interactions:
+                line += "\n    Interactive elements (use these SEMANTIC locators):"
+                for elem in interactions[:15]:
+                    locator = elem.get("locator", "")
+                    elem_name = elem.get("element", "")
+                    elem_purpose = elem.get("purpose", "")
+                    if locator:
+                        line += f"\n      - {elem_name}: {locator}"
+                        if elem_purpose:
+                            line += f"  ({elem_purpose})"
+
+            # Forms
+            forms = pg.get("forms", [])
+            if forms:
+                for form in forms[:5]:
+                    form_name = form.get("name", "Form")
+                    fields = form.get("fields", [])
+                    if fields:
+                        line += f"\n    Form '{form_name}': fields = {', '.join(fields)}"
+
+            # Tables
+            tables = pg.get("tables", [])
+            if tables:
+                for tbl in tables[:5]:
+                    tbl_name = tbl.get("name", "Table")
+                    cols = tbl.get("columns", [])
+                    if cols:
+                        line += f"\n    Table '{tbl_name}': columns = {', '.join(cols)}"
+
+            # Navigation hints
+            nav = pg.get("navigation", [])
+            if nav:
+                line += f"\n    Navigation: {'; '.join(nav[:3])}"
+
+            # Legacy fallback: CSS key_elements
+            if not interactions and pg.get("key_elements"):
+                line += f"\n    CSS selectors (fallback): {', '.join(pg['key_elements'])}"
+
             page_lines.append(line)
-        parts.append("UI Pages (use these EXACT routes and selectors):\n" + "\n".join(page_lines))
+        parts.append("UI Pages (use SEMANTIC locators from discovery, fall back to CSS only if unavailable):\n" + "\n".join(page_lines))
 
     # RBAC model
     if app_profile.get("rbac_model"):

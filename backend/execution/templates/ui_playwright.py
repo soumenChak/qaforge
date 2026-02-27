@@ -12,14 +12,22 @@ LLM-extracted params schema:
 {
   "steps": [
     {"action": "navigate", "url": "/dashboard"},
-    {"action": "click", "selector": "button.create-new"},
-    {"action": "fill", "selector": "#name-input", "value": "Test Item"},
-    {"action": "click", "selector": "button[type=submit]"},
+    {"action": "click_by_role", "role": "button", "name": "Create New"},
+    {"action": "fill_by_label", "label": "Name", "value": "Test Item"},
+    {"action": "fill_by_placeholder", "placeholder": "Search...", "value": "query"},
+    {"action": "click_by_text", "text": "Submit"},
+    {"action": "click_by_label", "label": "Accept Terms"},
+    {"action": "select_by_label", "label": "Status", "value": "Active"},
     {"action": "wait", "ms": 1000},
-    {"action": "assert_visible", "selector": ".success-toast"},
-    {"action": "assert_text", "selector": "h1", "expected": "Dashboard"},
+    {"action": "assert_visible_by_role", "role": "heading", "name": "Dashboard"},
+    {"action": "assert_visible_by_text", "text": "Success"},
     {"action": "assert_url", "pattern": "/dashboard"},
-    {"action": "screenshot", "name": "final-state"}
+    {"action": "screenshot", "name": "final-state"},
+    // Legacy CSS-based actions (backward compatible):
+    {"action": "click", "selector": "button.submit"},
+    {"action": "fill", "selector": "#input-field", "value": "data"},
+    {"action": "assert_visible", "selector": ".success-message"},
+    {"action": "assert_text", "selector": "h1", "expected": "Expected Title"}
   ],
   "timeout_ms": 5000,
   "screenshot_on_failure": true
@@ -215,6 +223,94 @@ async def execute(
                         logs.append(f"[Step {step_num}] Hover {selector}")
                         await page.hover(selector)
 
+                    # ── Semantic Locator Actions ──
+                    elif action == "click_by_role":
+                        role = step.get("role", "button")
+                        name = step.get("name", "")
+                        logs.append(f"[Step {step_num}] Click by role: {role}, name='{name}'")
+                        loc = page.get_by_role(role, name=name) if name else page.get_by_role(role)
+                        await loc.first.click()
+                        step_ms = (time.perf_counter() - step_start) * 1000
+                        logs.append(f"[Step {step_num}] Clicked by role ({step_ms:.0f}ms)")
+
+                    elif action == "click_by_text":
+                        text = step.get("text", "")
+                        logs.append(f"[Step {step_num}] Click by text: '{text}'")
+                        await page.get_by_text(text).first.click()
+                        step_ms = (time.perf_counter() - step_start) * 1000
+                        logs.append(f"[Step {step_num}] Clicked by text ({step_ms:.0f}ms)")
+
+                    elif action == "fill_by_label":
+                        label = step.get("label", "")
+                        value = step.get("value", "")
+                        logs.append(f"[Step {step_num}] Fill by label: '{label}' with '{value[:30]}...'")
+                        await page.get_by_label(label).first.fill(value)
+                        step_ms = (time.perf_counter() - step_start) * 1000
+                        logs.append(f"[Step {step_num}] Filled by label ({step_ms:.0f}ms)")
+
+                    elif action == "fill_by_placeholder":
+                        placeholder = step.get("placeholder", "")
+                        value = step.get("value", "")
+                        logs.append(f"[Step {step_num}] Fill by placeholder: '{placeholder}' with '{value[:30]}...'")
+                        await page.get_by_placeholder(placeholder).first.fill(value)
+                        step_ms = (time.perf_counter() - step_start) * 1000
+                        logs.append(f"[Step {step_num}] Filled by placeholder ({step_ms:.0f}ms)")
+
+                    elif action == "assert_visible_by_role":
+                        role = step.get("role", "button")
+                        name = step.get("name", "")
+                        logs.append(f"[Step {step_num}] Assert visible by role: {role}, name='{name}'")
+                        loc = page.get_by_role(role, name=name) if name else page.get_by_role(role)
+                        is_visible = await loc.first.is_visible()
+                        assertions.append({
+                            "type": "assert_visible_by_role",
+                            "role": role, "name": name,
+                            "step": step_num,
+                            "passed": is_visible,
+                        })
+                        if not is_visible:
+                            passed = False
+                            logs.append(f"[Step {step_num}] FAIL: Role '{role}' name='{name}' not visible")
+                            if screenshot_on_failure:
+                                await _async_capture_screenshot(page, screenshots, f"step_{step_num}_assert_role", logs)
+                        else:
+                            logs.append(f"[Step {step_num}] PASS: Role element visible")
+
+                    elif action == "assert_visible_by_text":
+                        text = step.get("text", "")
+                        logs.append(f"[Step {step_num}] Assert visible by text: '{text}'")
+                        loc = page.get_by_text(text)
+                        is_visible = await loc.first.is_visible()
+                        assertions.append({
+                            "type": "assert_visible_by_text",
+                            "text": text,
+                            "step": step_num,
+                            "passed": is_visible,
+                        })
+                        if not is_visible:
+                            passed = False
+                            logs.append(f"[Step {step_num}] FAIL: Text '{text}' not visible")
+                            if screenshot_on_failure:
+                                await _async_capture_screenshot(page, screenshots, f"step_{step_num}_assert_text_vis", logs)
+                        else:
+                            logs.append(f"[Step {step_num}] PASS: Text visible")
+
+                    elif action == "click_by_label":
+                        label = step.get("label", "")
+                        logs.append(f"[Step {step_num}] Click by label: '{label}'")
+                        await page.get_by_label(label).first.click()
+                        step_ms = (time.perf_counter() - step_start) * 1000
+                        logs.append(f"[Step {step_num}] Clicked by label ({step_ms:.0f}ms)")
+
+                    elif action == "select_by_label":
+                        label = step.get("label", "")
+                        value = step.get("value", "")
+                        logs.append(f"[Step {step_num}] Select by label: '{label}' → '{value}'")
+                        await page.get_by_label(label).first.select_option(value)
+                        step_ms = (time.perf_counter() - step_start) * 1000
+                        logs.append(f"[Step {step_num}] Selected by label ({step_ms:.0f}ms)")
+
+                    # ── Original CSS-based actions (backward compatible) ──
                     elif action == "assert_visible":
                         selector = step.get("selector", "")
                         logs.append(f"[Step {step_num}] Assert visible: {selector}")

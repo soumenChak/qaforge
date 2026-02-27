@@ -749,6 +749,14 @@ class OpenAPIDiscoverRequest(BaseModel):
     openapi_url: str = Field(..., min_length=5, description="URL to OpenAPI JSON or YAML spec")
 
 
+class UIDiscoverRequest(BaseModel):
+    """Request to AI-discover UI pages using Playwright + LLM vision."""
+
+    routes: List[str] = Field(..., min_length=1, description="Routes to discover, e.g. ['/login', '/dashboard']")
+    crawl: bool = Field(default=False, description="Follow discovered navigation links to find more pages")
+    max_pages: int = Field(default=20, ge=1, le=50, description="Maximum pages to discover")
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Chat-Based Test Generation (Feature 6)
 # ═══════════════════════════════════════════════════════════════════════════

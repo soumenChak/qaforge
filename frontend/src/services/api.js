@@ -68,6 +68,8 @@ export const projectsAPI = {
   validateProfile: (id) => api.post(`/projects/${id}/app-profile/validate`),
   // Feature 4: OpenAPI Auto-Discovery
   discoverOpenAPI: (id, data) => api.post(`/projects/${id}/app-profile/discover`, data),
+  // AI UI Discovery (Playwright + LLM vision)
+  discoverUI: (id, data) => api.post(`/projects/${id}/app-profile/discover-ui`, data),
 };
 
 // -- Requirements --

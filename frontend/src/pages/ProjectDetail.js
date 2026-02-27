@@ -124,6 +124,13 @@ export default function ProjectDetail() {
   const [discovering, setDiscovering] = useState(false);
   const [discoveryMsg, setDiscoveryMsg] = useState('');
 
+  // AI UI Discovery state
+  const [uiDiscoveryRoutes, setUiDiscoveryRoutes] = useState('');
+  const [uiDiscoveryCrawl, setUiDiscoveryCrawl] = useState(false);
+  const [uiDiscovering, setUiDiscovering] = useState(false);
+  const [uiDiscoveryMsg, setUiDiscoveryMsg] = useState('');
+  const [expandedPages, setExpandedPages] = useState(new Set());
+
   const loadProject = useCallback(async () => {
     try {
       const res = await projectsAPI.getById(id);
@@ -1676,41 +1683,237 @@ export default function ProjectDetail() {
             </div>
           </div>
 
-          {/* UI Pages */}
+          {/* AI UI Discovery */}
+          <div className="card p-4">
+            <h4 className="text-sm font-semibold text-fg-dark mb-2 flex items-center gap-2">
+              <EyeIcon className="w-4 h-4 text-fg-teal" />
+              AI-Powered UI Discovery
+            </h4>
+            <p className="text-xs text-fg-mid mb-3">
+              Enter page routes and let the AI agent browse your app, take screenshots, and discover interactive elements with <strong>semantic locators</strong> (works on any app, including SaaS with dynamic CSS).
+            </p>
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  className="input flex-1"
+                  placeholder="/login, /dashboard, /entities, /settings"
+                  value={uiDiscoveryRoutes}
+                  onChange={e => setUiDiscoveryRoutes(e.target.value)}
+                />
+                <button
+                  onClick={async () => {
+                    const routes = uiDiscoveryRoutes.split(',').map(s => s.trim()).filter(Boolean);
+                    if (routes.length === 0) return;
+                    setUiDiscovering(true);
+                    setUiDiscoveryMsg('');
+                    try {
+                      const res = await projectsAPI.discoverUI(id, { routes, crawl: uiDiscoveryCrawl, max_pages: 20 });
+                      const newProfile = res.data.app_profile || {};
+                      setAppProfile(prev => ({
+                        ...prev,
+                        ...newProfile,
+                        tech_stack: { ...prev.tech_stack, ...(newProfile.tech_stack || {}) },
+                        auth: { ...prev.auth, ...(newProfile.auth || {}) },
+                        ui_pages: newProfile.ui_pages || prev.ui_pages,
+                      }));
+                      const pages = (newProfile.ui_pages || []);
+                      const totalElems = pages.reduce((sum, p) => sum + (p.interactions || []).length, 0);
+                      setUiDiscoveryMsg(`Discovered ${pages.length} page(s) with ${totalElems} interactive elements. Review below and save.`);
+                      setAppProfileDirty(true);
+                    } catch (err) {
+                      setUiDiscoveryMsg('Discovery failed: ' + (err.response?.data?.detail || err.message));
+                    } finally {
+                      setUiDiscovering(false);
+                    }
+                  }}
+                  disabled={uiDiscovering || !uiDiscoveryRoutes.trim() || !appProfile.app_url}
+                  className="btn btn-primary text-sm px-4"
+                >
+                  {uiDiscovering ? (
+                    <span className="flex items-center gap-2">
+                      <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                      Discovering...
+                    </span>
+                  ) : 'Discover UI'}
+                </button>
+              </div>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-1.5 text-xs text-fg-mid cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={uiDiscoveryCrawl}
+                    onChange={e => setUiDiscoveryCrawl(e.target.checked)}
+                    className="rounded border-gray-300 text-fg-teal focus:ring-fg-teal"
+                  />
+                  Crawl mode (follow discovered navigation links)
+                </label>
+                {!appProfile.app_url && (
+                  <span className="text-xs text-amber-600">Set Application URL above first</span>
+                )}
+              </div>
+            </div>
+            {uiDiscoveryMsg && (
+              <p className={`text-xs mt-2 ${uiDiscoveryMsg.startsWith('Discovery failed') ? 'text-red-600' : 'text-green-600'}`}>
+                {uiDiscoveryMsg}
+              </p>
+            )}
+          </div>
+
+          {/* UI Pages — Enhanced display with discovered elements */}
           <div className="card p-5">
             <div className="flex items-center justify-between mb-3">
-              <h4 className="text-sm font-semibold text-fg-dark">UI Pages</h4>
+              <h4 className="text-sm font-semibold text-fg-dark">
+                UI Pages
+                {appProfile.ui_pages.length > 0 && (
+                  <span className="ml-2 text-xs font-normal text-fg-mid">
+                    ({appProfile.ui_pages.length} page{appProfile.ui_pages.length !== 1 ? 's' : ''},
+                    {' '}{appProfile.ui_pages.reduce((sum, p) => sum + (p.interactions || []).length, 0)} elements)
+                  </span>
+                )}
+              </h4>
               <button onClick={() => {
                 setAppProfile(p => ({...p, ui_pages: [...p.ui_pages, {route: '', description: '', key_elements: []}]}));
                 setAppProfileDirty(true);
               }} className="btn btn-secondary text-xs">+ Add Page</button>
             </div>
             {appProfile.ui_pages.length === 0 && (
-              <p className="text-sm text-fg-mid italic">No pages defined. Add UI pages so test cases use correct routes and selectors.</p>
+              <p className="text-sm text-fg-mid italic">No pages discovered yet. Use AI Discovery above or add pages manually.</p>
             )}
             <div className="space-y-3">
-              {appProfile.ui_pages.map((pg, idx) => (
-                <div key={idx} className="bg-gray-50 rounded p-3 grid grid-cols-12 gap-2 items-start">
-                  <input className="input col-span-3 text-xs" placeholder="/login" value={pg.route} onChange={e => {
-                    const pgs = [...appProfile.ui_pages]; pgs[idx] = {...pgs[idx], route: e.target.value};
-                    setAppProfile(p => ({...p, ui_pages: pgs})); setAppProfileDirty(true);
-                  }} />
-                  <input className="input col-span-4 text-xs" placeholder="Description" value={pg.description || ''} onChange={e => {
-                    const pgs = [...appProfile.ui_pages]; pgs[idx] = {...pgs[idx], description: e.target.value};
-                    setAppProfile(p => ({...p, ui_pages: pgs})); setAppProfileDirty(true);
-                  }} />
-                  <input className="input col-span-4 text-xs" placeholder="Key selectors (comma-sep)" value={(pg.key_elements || []).join(', ')} onChange={e => {
-                    const pgs = [...appProfile.ui_pages]; pgs[idx] = {...pgs[idx], key_elements: e.target.value.split(',').map(s => s.trim()).filter(Boolean)};
-                    setAppProfile(p => ({...p, ui_pages: pgs})); setAppProfileDirty(true);
-                  }} />
-                  <button className="col-span-1 text-red-400 hover:text-red-600 text-xs p-1" onClick={() => {
-                    setAppProfile(p => ({...p, ui_pages: p.ui_pages.filter((_,i) => i !== idx)}));
-                    setAppProfileDirty(true);
-                  }}>
-                    <TrashIcon className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
+              {appProfile.ui_pages.map((pg, idx) => {
+                const hasDiscovery = (pg.interactions || []).length > 0;
+                const isExpanded = expandedPages.has(idx);
+                return (
+                  <div key={idx} className={`rounded border ${hasDiscovery ? 'border-teal-200 bg-teal-50/30' : 'border-gray-200 bg-gray-50'}`}>
+                    {/* Page header — always visible */}
+                    <div className="p-3 flex items-center gap-2">
+                      {hasDiscovery && (
+                        <button
+                          onClick={() => {
+                            const next = new Set(expandedPages);
+                            if (isExpanded) next.delete(idx); else next.add(idx);
+                            setExpandedPages(next);
+                          }}
+                          className="text-fg-mid hover:text-fg-dark"
+                        >
+                          {isExpanded
+                            ? <ChevronUpIcon className="w-4 h-4" />
+                            : <ChevronDownIcon className="w-4 h-4" />
+                          }
+                        </button>
+                      )}
+                      <code className="text-xs font-mono font-semibold text-fg-tealDark bg-teal-100 px-1.5 py-0.5 rounded">
+                        {pg.route || '(no route)'}
+                      </code>
+                      <span className="text-xs text-fg-mid flex-1 truncate">
+                        {pg.purpose || pg.description || ''}
+                      </span>
+                      {hasDiscovery && (
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-teal-100 text-teal-700">
+                          {pg.interactions.length} elements
+                        </span>
+                      )}
+                      {(pg.forms || []).length > 0 && (
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                          {pg.forms.length} form{pg.forms.length !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                      {(pg.tables || []).length > 0 && (
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">
+                          {pg.tables.length} table{pg.tables.length !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                      <button className="text-red-400 hover:text-red-600 text-xs p-1" onClick={() => {
+                        setAppProfile(p => ({...p, ui_pages: p.ui_pages.filter((_,i) => i !== idx)}));
+                        setAppProfileDirty(true);
+                      }}>
+                        <TrashIcon className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Expanded: show discovered elements */}
+                    {isExpanded && hasDiscovery && (
+                      <div className="px-3 pb-3 border-t border-teal-200/50">
+                        {/* Interactions grouped by category */}
+                        <div className="mt-2 space-y-1">
+                          <p className="text-[10px] font-semibold text-fg-mid uppercase tracking-wider">Interactive Elements</p>
+                          {pg.interactions.map((elem, ei) => (
+                            <div key={ei} className="flex items-start gap-2 text-xs pl-2">
+                              <span className={`mt-0.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                                elem.category === 'button' ? 'bg-blue-400' :
+                                elem.category === 'input' ? 'bg-green-400' :
+                                elem.category === 'link' ? 'bg-purple-400' :
+                                elem.category === 'dropdown' ? 'bg-orange-400' :
+                                'bg-gray-400'
+                              }`} />
+                              <span className="font-medium text-fg-dark min-w-[100px]">{elem.element}</span>
+                              <code className="text-[10px] font-mono text-teal-700 bg-teal-50 px-1 rounded flex-1 truncate">
+                                {elem.locator}
+                              </code>
+                              {elem.purpose && (
+                                <span className="text-fg-mid text-[10px] hidden lg:inline">{elem.purpose}</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Forms */}
+                        {(pg.forms || []).length > 0 && (
+                          <div className="mt-2">
+                            <p className="text-[10px] font-semibold text-fg-mid uppercase tracking-wider">Forms</p>
+                            {pg.forms.map((form, fi) => (
+                              <div key={fi} className="text-xs pl-2 mt-1">
+                                <span className="font-medium">{form.name}:</span>
+                                <span className="text-fg-mid ml-1">{(form.fields || []).join(', ')}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Tables */}
+                        {(pg.tables || []).length > 0 && (
+                          <div className="mt-2">
+                            <p className="text-[10px] font-semibold text-fg-mid uppercase tracking-wider">Tables</p>
+                            {pg.tables.map((tbl, ti) => (
+                              <div key={ti} className="text-xs pl-2 mt-1">
+                                <span className="font-medium">{tbl.name}:</span>
+                                <span className="text-fg-mid ml-1">{(tbl.columns || []).join(', ')}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Navigation */}
+                        {(pg.navigation || []).length > 0 && (
+                          <div className="mt-2">
+                            <p className="text-[10px] font-semibold text-fg-mid uppercase tracking-wider">Navigation</p>
+                            <p className="text-xs text-fg-mid pl-2">{pg.navigation.join(' | ')}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* For non-discovered pages: editable fields */}
+                    {!hasDiscovery && (
+                      <div className="px-3 pb-3 grid grid-cols-12 gap-2">
+                        <input className="input col-span-4 text-xs" placeholder="Route (/login)" value={pg.route} onChange={e => {
+                          const pgs = [...appProfile.ui_pages]; pgs[idx] = {...pgs[idx], route: e.target.value};
+                          setAppProfile(p => ({...p, ui_pages: pgs})); setAppProfileDirty(true);
+                        }} />
+                        <input className="input col-span-4 text-xs" placeholder="Description" value={pg.description || ''} onChange={e => {
+                          const pgs = [...appProfile.ui_pages]; pgs[idx] = {...pgs[idx], description: e.target.value};
+                          setAppProfile(p => ({...p, ui_pages: pgs})); setAppProfileDirty(true);
+                        }} />
+                        <input className="input col-span-4 text-xs" placeholder="Key selectors (comma-sep)" value={(pg.key_elements || []).join(', ')} onChange={e => {
+                          const pgs = [...appProfile.ui_pages]; pgs[idx] = {...pgs[idx], key_elements: e.target.value.split(',').map(s => s.trim()).filter(Boolean)};
+                          setAppProfile(p => ({...p, ui_pages: pgs})); setAppProfileDirty(true);
+                        }} />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
