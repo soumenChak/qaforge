@@ -297,9 +297,14 @@ RULES:
 4. Use httpx (NOT requests) for HTTP calls. Use pytest assertions.
 5. Read BASE_URL from environment: `BASE_URL = os.environ.get("QAFORGE_BASE_URL", "")`. Import os at top.
 6. Do NOT define auth_token or auth_headers fixtures — they are provided by conftest.py.
-   Just use them as parameters: `def test_example(auth_headers, client):`.
-   Available fixtures from conftest: base_url, app_url, auth_token, auth_headers, client.
-   The `client` fixture is an httpx.Client pre-configured with base_url, auth, and SSL settings.
+   Available fixtures from conftest:
+   - `client` — httpx.Client with base_url + SSL disabled (NO auth headers)
+   - `authenticated_client` — httpx.Client with base_url + auth headers + SSL disabled
+   - `auth_token` — JWT token string (may be empty if no auth configured)
+   - `auth_headers` — dict with Authorization header (may be empty)
+   - `base_url`, `app_url` — URL strings from environment
+   Use `client` for unauthenticated tests (login, health check).
+   Use `authenticated_client` or pass `auth_headers` for protected endpoints.
 7. Use `verify=False` on ALL httpx calls (for self-signed certs). Or use the `client` fixture.
 8. Each test function must:
    - Have a clear docstring explaining what it tests
