@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from backend.agents.base_qa_agent import BaseQAAgent
+from agents.base_qa_agent import BaseQAAgent
 
 logger = logging.getLogger(__name__)
 

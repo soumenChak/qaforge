@@ -16,9 +16,9 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
-from backend.core.llm_provider import LLMProvider, LLMResponse, get_llm_provider
-from backend.core.prompt_guard import sanitize_for_prompt
-from backend.core.retry import retry_with_backoff
+from core.llm_provider import LLMProvider, LLMResponse, get_llm_provider
+from core.prompt_guard import sanitize_for_prompt
+from core.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 

@@ -6,7 +6,7 @@ and output formatting into a single async flow.
 
 Usage::
 
-    from backend.pipeline import Orchestrator, GenerateRequest
+    from pipeline import Orchestrator, GenerateRequest
 
     request = GenerateRequest(
         description="Verify match rules for fuzzy name matching in Reltio",
@@ -27,10 +27,10 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from backend.agents import get_agent_for_domain, ReviewerAgent, ReviewReport
-from backend.agents.base_qa_agent import BaseQAAgent
-from backend.core.llm_provider import LLMResponse
-from backend.core.retry import async_retry_with_backoff
+from agents import get_agent_for_domain, ReviewerAgent, ReviewReport
+from agents.base_qa_agent import BaseQAAgent
+from core.llm_provider import LLMResponse
+from core.retry import async_retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
