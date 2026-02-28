@@ -329,17 +329,23 @@ class BaseQAAgent(ABC):
 
     @staticmethod
     def _normalise_priority(priority: Any) -> str:
-        """Normalise priority to High / Medium / Low."""
+        """Normalise priority to High / Medium / Low.
+
+        Accepts both textual (High/Medium/Low/Critical) and coded (P1-P4)
+        formats, since the route-level prompt asks for P1-P4 while the
+        base agent schema uses High/Medium/Low.
+        """
         if not isinstance(priority, str):
             return "Medium"
-        p = priority.strip().capitalize()
-        if p in ("High", "Medium", "Low"):
-            return p
-        if p in ("Critical", "P1"):
-            return "High"
-        if p in ("Minor", "P3", "Trivial"):
-            return "Low"
-        return "Medium"
+        p = priority.strip().upper()
+        # Direct match (case-insensitive)
+        _MAP = {
+            "HIGH": "High", "MEDIUM": "Medium", "LOW": "Low",
+            "CRITICAL": "High", "BLOCKER": "High",
+            "MINOR": "Low", "TRIVIAL": "Low",
+            "P1": "High", "P2": "Medium", "P3": "Low", "P4": "Low",
+        }
+        return _MAP.get(p, "Medium")
 
     def format_output(
         self,

@@ -51,7 +51,14 @@ async def execute(
     auth_type = connection_config.get("auth_type")
     auth_token = connection_config.get("auth_token")
 
-    endpoint = params.get("resource_endpoint", "/api/resource")
+    endpoint = params.get("resource_endpoint", "")
+    if not endpoint:
+        return {
+            "passed": False,
+            "assertions": [{"type": "param_validation", "expected": "valid resource_endpoint", "actual": "missing", "passed": False, "message": "No resource_endpoint provided by LLM extraction"}],
+            "logs": ["FAIL: No resource_endpoint provided. The LLM did not extract a valid endpoint path from the test case."],
+            "details": {"template": "api_crud"},
+        }
     if not endpoint.startswith("/"):
         endpoint = f"/{endpoint}"
     url = f"{base_url}{endpoint}"

@@ -347,6 +347,9 @@ def _generate_via_pipeline(
             requirements=[requirement_context] if requirement_context else None,
             count=count,
             additional_context=additional_context or "",
+            app_profile=app_profile,
+            brd_prd_context=brd_prd_context,
+            reference_tc_context=reference_tc_context,
         )
         loop = asyncio.new_event_loop()
         try:
@@ -411,7 +414,7 @@ def _generate_via_llm(
             )
         )
         .order_by(KnowledgeEntry.usage_count.desc(), KnowledgeEntry.created_at.desc())
-        .limit(8)
+        .limit(15)
         .all()
     )
 
@@ -421,7 +424,7 @@ def _generate_via_llm(
         kb_lines = []
         for entry in kb_entries:
             kb_lines.append(
-                f"[{entry.entry_type.upper()}] {entry.title}\n{entry.content[:500]}"
+                f"[{entry.entry_type.upper()}] {entry.title}\n{entry.content[:2000]}"
             )
             entry.usage_count += 1
         kb_context = "\n\n".join(kb_lines)

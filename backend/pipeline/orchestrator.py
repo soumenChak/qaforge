@@ -60,6 +60,11 @@ class GenerateRequest:
     knowledge_base_context: str = ""
     example_test_cases: Optional[List[Dict[str, Any]]] = None
 
+    # Rich context (passed through from route handler)
+    app_profile: Optional[Dict[str, Any]] = None
+    brd_prd_context: str = ""
+    reference_tc_context: str = ""
+
 
 @dataclass
 class GenerateResult:
@@ -239,13 +244,96 @@ class Orchestrator:
 
     def _gather_context(self, request: GenerateRequest) -> str:
         """
-        Gather context from the knowledge base and any additional sources.
-        Returns a combined context string.
+        Gather ALL available context for generation: knowledge base,
+        requirements, app profile, BRD/PRD, and reference test cases.
+
+        This context is injected into the domain agent's generation prompt
+        so the LLM has maximum information to produce specific, executable
+        test cases.
         """
         parts: List[str] = []
+
+        # Requirements context — CRITICAL for targeted generation
+        if request.requirements:
+            parts.append(
+                "=== REQUIREMENTS / USE CASES ===\n"
+                "Generate test cases that cover these specific requirements. "
+                "Each requirement should have at least one corresponding test case.\n"
+                + "\n".join(request.requirements)
+            )
+
+        # Application profile — CRITICAL for execution-ready tests
+        if request.app_profile and isinstance(request.app_profile, dict):
+            import json as _json
+            ap = request.app_profile
+            ap_lines: List[str] = []
+            if ap.get("app_url"):
+                ap_lines.append(f"Application URL: {ap['app_url']}")
+            if ap.get("api_base_url"):
+                ap_lines.append(f"API Base URL: {ap['api_base_url']}")
+            if ap.get("tech_stack") and isinstance(ap["tech_stack"], dict):
+                stack_str = ", ".join(f"{k}: {v}" for k, v in ap["tech_stack"].items() if v)
+                if stack_str:
+                    ap_lines.append(f"Tech Stack: {stack_str}")
+            if ap.get("auth") and isinstance(ap["auth"], dict):
+                auth = ap["auth"]
+                if auth.get("login_endpoint"):
+                    ap_lines.append(f"Auth: POST {auth['login_endpoint']}")
+                if auth.get("token_header"):
+                    ap_lines.append(f"Auth header: {auth['token_header']}")
+                if auth.get("test_credentials"):
+                    ap_lines.append(f"Test credentials: {_json.dumps(auth['test_credentials'])}")
+            if ap.get("api_endpoints") and isinstance(ap["api_endpoints"], list):
+                ep_lines = []
+                for ep in ap["api_endpoints"][:30]:
+                    if isinstance(ep, dict):
+                        line = f"  {ep.get('method', 'GET')} {ep.get('path', '/')}"
+                        if ep.get("required_fields"):
+                            line += f" (required: {', '.join(ep['required_fields'])})"
+                        if ep.get("response_fields"):
+                            line += f" (returns: {', '.join(ep['response_fields'])})"
+                        ep_lines.append(line)
+                if ep_lines:
+                    ap_lines.append("Known API Endpoints:\n" + "\n".join(ep_lines))
+            if ap.get("ui_pages") and isinstance(ap["ui_pages"], list):
+                page_lines = []
+                for pg in ap["ui_pages"][:20]:
+                    if isinstance(pg, dict):
+                        line = f"  {pg.get('route', '/')}"
+                        if pg.get("key_elements"):
+                            line += f" (elements: {', '.join(pg['key_elements'][:5])})"
+                        page_lines.append(line)
+                if page_lines:
+                    ap_lines.append("Known UI Pages:\n" + "\n".join(page_lines))
+            if ap_lines:
+                parts.append(
+                    "=== APPLICATION PROFILE (use these EXACT URLs, endpoints, field names) ===\n"
+                    "CRITICAL: Do NOT invent URLs, endpoints, or field names. "
+                    "Use ONLY the information below.\n"
+                    + "\n".join(ap_lines)
+                )
+
+        # BRD/PRD document context
+        if request.brd_prd_context:
+            parts.append(
+                "=== BRD/PRD DOCUMENT CONTEXT ===\n"
+                + request.brd_prd_context[:6000]
+            )
+
+        # Reference test cases
+        if request.reference_tc_context:
+            parts.append(
+                "=== REFERENCE TEST CASES (match this style and detail level) ===\n"
+                + request.reference_tc_context[:3000]
+            )
+
+        # Knowledge base context
         if request.knowledge_base_context:
-            parts.append(request.knowledge_base_context)
-        # Future: query a vector store, RAG pipeline, etc.
+            parts.append(
+                "=== KNOWLEDGE BASE REFERENCE ===\n"
+                + request.knowledge_base_context
+            )
+
         return "\n\n".join(parts)
 
     async def _async_generate(

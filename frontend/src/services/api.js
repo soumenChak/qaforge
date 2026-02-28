@@ -157,6 +157,7 @@ export const testAgentsAPI = {
 // -- Execution --
 export const executionAPI = {
   create: (data) => api.post('/execution/', data),
+  generateAndExecute: (data) => api.post('/execution/generate-and-execute', data),
   list: (params = {}) => api.get('/execution/', { params }),
   getById: (id) => api.get(`/execution/${id}`),
   getStatus: (id) => api.get(`/execution/${id}/status`),

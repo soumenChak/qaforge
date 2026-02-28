@@ -277,9 +277,19 @@ def update_app_profile(
             detail="Project not found",
         )
 
+    # Detect if api_base_url was just set/changed — trigger auto-discovery
+    old_profile = project.app_profile or {}
+    old_base_url = old_profile.get("api_base_url", "")
+    new_base_url = body.get("api_base_url", "")
+
     project.app_profile = body
     flag_modified(project, "app_profile")
     db.flush()
+
+    # Auto-discover OpenAPI spec if base URL was newly set or changed
+    auto_discovered = False
+    if new_base_url and new_base_url != old_base_url:
+        auto_discovered = _try_auto_discover_openapi(project, db)
 
     audit_log(
         db,
@@ -287,13 +297,81 @@ def update_app_profile(
         action="update_app_profile",
         entity_type="project",
         entity_id=str(project.id),
-        details={"keys": list(body.keys())},
+        details={"keys": list(body.keys()), "auto_discovered": auto_discovered},
         ip_address=get_client_ip(request),
     )
 
-    logger.info("App profile updated for project %s by %s", project.name, current_user.email)
+    logger.info(
+        "App profile updated for project %s by %s (auto_discovered=%s)",
+        project.name, current_user.email, auto_discovered,
+    )
 
     return ProjectResponse.model_validate(project)
+
+
+def _try_auto_discover_openapi(project, db) -> bool:
+    """
+    Attempt to auto-discover OpenAPI spec when api_base_url is set.
+    Tries common spec paths. Non-blocking — returns False on any failure.
+    """
+    import httpx as _httpx
+
+    ap = project.app_profile or {}
+    base_url = ap.get("api_base_url", "").rstrip("/")
+    if not base_url:
+        return False
+
+    # Common OpenAPI spec paths to try
+    spec_paths = [
+        "/openapi.json",
+        "/api/openapi.json",
+        "/docs/openapi.json",
+        "/swagger.json",
+        "/api/swagger.json",
+        "/v1/openapi.json",
+    ]
+
+    for path in spec_paths:
+        url = base_url + path
+        try:
+            resp = _httpx.get(url, timeout=10, follow_redirects=True, verify=False)
+            if resp.status_code == 200:
+                spec = resp.json()
+                if isinstance(spec, dict) and ("paths" in spec or "openapi" in spec or "swagger" in spec):
+                    discovered = _parse_openapi_spec(spec)
+                    if discovered.get("api_endpoints"):
+                        # Merge discovered endpoints into existing profile
+                        existing_endpoints = ap.get("api_endpoints", [])
+                        existing_paths = {
+                            (ep.get("method"), ep.get("path"))
+                            for ep in existing_endpoints
+                            if isinstance(ep, dict)
+                        }
+                        new_endpoints = [
+                            ep for ep in discovered["api_endpoints"]
+                            if (ep.get("method"), ep.get("path")) not in existing_paths
+                        ]
+                        ap["api_endpoints"] = existing_endpoints + new_endpoints
+
+                        # Merge auth if discovered
+                        if discovered.get("auth") and not ap.get("auth", {}).get("login_endpoint"):
+                            ap.setdefault("auth", {}).update(discovered["auth"])
+
+                        project.app_profile = ap
+                        flag_modified(project, "app_profile")
+                        db.flush()
+
+                        logger.info(
+                            "Auto-discovered %d API endpoints from %s for project %s",
+                            len(new_endpoints), url, project.name,
+                        )
+                        return True
+        except Exception as exc:
+            logger.debug("Auto-discovery failed for %s: %s", url, exc)
+            continue
+
+    logger.info("No OpenAPI spec found for %s (tried %d paths)", base_url, len(spec_paths))
+    return False
 
 
 # ---------------------------------------------------------------------------

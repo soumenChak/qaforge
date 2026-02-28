@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { projectsAPI, testCasesAPI, templatesAPI, knowledgeAPI, requirementsAPI } from '../services/api';
+import { projectsAPI, testCasesAPI, templatesAPI, knowledgeAPI, requirementsAPI, executionAPI } from '../services/api';
 import ChatGenerator from '../components/ChatGenerator';
 import {
   SparklesIcon,
@@ -213,6 +213,57 @@ export default function TestCaseGenerator() {
       setStep(1); // go back to configure
     } finally {
       setGenerating(false);
+    }
+  };
+
+  // ── Executable Mode: Generate & Run ──
+  const [execRunId, setExecRunId] = useState(null);
+  const [execPolling, setExecPolling] = useState(false);
+  const [execResult, setExecResult] = useState(null);
+
+  const handleGenerateAndRun = async (execType = 'api') => {
+    setStep(2);
+    setGenerating(true);
+    setGenerationError('');
+
+    try {
+      const res = await executionAPI.generateAndExecute({
+        project_id: id,
+        description,
+        execution_type: execType,
+        count,
+        additional_context: additionalContext || '',
+      });
+
+      const runId = res.data.id;
+      setExecRunId(runId);
+      setExecPolling(true);
+
+      // Poll for completion
+      const pollInterval = setInterval(async () => {
+        try {
+          const statusRes = await executionAPI.getStatus(runId);
+          const st = statusRes.data;
+          if (st.status !== 'queued' && st.status !== 'running') {
+            clearInterval(pollInterval);
+            setExecPolling(false);
+            // Fetch full results
+            const fullRes = await executionAPI.getById(runId);
+            setExecResult(fullRes.data);
+            setGenerating(false);
+            setStep(3);
+          }
+        } catch (pollErr) {
+          clearInterval(pollInterval);
+          setExecPolling(false);
+          setGenerating(false);
+          setGenerationError('Failed to poll execution status');
+        }
+      }, 3000);
+    } catch (err) {
+      setGenerationError(err.response?.data?.detail || 'Generate & Run failed');
+      setGenerating(false);
+      setStep(1);
     }
   };
 
@@ -861,10 +912,41 @@ export default function TestCaseGenerator() {
             <button onClick={() => setStep(0)} className="btn-ghost">
               Back
             </button>
-            <button onClick={handleGenerate} className="btn-primary flex items-center gap-2">
-              <SparklesIcon className="w-4 h-4" />
-              Generate {count} Test Cases
-            </button>
+            <div className="flex items-center gap-3">
+              <button onClick={handleGenerate} className="btn-primary flex items-center gap-2">
+                <SparklesIcon className="w-4 h-4" />
+                Generate {count} Test Cases
+              </button>
+              <div className="relative group">
+                <button
+                  onClick={() => handleGenerateAndRun('api')}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold
+                    bg-gradient-to-r from-emerald-500 to-teal-500 text-white
+                    hover:from-emerald-600 hover:to-teal-600 transition-all shadow-sm"
+                  title="Generate executable Python tests and run them immediately"
+                >
+                  <CpuChipIcon className="w-4 h-4" />
+                  Generate &amp; Run
+                  <ChevronDownIcon className="w-3 h-3" />
+                </button>
+                {/* Dropdown for execution type */}
+                <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200
+                  opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
+                  <button
+                    onClick={() => handleGenerateAndRun('api')}
+                    className="block w-full text-left px-4 py-2 text-sm text-fg-dark hover:bg-gray-50 rounded-t-lg"
+                  >
+                    🔌 API Tests (httpx)
+                  </button>
+                  <button
+                    onClick={() => handleGenerateAndRun('ui')}
+                    className="block w-full text-left px-4 py-2 text-sm text-fg-dark hover:bg-gray-50 rounded-b-lg"
+                  >
+                    🖥️ UI Tests (Playwright)
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -875,9 +957,14 @@ export default function TestCaseGenerator() {
           <div className="w-16 h-16 rounded-full bg-fg-tealLight mx-auto mb-5 flex items-center justify-center">
             <SparklesIcon className="w-8 h-8 text-fg-teal animate-pulse" />
           </div>
-          <h2 className="text-lg font-bold text-fg-navy mb-2">Generating Test Cases</h2>
+          <h2 className="text-lg font-bold text-fg-navy mb-2">
+            {execPolling ? 'Generating & Running Tests' : 'Generating Test Cases'}
+          </h2>
           <p className="text-sm text-fg-mid mb-4">
-            Using Claude Sonnet with {contextSourceCount > 0 ? `${contextSourceCount} context sources` : 'your description'}...
+            {execPolling
+              ? 'Generating executable Python tests and running them against your app...'
+              : `Using Claude Sonnet with ${contextSourceCount > 0 ? `${contextSourceCount} context sources` : 'your description'}...`
+            }
           </p>
           <div className="flex justify-center gap-3 mb-6 flex-wrap">
             {requirements.length > 0 && selectedReqIds.size > 0 && (
@@ -902,8 +989,112 @@ export default function TestCaseGenerator() {
         </div>
       )}
 
-      {/* Step 4: Review results */}
-      {step === 3 && (
+      {/* Step 4 (Executable Mode): Show run results */}
+      {step === 3 && execResult && (
+        <div className="animate-fade-in">
+          <div className="card-static p-6 mb-4">
+            <h2 className="text-lg font-bold text-fg-navy mb-3">
+              Executable Test Results
+            </h2>
+            {/* Summary */}
+            {execResult.results?.summary && (
+              <div className="flex flex-wrap gap-4 mb-4">
+                <span className="px-3 py-1.5 rounded-lg bg-gray-100 text-sm font-medium">
+                  Total: {execResult.results.summary.total}
+                </span>
+                <span className="px-3 py-1.5 rounded-lg bg-green-100 text-green-700 text-sm font-medium">
+                  ✅ Passed: {execResult.results.summary.passed}
+                </span>
+                <span className="px-3 py-1.5 rounded-lg bg-red-100 text-red-700 text-sm font-medium">
+                  ❌ Failed: {execResult.results.summary.failed}
+                </span>
+                {execResult.results.summary.errored > 0 && (
+                  <span className="px-3 py-1.5 rounded-lg bg-yellow-100 text-yellow-700 text-sm font-medium">
+                    ⚠️ Errors: {execResult.results.summary.errored}
+                  </span>
+                )}
+                <span className="px-3 py-1.5 rounded-lg bg-blue-100 text-blue-700 text-sm font-medium">
+                  Pass Rate: {execResult.results.summary.pass_rate}%
+                </span>
+              </div>
+            )}
+
+            {/* Generation info */}
+            {execResult.results?.generation && (
+              <p className="text-xs text-fg-mid mb-4">
+                Generated by {execResult.results.generation.provider}/{execResult.results.generation.model}
+                {' '}({execResult.results.generation.tokens_in + execResult.results.generation.tokens_out} tokens)
+              </p>
+            )}
+
+            {/* Individual test results */}
+            {execResult.results?.test_results?.length > 0 && (
+              <div className="space-y-2 mb-4">
+                <h3 className="text-sm font-semibold text-fg-dark">Test Functions:</h3>
+                {execResult.results.test_results.map((tr, i) => (
+                  <div key={i} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm
+                    ${tr.status === 'passed' ? 'bg-green-50 text-green-700' :
+                      tr.status === 'failed' ? 'bg-red-50 text-red-700' :
+                      'bg-yellow-50 text-yellow-700'}`}>
+                    <span>{tr.status === 'passed' ? '✅' : tr.status === 'failed' ? '❌' : '⚠️'}</span>
+                    <span className="font-mono">{tr.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Generated code (collapsible) */}
+            {execResult.results?.generated_code && (
+              <details className="mb-4">
+                <summary className="text-sm font-medium text-fg-teal cursor-pointer hover:text-fg-navy">
+                  View Generated Test Script ({execResult.results.test_functions?.length || 0} functions)
+                </summary>
+                <pre className="mt-2 p-4 rounded-lg bg-gray-900 text-green-400 text-xs overflow-x-auto max-h-96">
+                  {execResult.results.generated_code}
+                </pre>
+              </details>
+            )}
+
+            {/* stdout/stderr (collapsible) */}
+            {execResult.results?.stdout && (
+              <details className="mb-4">
+                <summary className="text-sm font-medium text-fg-mid cursor-pointer hover:text-fg-dark">
+                  View Test Output
+                </summary>
+                <pre className="mt-2 p-4 rounded-lg bg-gray-100 text-xs overflow-x-auto max-h-64">
+                  {execResult.results.stdout}
+                </pre>
+                {execResult.results.stderr && (
+                  <pre className="mt-1 p-4 rounded-lg bg-red-50 text-red-700 text-xs overflow-x-auto max-h-32">
+                    {execResult.results.stderr}
+                  </pre>
+                )}
+              </details>
+            )}
+
+            {execResult.results?.error && (
+              <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 mb-4">
+                {execResult.results.error}
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-between">
+            <button
+              onClick={() => { setStep(0); setExecResult(null); setExecRunId(null); }}
+              className="btn-ghost"
+            >
+              Generate More
+            </button>
+            <button onClick={() => navigate(`/projects/${id}`)} className="btn-primary">
+              Back to Project
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 4 (Document Mode): Review results */}
+      {step === 3 && !execResult && (
         <div className="animate-fade-in">
           {/* Generation metadata */}
           {resultMeta && (

@@ -531,6 +531,40 @@ export default function ProjectDetail() {
         {project.description && (
           <p className="text-sm text-fg-mid mt-3 max-w-2xl">{project.description}</p>
         )}
+
+        {/* Discovery Status Badges */}
+        {(appProfile.api_endpoints?.length > 0 || appProfile.ui_pages?.length > 0 || appProfile.api_base_url) && (
+          <div className="flex flex-wrap items-center gap-2 mt-3">
+            {appProfile.api_endpoints?.length > 0 && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-1.024a4.5 4.5 0 00-1.242-7.244l-4.5-4.5a4.5 4.5 0 00-6.364 6.364L4.34 8.342" />
+                </svg>
+                {appProfile.api_endpoints.length} API endpoint{appProfile.api_endpoints.length !== 1 ? 's' : ''} discovered
+              </span>
+            )}
+            {appProfile.ui_pages?.length > 0 && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a9 9 0 11-18 0V5.25" />
+                </svg>
+                {appProfile.ui_pages.length} UI page{appProfile.ui_pages.length !== 1 ? 's' : ''} mapped
+                {' '}({appProfile.ui_pages.reduce((sum, p) => sum + (p.interactions?.length || p.key_elements?.length || 0), 0)} elements)
+              </span>
+            )}
+            {appProfile.api_base_url && appProfile.api_endpoints?.length === 0 && (
+              <button
+                onClick={() => setActiveTab('app_profile')}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors cursor-pointer"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+                API URL set — run discovery to map endpoints
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* BRD/PRD Context — collapsible card */}
@@ -628,7 +662,7 @@ export default function ProjectDetail() {
           { key: 'requirements', label: `Requirements (${requirements.length})` },
           { key: 'test_cases', label: `Test Cases (${project.test_case_count || 0})` },
           { key: 'executions', label: `Executions (${executionRuns.length})` },
-          { key: 'app_profile', label: `App Profile${appProfile.app_url || appProfile.api_base_url ? ' \u2713' : ''}` },
+          { key: 'app_profile', label: `App Profile${appProfile.api_endpoints?.length > 0 ? ` (${appProfile.api_endpoints.length} EP)` : appProfile.app_url || appProfile.api_base_url ? ' \u2713' : ''}` },
         ].map((tab) => (
           <button
             key={tab.key}

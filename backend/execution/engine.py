@@ -22,6 +22,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
+import httpx
+
 from sqlalchemy.orm.attributes import flag_modified
 
 from db_session import SessionLocal
@@ -45,7 +47,7 @@ For api_smoke:
   "template": "api_smoke",
   "params": {
     "method": "GET",
-    "endpoint": "/api/endpoint",
+    "endpoint": "<EXACT path from API Endpoints list>",
     "expected_status": 200,
     "expected_fields": ["field1", "field2"],
     "headers": {},
@@ -56,11 +58,19 @@ For api_smoke:
   }
 }
 
+For expected_body_contains, use one of:
+- null (skip body check)
+- A string to search for in the response body (case-insensitive substring match)
+- A dict where values can be:
+  - An exact literal value: {"name": "Admin User"}
+  - A type descriptor: {"name": "string", "age": "number", "active": "boolean", "role": "string"}
+  - "any" or "non-empty-string" for flexible matching
+
 For api_crud:
 {
   "template": "api_crud",
   "params": {
-    "resource_endpoint": "/api/resource",
+    "resource_endpoint": "<EXACT path from API Endpoints list>",
     "create_body": {"field": "value"},
     "update_body": {"field": "updated_value"},
     "id_field": "id",
@@ -72,6 +82,8 @@ For api_crud:
     "expected_fields": ["id", "field"]
   }
 }
+
+CRITICAL: For "endpoint" and "resource_endpoint", you MUST use the EXACT path from the "API Endpoints" list provided in the application profile context. NEVER use placeholder paths like "/api/resource" or "/api/endpoint". Match the test case to a real endpoint from the list.
 
 If you cannot determine parameters from the test steps, return:
 {"template": "unknown", "params": {}, "reason": "explanation"}
@@ -660,6 +672,113 @@ async def _extract_params_via_llm(
         return {"template": "unknown", "params": {}, "reason": str(exc)}
 
 
+def _validate_endpoint_against_profile(
+    extraction: Dict[str, Any],
+    app_profile: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Post-extraction guardrail: correct generic/placeholder endpoints using app_profile."""
+    if not app_profile:
+        return extraction
+
+    endpoints = app_profile.get("api_endpoints", [])
+    if not endpoints:
+        return extraction
+
+    template = extraction.get("template", "")
+    params = extraction.get("params", {})
+
+    # Determine which param holds the endpoint path
+    if template == "api_crud":
+        endpoint_key = "resource_endpoint"
+    elif template == "api_smoke":
+        endpoint_key = "endpoint"
+    else:
+        return extraction
+
+    extracted_path = params.get(endpoint_key, "")
+    if not extracted_path:
+        return extraction
+
+    # Build set of known paths (normalised)
+    known_paths = set()
+    for ep in endpoints:
+        p = ep.get("path", "").rstrip("/")
+        if p:
+            known_paths.add(p.lower())
+
+    # Check if extracted path is a known generic placeholder
+    _GENERIC_PATHS = {"/api/resource", "/api/endpoint", "/api/resources", "/resource", "/endpoint"}
+    is_generic = extracted_path.lower().rstrip("/") in _GENERIC_PATHS
+    is_known = extracted_path.lower().rstrip("/") in known_paths
+
+    if is_generic or (not is_known and known_paths):
+        best_match = _find_best_endpoint_match(extracted_path, endpoints, extraction)
+        if best_match:
+            old_path = params[endpoint_key]
+            params[endpoint_key] = best_match
+            extraction["params"] = params
+            logger.info("Endpoint corrected: '%s' -> '%s'", old_path, best_match)
+
+    return extraction
+
+
+def _find_best_endpoint_match(
+    extracted_path: str,
+    endpoints: List[Dict[str, Any]],
+    extraction: Dict[str, Any],
+) -> Optional[str]:
+    """Find the best matching real endpoint from the app_profile."""
+    template = extraction.get("template", "")
+    params = extraction.get("params", {})
+
+    # Extract resource hints from the path
+    path_parts = extracted_path.strip("/").split("/")
+    resource_hint = path_parts[-1].lower() if path_parts else ""
+
+    if template == "api_crud":
+        # For CRUD, prefer endpoints that support POST (collection endpoints)
+        post_endpoints = [ep for ep in endpoints if ep.get("method", "").upper() == "POST"]
+        # Filter out auth/login endpoints
+        post_endpoints = [ep for ep in post_endpoints
+                          if "/auth/" not in ep.get("path", "").lower()
+                          and "/login" not in ep.get("path", "").lower()
+                          and "/token" not in ep.get("path", "").lower()]
+        if len(post_endpoints) == 1:
+            return post_endpoints[0]["path"]
+        # Try to match by resource name
+        if post_endpoints and resource_hint and resource_hint not in ("resource", "resources", "endpoint"):
+            for ep in post_endpoints:
+                if resource_hint in ep["path"].lower():
+                    return ep["path"]
+        # Try to match by test case title keywords in extraction
+        tc_reason = extraction.get("reason", "")
+        for ep in post_endpoints:
+            ep_resource = ep["path"].strip("/").split("/")[-1].lower()
+            # Check if the endpoint resource name appears in create_body keys
+            create_body = params.get("create_body", {})
+            if isinstance(create_body, dict):
+                body_keys = " ".join(create_body.keys()).lower()
+                ep_desc = (ep.get("description", "") or "").lower()
+                if ep_resource in body_keys or any(k in ep_desc for k in create_body.keys()):
+                    return ep["path"]
+        # Fallback: first non-auth POST endpoint
+        if post_endpoints:
+            return post_endpoints[0]["path"]
+
+    elif template == "api_smoke":
+        method = params.get("method", "GET").upper()
+        method_endpoints = [ep for ep in endpoints if ep.get("method", "").upper() == method]
+        if len(method_endpoints) == 1:
+            return method_endpoints[0]["path"]
+        # Try resource name matching
+        if resource_hint and resource_hint not in ("resource", "resources", "endpoint"):
+            for ep in method_endpoints:
+                if resource_hint in ep["path"].lower():
+                    return ep["path"]
+
+    return None
+
+
 async def _execute_single_test(
     tc: TestCase,
     connection_config: Dict[str, Any],
@@ -678,6 +797,10 @@ async def _execute_single_test(
 
     # Step 1.5: Apply template guardrails (rule-based correction)
     extraction = _apply_template_guardrails(tc, extraction, execution_type)
+
+    # Step 1.6: Validate extracted endpoint against known app_profile endpoints
+    if execution_type == "api" and app_profile:
+        extraction = _validate_endpoint_against_profile(extraction, app_profile)
 
     template_name = extraction.get("template", "unknown")
     params = extraction.get("params", {})
@@ -868,6 +991,34 @@ async def _execute_run(run_id: UUID) -> None:
             conn = db.query(Connection).filter(Connection.id == run.connection_id).first()
             if conn:
                 connection_config = conn.config or {}
+
+        # ---------- Dynamic token fetch (login) ----------
+        # If the connection has login_endpoint + credentials but no static auth_token,
+        # call the login endpoint to get a fresh JWT before running tests.
+        _login_ep = connection_config.get("login_endpoint")
+        _creds = connection_config.get("credentials")
+        _base = connection_config.get("base_url", "").rstrip("/")
+        if _login_ep and _creds and _base and not connection_config.get("auth_token"):
+            _token_field = connection_config.get("token_field", "access_token")
+            _login_url = f"{_base}{_login_ep}" if _login_ep.startswith("/") else f"{_base}/{_login_ep}"
+            logger.info("Dynamic auth: logging in via %s", _login_url)
+            try:
+                async with httpx.AsyncClient(verify=False, timeout=15) as _hc:
+                    _resp = await _hc.post(_login_url, json=_creds)
+                    if _resp.status_code == 200:
+                        _data = _resp.json()
+                        _token = _data.get(_token_field) or _data.get("access_token") or _data.get("token")
+                        if _token:
+                            connection_config["auth_token"] = _token
+                            logger.info("Dynamic auth: obtained token (%d chars) via %s", len(_token), _token_field)
+                        else:
+                            logger.warning("Dynamic auth: login 200 but no token field '%s' in response keys: %s",
+                                           _token_field, list(_data.keys()))
+                    else:
+                        logger.warning("Dynamic auth: login returned %d — %s", _resp.status_code, _resp.text[:200])
+            except Exception as _exc:
+                logger.error("Dynamic auth: login request failed — %s", _exc)
+        # ---------- End dynamic token fetch ----------
 
         # Load project app_profile (contains exact endpoints, field names, CSS selectors)
         app_profile = None

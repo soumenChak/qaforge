@@ -29,6 +29,18 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# JSON Schema type descriptors that the LLM may use instead of literal values.
+# When the expected value matches one of these, do a type check instead of literal comparison.
+_TYPE_DESCRIPTORS = {
+    "string":  lambda v: isinstance(v, str),
+    "number":  lambda v: isinstance(v, (int, float)),
+    "integer": lambda v: isinstance(v, int),
+    "boolean": lambda v: isinstance(v, bool),
+    "object":  lambda v: isinstance(v, dict),
+    "array":   lambda v: isinstance(v, list),
+    "null":    lambda v: v is None,
+}
+
 
 async def execute(
     params: Dict[str, Any],
@@ -176,14 +188,26 @@ async def execute(
                             logs.append(f"  FAIL: Expected key '{key}' not in response body")
                         elif val is not None and str(val) not in ("non-empty-string", "any"):
                             actual_val = check_target[key]
+                            # Check if val is a JSON Schema type descriptor (e.g. "string", "number")
+                            if isinstance(val, str) and val.lower() in _TYPE_DESCRIPTORS:
+                                type_check = _TYPE_DESCRIPTORS[val.lower()]
+                                if not type_check(actual_val):
+                                    contains_ok = False
+                                    logs.append(f"  FAIL: body['{key}'] expected type '{val}', got {type(actual_val).__name__}: {_truncate(str(actual_val), 80)}")
                             # For nested dict: check subset match (expected keys in actual)
-                            if isinstance(val, dict) and isinstance(actual_val, dict):
+                            elif isinstance(val, dict) and isinstance(actual_val, dict):
                                 for sub_key, sub_val in val.items():
                                     if sub_key not in actual_val:
                                         contains_ok = False
                                         logs.append(f"  FAIL: body['{key}']['{sub_key}'] not found")
                                     elif sub_val is not None and str(sub_val) not in ("non-empty-string", "any"):
-                                        if str(actual_val[sub_key]) != str(sub_val):
+                                        # Type descriptor check for nested values
+                                        if isinstance(sub_val, str) and sub_val.lower() in _TYPE_DESCRIPTORS:
+                                            sub_type_check = _TYPE_DESCRIPTORS[sub_val.lower()]
+                                            if not sub_type_check(actual_val[sub_key]):
+                                                contains_ok = False
+                                                logs.append(f"  FAIL: body['{key}']['{sub_key}'] expected type '{sub_val}', got {type(actual_val[sub_key]).__name__}")
+                                        elif str(actual_val[sub_key]) != str(sub_val):
                                             contains_ok = False
                                             logs.append(f"  FAIL: body['{key}']['{sub_key}'] expected '{sub_val}', got '{actual_val[sub_key]}'")
                             elif str(actual_val) != str(val):
