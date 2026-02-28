@@ -58,42 +58,26 @@ class ExecutableGenerateResult:
 
 _API_REFERENCE_SCRIPT = '''\
 """Auto-generated API tests for {app_name}."""
+import os
 import httpx
 import pytest
 
-BASE_URL = "{base_url}"
-
-
-@pytest.fixture(scope="module")
-def auth_token():
-    """Acquire auth token for authenticated endpoints."""
-    resp = httpx.post(
-        f"{{BASE_URL}}{login_endpoint}",
-        json={login_body},
-        timeout=30,
-    )
-    assert resp.status_code == 200, f"Login failed: {{resp.status_code}} {{resp.text[:200]}}"
-    data = resp.json()
-    token = data.get("{token_field}", data.get("access_token", ""))
-    assert token, f"No token in login response: {{list(data.keys())}}"
-    return token
-
-
-@pytest.fixture(scope="module")
-def auth_headers(auth_token):
-    """Standard auth headers."""
-    return {{"{token_header}": f"Bearer {{auth_token}}"}}
+BASE_URL = os.environ.get("QAFORGE_BASE_URL", "")
+SSL_VERIFY = os.environ.get("QAFORGE_SSL_VERIFY", "false").lower() == "true"
 
 
 def test_health_check():
     """Verify the API is reachable."""
-    resp = httpx.get(f"{{BASE_URL}}/", timeout=10)
+    resp = httpx.get(f"{{BASE_URL}}/", timeout=10, verify=SSL_VERIFY)
     assert resp.status_code in (200, 307, 404), f"API unreachable: {{resp.status_code}}"
 
 
 def test_list_endpoint(auth_headers):
     """Verify a list endpoint returns 200 with array data."""
-    resp = httpx.get(f"{{BASE_URL}}{example_list_endpoint}", headers=auth_headers, timeout=30)
+    resp = httpx.get(
+        f"{{BASE_URL}}{example_list_endpoint}",
+        headers=auth_headers, timeout=30, verify=SSL_VERIFY,
+    )
     assert resp.status_code == 200, f"Expected 200, got {{resp.status_code}}: {{resp.text[:200]}}"
     data = resp.json()
     assert isinstance(data, (list, dict)), f"Expected list or dict, got {{type(data).__name__}}"
@@ -101,11 +85,13 @@ def test_list_endpoint(auth_headers):
 
 _UI_REFERENCE_SCRIPT = '''\
 """Auto-generated Playwright UI tests for {app_name}."""
+import os
 import pytest
 from playwright.sync_api import Page, expect
 
-
-BASE_URL = "{base_url}"
+BASE_URL = os.environ.get("QAFORGE_BASE_URL", "") or os.environ.get("QAFORGE_APP_URL", "")
+AUTH_EMAIL = os.environ.get("QAFORGE_AUTH_EMAIL", "")
+AUTH_PASSWORD = os.environ.get("QAFORGE_AUTH_PASSWORD", "")
 
 
 @pytest.fixture(scope="module")
@@ -121,12 +107,12 @@ def browser_context(browser):
 
 @pytest.fixture
 def logged_in_page(browser_context):
-    """Navigate to app and log in."""
+    """Navigate to app and log in using credentials from environment."""
     page = browser_context.new_page()
     page.goto(f"{{BASE_URL}}{login_route}")
     page.wait_for_load_state("networkidle")
-    page.get_by_label("Email").fill("{test_email}")
-    page.get_by_label("Password").fill("{test_password}")
+    page.get_by_label("Email").fill(AUTH_EMAIL)
+    page.get_by_label("Password").fill(AUTH_PASSWORD)
     page.get_by_role("button", name="Login").click()
     page.wait_for_url("**/dashboard**", timeout=15000)
     yield page
@@ -202,6 +188,9 @@ class ExecutableGenerator:
                 tokens_out=response.tokens_out,
             )
 
+        # Sanitize: remove any hardcoded credentials the LLM may have embedded
+        code = self._sanitize_generated_code(code, app_profile)
+
         # Extract test function names
         test_funcs = re.findall(r"^def (test_\w+)", code, re.MULTILINE)
 
@@ -264,6 +253,9 @@ class ExecutableGenerator:
                 tokens_out=response.tokens_out,
             )
 
+        # Sanitize: remove any hardcoded credentials the LLM may have embedded
+        code = self._sanitize_generated_code(code, app_profile)
+
         test_funcs = re.findall(r"^def (test_\w+)", code, re.MULTILINE)
 
         script = GeneratedScript(
@@ -301,21 +293,26 @@ Your task: generate a COMPLETE, RUNNABLE Python test module using httpx and pyte
 RULES:
 1. Output ONLY the Python code — no explanation, no markdown outside the code block.
 2. Wrap the entire output in ```python ... ``` fences.
-3. The script must be self-contained: all imports at the top, fixtures defined inline.
+3. The script must be self-contained: all imports at the top.
 4. Use httpx (NOT requests) for HTTP calls. Use pytest assertions.
-5. Define a BASE_URL constant at module level.
-6. Create an auth_token fixture that logs in and returns a JWT/token.
-7. Create an auth_headers fixture that builds the Authorization header.
+5. Read BASE_URL from environment: `BASE_URL = os.environ.get("QAFORGE_BASE_URL", "")`. Import os at top.
+6. Do NOT define auth_token or auth_headers fixtures — they are provided by conftest.py.
+   Just use them as parameters: `def test_example(auth_headers, client):`.
+   Available fixtures from conftest: base_url, app_url, auth_token, auth_headers, client.
+   The `client` fixture is an httpx.Client pre-configured with base_url, auth, and SSL settings.
+7. Use `verify=False` on ALL httpx calls (for self-signed certs). Or use the `client` fixture.
 8. Each test function must:
    - Have a clear docstring explaining what it tests
    - Use real endpoints from the app profile (NEVER invent endpoints)
    - Assert specific status codes, response fields, and data types
    - Handle both success and error scenarios
    - Be independent (no dependency on other test execution order)
-9. Include cleanup: if a test creates a resource, delete it in a finally block.
-10. Use realistic but safe test data (test_user@example.com, "Test User", etc.)
-11. Set timeout=30 on all httpx calls.
-12. Name test functions descriptively: test_create_user, test_list_users_pagination, etc."""
+9. NEVER hardcode passwords, tokens, or secrets as string literals.
+   Read credentials from env: `os.environ.get("QAFORGE_AUTH_EMAIL", "")`.
+10. Include cleanup: if a test creates a resource, delete it in a finally block.
+11. Use realistic but safe test data (test_user@example.com, "Test User", etc.)
+12. Set timeout=30 on all httpx calls, or use the `client` fixture.
+13. Name test functions descriptively: test_create_user, test_list_users_pagination, etc."""
 
     @staticmethod
     def _build_ui_system_prompt() -> str:
@@ -325,23 +322,25 @@ Your task: generate a COMPLETE, RUNNABLE Python test module using Playwright and
 RULES:
 1. Output ONLY the Python code — no explanation, no markdown outside the code block.
 2. Wrap the entire output in ```python ... ``` fences.
-3. The script must be self-contained: all imports at the top, fixtures defined inline.
+3. The script must be self-contained: all imports at the top.
 4. Use playwright.sync_api (sync, NOT async). Use pytest assertions and Playwright expect().
-5. Define a BASE_URL constant at module level.
-6. Create a logged_in_page fixture that navigates to the app, logs in, and yields the page.
-7. PREFER semantic locators:
+5. Read BASE_URL from environment: `BASE_URL = os.environ.get("QAFORGE_APP_URL", "") or os.environ.get("QAFORGE_BASE_URL", "")`. Import os at top.
+6. Read credentials from environment: `os.environ.get("QAFORGE_AUTH_EMAIL", "")` and `os.environ.get("QAFORGE_AUTH_PASSWORD", "")`.
+   NEVER hardcode passwords, tokens, or secrets as string literals.
+7. Always use `ignore_https_errors=True` when creating browser contexts (for self-signed certs).
+8. PREFER semantic locators:
    - page.get_by_role("button", name="Submit")
    - page.get_by_label("Email")
    - page.get_by_text("Dashboard")
    - page.get_by_placeholder("Search...")
-8. AVOID fragile CSS selectors unless no semantic alternative exists.
-9. Use proper wait strategies:
-   - page.wait_for_load_state("networkidle")
-   - page.wait_for_url("**/dashboard**")
-   - expect(locator).to_be_visible(timeout=10000)
-10. Take screenshot on failure: page.screenshot(path="failure_<test_name>.png")
-11. Each test function must have a clear docstring.
-12. Handle SPA navigation: wait for URL changes or specific elements, not hard sleeps."""
+9. AVOID fragile CSS selectors unless no semantic alternative exists.
+10. Use proper wait strategies:
+    - page.wait_for_load_state("networkidle")
+    - page.wait_for_url("**/dashboard**")
+    - expect(locator).to_be_visible(timeout=10000)
+11. Take screenshot on failure: page.screenshot(path="failure_<test_name>.png")
+12. Each test function must have a clear docstring.
+13. Handle SPA navigation: wait for URL changes or specific elements, not hard sleeps."""
 
     # ------------------------------------------------------------------
     # User prompts
@@ -450,19 +449,23 @@ RULES:
         if isinstance(ts, dict) and any(ts.values()):
             lines.append(f"Tech Stack: {', '.join(f'{k}: {v}' for k, v in ts.items() if v)}")
 
-        # Auth
+        # Auth — scrub actual credentials, reference env vars instead
         auth = app_profile.get("auth", {})
         if isinstance(auth, dict) and auth.get("login_endpoint"):
             lines.append(f"\nAuthentication:")
             lines.append(f"  Login endpoint: POST {auth['login_endpoint']}")
             if auth.get("request_body"):
-                lines.append(f"  Request body format: {auth['request_body']}")
+                # Show request body structure but replace actual values
+                body = auth["request_body"]
+                if isinstance(body, dict):
+                    scrubbed = {k: "<from env>" for k in body}
+                    lines.append(f"  Request body format: {scrubbed}")
+                else:
+                    lines.append(f"  Request body format: {body}")
             if auth.get("token_header"):
                 lines.append(f"  Token header: {auth['token_header']}")
-            if auth.get("test_credentials") and isinstance(auth["test_credentials"], dict):
-                creds = auth["test_credentials"]
-                lines.append(f"  Test email: {creds.get('email', 'test@example.com')}")
-                lines.append(f"  Test password: {creds.get('password', 'password123')}")
+            lines.append(f"  Test credentials: available via os.environ (QAFORGE_AUTH_EMAIL, QAFORGE_AUTH_PASSWORD)")
+            lines.append(f"  Auth token: available via auth_token / auth_headers fixtures from conftest.py")
             if auth.get("response_fields"):
                 lines.append(f"  Login response fields: {', '.join(auth['response_fields'])}")
 
@@ -527,6 +530,52 @@ RULES:
             lines.append(f"\nNotes: {app_profile['notes']}")
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _sanitize_generated_code(code: str, app_profile: dict) -> str:
+        """Post-process generated code to replace any hardcoded credentials.
+
+        Even with good prompts, LLMs sometimes embed actual passwords or URLs
+        as string literals. This scrubs them out and replaces with env-var reads.
+        """
+        if not code or not app_profile:
+            return code
+
+        # Collect sensitive values to scrub
+        sensitives: list[tuple[str, str]] = []
+
+        # Password
+        auth = app_profile.get("auth", {})
+        if isinstance(auth, dict):
+            creds = auth.get("test_credentials", {})
+            if isinstance(creds, dict):
+                pw = creds.get("password", "")
+                if pw and len(pw) >= 4:
+                    sensitives.append((pw, 'os.environ.get("QAFORGE_AUTH_PASSWORD", "")'))
+                email = creds.get("email", "")
+                if email and "@" in email:
+                    sensitives.append((email, 'os.environ.get("QAFORGE_AUTH_EMAIL", "")'))
+
+        # Base URL (replace hardcoded URL with env var)
+        for url_key in ("api_base_url", "app_url"):
+            url = app_profile.get(url_key, "")
+            if url and len(url) > 10:
+                sensitives.append((url, 'os.environ.get("QAFORGE_BASE_URL", "")'))
+
+        # Apply replacements (longest first to avoid partial matches)
+        sensitives.sort(key=lambda x: -len(x[0]))
+        for literal, replacement in sensitives:
+            if literal in code:
+                # Replace as string assignment: `VAR = "literal"` → `VAR = os.environ.get(...)`
+                code = code.replace(f'"{literal}"', replacement)
+                code = code.replace(f"'{literal}'", replacement)
+                logger.info("Sanitized hardcoded value (%d chars) from generated code", len(literal))
+
+        # Ensure `import os` is present if we injected os.environ calls
+        if 'os.environ' in code and '\nimport os' not in code and not code.startswith('import os'):
+            code = "import os\n" + code
+
+        return code
 
     @staticmethod
     def _extract_python_code(raw_response: str) -> str:

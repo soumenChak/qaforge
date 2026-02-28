@@ -330,6 +330,102 @@ def generate_and_execute(
 
     app_profile = project.app_profile or {}
 
+    # ── Pre-flight: verify target URL is reachable before spending LLM tokens ──
+    target_url = (
+        app_profile.get("api_base_url")
+        or app_profile.get("app_url")
+        or ""
+    )
+    if target_url:
+        import httpx as _httpx
+        try:
+            _preflight = _httpx.get(
+                target_url,
+                timeout=10,
+                verify=False,
+                follow_redirects=True,
+            )
+            logger.info(
+                "Pre-flight OK: %s → %d", target_url, _preflight.status_code,
+            )
+        except (_httpx.ConnectError, _httpx.ConnectTimeout) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Target URL unreachable: {target_url} ({exc.__class__.__name__})",
+            )
+        except Exception as exc:
+            # Any HTTP status (401, 403, 500) means the URL is reachable
+            logger.warning("Pre-flight warning for %s: %s", target_url, exc)
+
+    # ── Resolve connection config overrides ──
+    conn_config: dict = {}
+    if connection_id:
+        conn = db.query(Connection).filter(Connection.id == connection_id).first()
+        if conn is None:
+            raise HTTPException(status_code=400, detail="Connection not found")
+        conn_config = conn.config or {}
+        # Connection's base_url / auth_token override app_profile values
+        if conn_config.get("base_url"):
+            target_url = conn_config["base_url"]
+        logger.info("Using connection override: %s (driver=%s)", conn.name, conn.driver)
+
+    # ── Pre-authenticate: get a working token before generation ──
+    pre_auth_token: str | None = None
+    auth_info = app_profile.get("auth", {})
+    if isinstance(auth_info, dict) and auth_info.get("login_endpoint"):
+        login_ep = auth_info["login_endpoint"]
+        test_creds = auth_info.get("test_credentials", {})
+        req_body_template = auth_info.get("request_body", {})
+
+        # Build login URL
+        login_url = target_url.rstrip("/") + "/" + login_ep.lstrip("/") if target_url else ""
+        if login_url and isinstance(test_creds, dict) and test_creds.get("email"):
+            import httpx as _httpx
+
+            # Build request body: merge template with actual credentials
+            login_body = {}
+            if isinstance(req_body_template, dict):
+                login_body = dict(req_body_template)
+            # Common patterns for credential fields
+            login_body.update({
+                k: v for k, v in {
+                    "email": test_creds.get("email"),
+                    "password": test_creds.get("password"),
+                    "username": test_creds.get("email"),
+                }.items() if v
+            })
+
+            try:
+                login_resp = _httpx.post(
+                    login_url,
+                    json=login_body,
+                    timeout=15,
+                    verify=False,
+                    follow_redirects=True,
+                )
+                if login_resp.status_code == 200:
+                    data = login_resp.json()
+                    # Try common token field names
+                    token_field = auth_info.get("token_field", "access_token")
+                    pre_auth_token = (
+                        data.get(token_field)
+                        or data.get("access_token")
+                        or data.get("token")
+                        or data.get("jwt")
+                        or ""
+                    )
+                    if pre_auth_token:
+                        logger.info("Pre-auth succeeded: got token from %s", login_url)
+                    else:
+                        logger.warning("Pre-auth 200 but no token found in keys: %s", list(data.keys()))
+                else:
+                    logger.warning(
+                        "Pre-auth failed: %s → %d %s",
+                        login_url, login_resp.status_code, login_resp.text[:200],
+                    )
+            except Exception as exc:
+                logger.warning("Pre-auth request failed: %s — %s", login_url, exc)
+
     # Gather requirements from project
     from db_models import Requirement
     reqs = (
@@ -369,6 +465,23 @@ def generate_and_execute(
         run.id, execution_type, count, current_user.email,
     )
 
+    # ── Build QAFORGE_* env dict for subprocess ──
+    qaforge_env: dict[str, str] = {
+        "QAFORGE_BASE_URL": (conn_config.get("base_url") or app_profile.get("api_base_url") or ""),
+        "QAFORGE_APP_URL": app_profile.get("app_url", ""),
+        "QAFORGE_SSL_VERIFY": "false",
+    }
+    if pre_auth_token:
+        qaforge_env["QAFORGE_AUTH_TOKEN"] = pre_auth_token
+    if isinstance(auth_info, dict):
+        creds = auth_info.get("test_credentials", {})
+        if isinstance(creds, dict):
+            qaforge_env["QAFORGE_AUTH_EMAIL"] = creds.get("email", "")
+            qaforge_env["QAFORGE_AUTH_PASSWORD"] = creds.get("password", "")
+        qaforge_env["QAFORGE_TOKEN_HEADER"] = auth_info.get("token_header", "Authorization")
+        if auth_info.get("login_endpoint"):
+            qaforge_env["QAFORGE_LOGIN_ENDPOINT"] = auth_info["login_endpoint"]
+
     # Run generation + execution in background
     background_tasks.add_task(
         _run_executable_generation,
@@ -380,6 +493,7 @@ def generate_and_execute(
         requirements=req_texts,
         additional_context=additional_context,
         connection_id=connection_id,
+        qaforge_env=qaforge_env,
     )
 
     return {
@@ -398,6 +512,7 @@ def _run_executable_generation(
     requirements: list | None,
     additional_context: str,
     connection_id: uuid.UUID | None,
+    qaforge_env: dict[str, str] | None = None,
 ):
     """Background task: generate executable tests → run via subprocess."""
     import subprocess
@@ -487,7 +602,19 @@ def _run_executable_generation(
             with open(script_path, "w") as f:
                 f.write(script.code)
 
-            # Install dependencies hint (httpx/playwright should already be in venv)
+            # --- Step 2a: Generate conftest.py with shared fixtures ---
+            conftest_code = _build_conftest(execution_type)
+            conftest_path = os.path.join(tmpdir, "conftest.py")
+            with open(conftest_path, "w") as f:
+                f.write(conftest_code)
+
+            # Build subprocess env: inherit system env + QAFORGE_* vars
+            run_env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+            if qaforge_env:
+                for k, v in qaforge_env.items():
+                    if v:  # Only set non-empty values
+                        run_env[k] = v
+
             cmd = [
                 "python", "-m", "pytest", script_path,
                 "--tb=short", "-q", "--no-header",
@@ -503,7 +630,7 @@ def _run_executable_generation(
                     text=True,
                     timeout=120,  # 2 minutes max
                     cwd=tmpdir,
-                    env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+                    env=run_env,
                 )
 
                 stdout = proc.stdout or ""
@@ -565,6 +692,103 @@ def _run_executable_generation(
             pass
     finally:
         db.close()
+
+
+def _build_conftest(execution_type: str = "api") -> str:
+    """Generate a conftest.py with shared pytest fixtures for test execution.
+
+    Fixtures read from QAFORGE_* environment variables so generated tests
+    never need to hardcode URLs or credentials.
+    """
+    return '''\
+"""
+QAForge — Shared pytest fixtures (auto-generated conftest.py).
+
+All configuration comes from QAFORGE_* environment variables injected
+by the execution engine. Tests should use these fixtures rather than
+hardcoding URLs, tokens, or credentials.
+"""
+import os
+import httpx
+import pytest
+
+
+# ── Configuration from environment ─────────────────────────────────────────
+BASE_URL = os.environ.get("QAFORGE_BASE_URL", "")
+APP_URL = os.environ.get("QAFORGE_APP_URL", "")
+AUTH_TOKEN = os.environ.get("QAFORGE_AUTH_TOKEN", "")
+AUTH_EMAIL = os.environ.get("QAFORGE_AUTH_EMAIL", "")
+AUTH_PASSWORD = os.environ.get("QAFORGE_AUTH_PASSWORD", "")
+TOKEN_HEADER = os.environ.get("QAFORGE_TOKEN_HEADER", "Authorization")
+LOGIN_ENDPOINT = os.environ.get("QAFORGE_LOGIN_ENDPOINT", "")
+SSL_VERIFY = os.environ.get("QAFORGE_SSL_VERIFY", "false").lower() == "true"
+
+
+# ── Fixtures ───────────────────────────────────────────────────────────────
+
+@pytest.fixture(scope="session")
+def base_url():
+    """Target API base URL from environment."""
+    return BASE_URL
+
+
+@pytest.fixture(scope="session")
+def app_url():
+    """Target application frontend URL from environment."""
+    return APP_URL or BASE_URL
+
+
+@pytest.fixture(scope="session")
+def auth_token():
+    """Acquire auth token: prefer pre-authenticated token, fallback to login.
+
+    The execution engine pre-authenticates and passes QAFORGE_AUTH_TOKEN.
+    If that's missing, attempt login with QAFORGE_AUTH_EMAIL/PASSWORD.
+    """
+    if AUTH_TOKEN:
+        return AUTH_TOKEN
+
+    if not LOGIN_ENDPOINT or not AUTH_EMAIL:
+        pytest.skip("No auth token or login credentials available")
+
+    login_url = BASE_URL.rstrip("/") + "/" + LOGIN_ENDPOINT.lstrip("/")
+    resp = httpx.post(
+        login_url,
+        json={"email": AUTH_EMAIL, "password": AUTH_PASSWORD},
+        timeout=15,
+        verify=SSL_VERIFY,
+    )
+    assert resp.status_code == 200, (
+        f"Login failed: {resp.status_code} {resp.text[:300]}"
+    )
+    data = resp.json()
+    token = (
+        data.get("access_token")
+        or data.get("token")
+        or data.get("jwt")
+        or ""
+    )
+    assert token, f"No token in login response: {list(data.keys())}"
+    return token
+
+
+@pytest.fixture(scope="session")
+def auth_headers(auth_token):
+    """Standard authorization headers."""
+    return {TOKEN_HEADER: f"Bearer {auth_token}"}
+
+
+@pytest.fixture(scope="session")
+def client(auth_headers):
+    """Pre-configured httpx client with auth, SSL disabled, reasonable timeout."""
+    with httpx.Client(
+        base_url=BASE_URL,
+        headers=auth_headers,
+        verify=SSL_VERIFY,
+        timeout=30.0,
+    ) as c:
+        yield c
+'''
 
 
 def _parse_pytest_output(stdout: str, stderr: str, exit_code: int) -> dict:
