@@ -305,6 +305,9 @@ RULES:
    - `base_url`, `app_url` — URL strings from environment
    Use `client` for unauthenticated tests (login, health check).
    Use `authenticated_client` or pass `auth_headers` for protected endpoints.
+   IMPORTANT: When using `client` or `authenticated_client`, use RELATIVE paths
+   (e.g. `client.post("auth/login")` NOT `client.post("/api/auth/login")`).
+   The client's base_url already includes the API prefix.
 7. Use `verify=False` on ALL httpx calls (for self-signed certs). Or use the `client` fixture.
 8. Each test function must:
    - Have a clear docstring explaining what it tests

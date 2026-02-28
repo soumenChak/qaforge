@@ -785,9 +785,11 @@ def auth_headers(auth_token):
 def client():
     """Pre-configured httpx client with SSL disabled, reasonable timeout.
     Does NOT include auth headers — use auth_headers fixture separately.
+    base_url has trailing slash so relative paths work correctly.
     """
+    url = BASE_URL.rstrip("/") + "/" if BASE_URL else ""
     with httpx.Client(
-        base_url=BASE_URL,
+        base_url=url,
         verify=SSL_VERIFY,
         timeout=30.0,
     ) as c:
@@ -797,8 +799,9 @@ def client():
 @pytest.fixture(scope="session")
 def authenticated_client(auth_headers):
     """Pre-configured httpx client WITH auth headers, SSL disabled."""
+    url = BASE_URL.rstrip("/") + "/" if BASE_URL else ""
     with httpx.Client(
-        base_url=BASE_URL,
+        base_url=url,
         headers=auth_headers,
         verify=SSL_VERIFY,
         timeout=30.0,
