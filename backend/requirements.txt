@@ -48,5 +48,9 @@ faker>=22.0,<30.0
 # ── Browser Automation (Playwright UI Testing) ─────────────────────────
 playwright>=1.40,<2.0
 
+# ── Test Execution (for running generated test scripts) ────────────────────
+pytest>=7.4,<9.0
+pytest-asyncio>=0.23,<1.0
+
 # ── Utilities ────────────────────────────────────────────────────────────────
 python-dotenv>=1.0,<2.0
