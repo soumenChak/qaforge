@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { projectsAPI, requirementsAPI, testCasesAPI, executionAPI } from '../services/api';
+import { projectsAPI, requirementsAPI, testCasesAPI, testPlansAPI, agentKeyAPI } from '../services/api';
 import TestCaseTable from '../components/TestCaseTable';
 import { DOMAIN_COLORS, DOMAIN_NAMES } from '../constants/domains';
-import ExecutionRunModal from '../components/ExecutionRunModal';
 import Breadcrumb from '../components/Breadcrumb';
 import {
   SparklesIcon,
@@ -13,7 +12,6 @@ import {
   ArrowDownTrayIcon,
   XMarkIcon,
   FunnelIcon,
-  BoltIcon,
   CheckCircleIcon,
   XCircleIcon,
   ClockIcon,
@@ -32,13 +30,6 @@ const PRIORITY_COLORS = {
   low: 'badge-green',
 };
 
-const RUN_STATUS_COLORS = {
-  queued: 'bg-gray-100 text-gray-700',
-  running: 'bg-blue-100 text-blue-700',
-  completed: 'bg-green-100 text-green-700',
-  failed: 'bg-red-100 text-red-700',
-  cancelled: 'bg-yellow-100 text-yellow-700',
-};
 
 export default function ProjectDetail() {
   const { id } = useParams();
@@ -80,11 +71,12 @@ export default function ProjectDetail() {
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
 
-  // Execution state
-  const [showRunModal, setShowRunModal] = useState(false);
-  const [executionRuns, setExecutionRuns] = useState([]);
-  const [execLoading, setExecLoading] = useState(false);
-  const executionRunsRef = useRef([]);
+  // Test Plans state
+  const [testPlans, setTestPlans] = useState([]);
+  const [testPlansLoading, setTestPlansLoading] = useState(false);
+  // Agent key state
+  const [agentKeyVisible, setAgentKeyVisible] = useState(null);
+  const [generatingKey, setGeneratingKey] = useState(false);
 
   // App Profile state
   const EMPTY_PROFILE = {
@@ -196,30 +188,15 @@ export default function ProjectDetail() {
     }
   }, [id, tcPage, tcPageSize, tcFilter, project?.test_case_count]);
 
-  // Track in-flight poll to prevent overlapping requests
-  const pollInFlightRef = useRef(false);
-
-  const loadExecutionRuns = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) setExecLoading(true);
-    if (silent && pollInFlightRef.current) return; // skip if another poll is in-flight
-    if (silent) pollInFlightRef.current = true;
+  const loadTestPlans = useCallback(async () => {
+    setTestPlansLoading(true);
     try {
-      const res = await executionAPI.list({ project_id: id });
-      // Only update state if data actually changed (prevents unnecessary re-renders)
-      const newData = res.data;
-      const prev = executionRunsRef.current;
-      const changed = newData.length !== prev.length
-        || newData.some((r, i) => r.id !== prev[i]?.id || r.status !== prev[i]?.status
-            || JSON.stringify(r.results?.summary) !== JSON.stringify(prev[i]?.results?.summary));
-      if (changed || !silent) {
-        setExecutionRuns(newData);
-        executionRunsRef.current = newData;
-      }
+      const res = await testPlansAPI.list(id);
+      setTestPlans(res.data);
     } catch (err) {
-      console.error('Failed to load execution runs:', err);
+      console.error('Failed to load test plans:', err);
     } finally {
-      if (!silent) setExecLoading(false);
-      if (silent) pollInFlightRef.current = false;
+      setTestPlansLoading(false);
     }
   }, [id]);
 
@@ -239,19 +216,7 @@ export default function ProjectDetail() {
   useEffect(() => { loadProject(); }, [loadProject]);
   useEffect(() => { if (activeTab === 'requirements') loadRequirements(); }, [activeTab, loadRequirements]);
   useEffect(() => { if (activeTab === 'test_cases') { loadTestCases(); loadCoverage(); } }, [activeTab, loadTestCases, loadCoverage]);
-  // Refresh full data when switching TO executions tab, but always load on mount for tab count
-  useEffect(() => { if (activeTab === 'executions') loadExecutionRuns(); }, [activeTab, loadExecutionRuns]);
-  useEffect(() => { loadExecutionRuns({ silent: true }); }, [loadExecutionRuns]);
-
-  // Poll active runs — uses ref to avoid dependency on executionRuns state
-  useEffect(() => {
-    if (activeTab !== 'executions') return;
-    const interval = setInterval(() => {
-      const hasActive = executionRunsRef.current.some(r => ['queued', 'running'].includes(r.status));
-      if (hasActive) loadExecutionRuns({ silent: true });
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [activeTab, loadExecutionRuns]);
+  useEffect(() => { if (activeTab === 'test_plans') loadTestPlans(); }, [activeTab, loadTestPlans]);
 
   const handleAddRequirement = async (e) => {
     e.preventDefault();
@@ -441,40 +406,28 @@ export default function ProjectDetail() {
     }
   };
 
-  const handleRunSelected = () => {
-    if (selectedTcIds.size === 0) {
-      alert('Please select test cases to run.');
-      return;
-    }
-    setShowRunModal(true);
-  };
-
-  const handleRunAll = () => {
-    // Select all test case IDs for execution
-    const allIds = testCases.map(tc => tc.id);
-    if (allIds.length === 0) {
-      alert('No test cases available to run.');
-      return;
-    }
-    setSelectedTcIds(new Set(allIds));
-    setShowRunModal(true);
-  };
-
-  const handleExecutionStarted = (run) => {
-    setShowRunModal(false);
-    setActiveTab('executions');
-    loadExecutionRuns();
-  };
-
-  const handleDeleteExecution = async (e, runId) => {
-    e.stopPropagation(); // Don't navigate to detail page
-    if (!window.confirm('Delete this execution run? This cannot be undone.')) return;
+  const handleGenerateAgentKey = async () => {
+    if (!window.confirm('Generate a new agent API key? Any existing key will be revoked.')) return;
+    setGeneratingKey(true);
     try {
-      await executionAPI.delete(runId);
-      loadExecutionRuns();
+      const res = await agentKeyAPI.generate(id);
+      setAgentKeyVisible(res.data.api_key);
+      loadProject();
     } catch (err) {
-      const msg = err.response?.data?.detail || 'Failed to delete execution run';
-      alert(msg);
+      alert(err.response?.data?.detail || 'Failed to generate agent key');
+    } finally {
+      setGeneratingKey(false);
+    }
+  };
+
+  const handleRevokeAgentKey = async () => {
+    if (!window.confirm('Revoke the agent API key? Agents will no longer be able to submit results.')) return;
+    try {
+      await agentKeyAPI.revoke(id);
+      setAgentKeyVisible(null);
+      loadProject();
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to revoke agent key');
     }
   };
 
@@ -661,7 +614,7 @@ export default function ProjectDetail() {
         {[
           { key: 'requirements', label: `Requirements (${requirements.length})` },
           { key: 'test_cases', label: `Test Cases (${project.test_case_count || 0})` },
-          { key: 'executions', label: `Executions (${executionRuns.length})` },
+          { key: 'test_plans', label: `Test Plans (${testPlans.length})` },
           { key: 'app_profile', label: `App Profile${appProfile.api_endpoints?.length > 0 ? ` (${appProfile.api_endpoints.length} EP)` : appProfile.app_url || appProfile.api_base_url ? ' \u2713' : ''}` },
         ].map((tab) => (
           <button
@@ -1240,22 +1193,6 @@ export default function ProjectDetail() {
 
             <div className="flex gap-2">
               <button
-                onClick={handleRunSelected}
-                disabled={selectedTcIds.size === 0}
-                className="btn-secondary text-sm flex items-center gap-2 border-teal-200 text-teal-700 hover:bg-teal-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <BoltIcon className="w-4 h-4" />
-                Run Selected ({selectedTcIds.size})
-              </button>
-              <button
-                onClick={handleRunAll}
-                disabled={testCases.length === 0}
-                className="btn-secondary text-sm flex items-center gap-2"
-              >
-                <BoltIcon className="w-4 h-4" />
-                Run All
-              </button>
-              <button
                 onClick={handleExport}
                 disabled={testCases.length === 0}
                 className="btn-secondary text-sm flex items-center gap-2"
@@ -1294,130 +1231,80 @@ export default function ProjectDetail() {
         </div>
       )}
 
-      {/* Executions tab */}
-      {activeTab === 'executions' && (
+      {/* Test Plans tab */}
+      {activeTab === 'test_plans' && (
         <div className="animate-fade-in">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
             <p className="text-sm text-fg-mid">
-              {executionRuns.length} execution run{executionRuns.length !== 1 ? 's' : ''}
+              {testPlans.length} test plan{testPlans.length !== 1 ? 's' : ''}
             </p>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => loadExecutionRuns()}
-                className="btn-secondary text-sm flex items-center gap-2"
-              >
-                <ArrowPathIcon className="w-4 h-4" />
-                Refresh
-              </button>
-              <button
-                onClick={() => setActiveTab('test_cases')}
-                className="btn-primary text-sm flex items-center gap-2"
-              >
-                <BoltIcon className="w-4 h-4" />
-                New Execution
-              </button>
-            </div>
+            <button
+              onClick={() => navigate(`/projects/${id}/test-plans`)}
+              className="btn-primary text-sm flex items-center gap-2"
+            >
+              <DocumentTextIcon className="w-4 h-4" />
+              Manage Test Plans
+            </button>
           </div>
 
-          {execLoading ? (
-            <div className="text-center py-8 text-fg-mid">Loading execution runs...</div>
-          ) : executionRuns.length === 0 ? (
+          {testPlansLoading ? (
+            <div className="text-center py-8 text-fg-mid">Loading test plans...</div>
+          ) : testPlans.length === 0 ? (
             <div className="card-static p-8 text-center">
-              <BoltIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-fg-mid mb-2">No execution runs yet.</p>
+              <DocumentTextIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <p className="text-fg-mid mb-2">No test plans yet.</p>
               <p className="text-xs text-fg-mid mb-4">
-                Go to the Test Cases tab, select test cases, and click "Run Selected" to start.
+                Create a test plan to organize test cases, track executions, and manage QA checkpoints.
               </p>
               <button
-                onClick={() => setActiveTab('test_cases')}
+                onClick={() => navigate(`/projects/${id}/test-plans`)}
                 className="btn-primary text-sm"
               >
-                Go to Test Cases
+                Create Test Plan
               </button>
             </div>
           ) : (
             <div className="space-y-3">
-              {executionRuns.map((run) => {
-                const summary = run.results?.summary || {};
-                const isActive = ['queued', 'running'].includes(run.status);
-                const passRate = summary.pass_rate;
-
+              {testPlans.map((plan) => {
+                const passRate = plan.test_case_count > 0
+                  ? Math.round((plan.passed_count / plan.test_case_count) * 100) : 0;
                 return (
                   <div
-                    key={run.id}
+                    key={plan.id}
                     className="card cursor-pointer overflow-hidden"
-                    onClick={() => navigate(`/projects/${id}/executions/${run.id}`)}
+                    onClick={() => navigate(`/projects/${id}/test-plans/${plan.id}`)}
                   >
                     <div className={`h-1 ${
-                      run.status === 'completed' && (passRate || 0) >= 70 ? 'bg-gradient-to-r from-green-400 to-green-500' :
-                      run.status === 'completed' ? 'bg-gradient-to-r from-orange-400 to-red-500' :
-                      run.status === 'running' ? 'bg-gradient-to-r from-blue-400 to-blue-500' :
-                      run.status === 'failed' ? 'bg-gradient-to-r from-red-400 to-red-500' :
+                      plan.status === 'completed' ? 'bg-gradient-to-r from-green-400 to-green-500' :
+                      plan.status === 'active' ? 'bg-gradient-to-r from-blue-400 to-blue-500' :
+                      plan.status === 'failed' ? 'bg-gradient-to-r from-red-400 to-red-500' :
                       'bg-gradient-to-r from-gray-300 to-gray-400'
                     }`} />
-
                     <div className="p-4 flex flex-wrap items-center justify-between gap-3">
                       <div className="flex items-center gap-4">
-                        {/* Status badge */}
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${RUN_STATUS_COLORS[run.status] || 'bg-gray-100 text-gray-700'}`}>
-                          {isActive && (
-                            <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                            </svg>
-                          )}
-                          {run.status}
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
+                          plan.status === 'completed' ? 'bg-green-100 text-green-700' :
+                          plan.status === 'active' ? 'bg-blue-100 text-blue-700' :
+                          plan.status === 'in_review' ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-gray-100 text-gray-700'
+                        }`}>
+                          {plan.status}
                         </span>
-
-                        {/* Test count */}
-                        <span className="text-sm text-fg-dark">
-                          {(run.test_case_ids || []).length} test case{(run.test_case_ids || []).length !== 1 ? 's' : ''}
-                        </span>
-
-                        {/* Results summary */}
-                        {summary.passed !== undefined && (
-                          <div className="flex items-center gap-3 text-xs">
-                            <span className="flex items-center gap-1 text-green-600">
-                              <CheckCircleIcon className="w-3.5 h-3.5" />
-                              {summary.passed} passed
-                            </span>
-                            {(summary.failed || 0) + (summary.errored || 0) > 0 && (
-                              <span className="flex items-center gap-1 text-red-600">
-                                <XCircleIcon className="w-3.5 h-3.5" />
-                                {(summary.failed || 0) + (summary.errored || 0)} failed
-                              </span>
-                            )}
-                            {passRate != null && (
-                              <span className={`font-semibold ${
-                                passRate >= 70 ? 'text-green-600' :
-                                passRate >= 40 ? 'text-yellow-600' : 'text-red-600'
-                              }`}>
-                                {passRate}% pass rate
-                              </span>
-                            )}
-                          </div>
-                        )}
+                        <span className="text-sm font-medium text-fg-dark">{plan.name}</span>
+                        <span className="badge badge-gray text-xs">{plan.plan_type}</span>
                       </div>
-
-                      <div className="flex items-center gap-4">
-                        {/* Timestamp */}
-                        <span className="text-xs text-gray-400 flex items-center gap-1">
-                          <ClockIcon className="w-3.5 h-3.5" />
-                          {run.started_at
-                            ? new Date(run.started_at).toLocaleString()
-                            : 'Queued'
-                          }
+                      <div className="flex items-center gap-4 text-xs text-gray-500">
+                        <span>{plan.test_case_count} test cases</span>
+                        <span>{plan.executed_count} executed</span>
+                        {plan.executed_count > 0 && (
+                          <span className={`font-semibold ${passRate >= 70 ? 'text-green-600' : passRate >= 40 ? 'text-yellow-600' : 'text-red-600'}`}>
+                            {passRate}% pass rate
+                          </span>
+                        )}
+                        <span className="text-gray-400">
+                          {new Date(plan.created_at).toLocaleDateString()}
                         </span>
                         <EyeIcon className="w-4 h-4 text-gray-400" />
-                        {!isActive && (
-                          <button
-                            onClick={(e) => handleDeleteExecution(e, run.id)}
-                            className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
-                            title="Delete execution run"
-                          >
-                            <TrashIcon className="w-4 h-4" />
-                          </button>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -1425,6 +1312,47 @@ export default function ProjectDetail() {
               })}
             </div>
           )}
+
+          {/* Agent API Key Section */}
+          <div className="mt-8">
+            <h3 className="text-lg font-semibold text-fg-dark mb-3">Agent API Key</h3>
+            <p className="text-sm text-fg-mid mb-4">
+              Generate an API key for AI agents (Claude Code, Codex, Gemini CLI) to submit test cases and execution results to this project.
+            </p>
+            <div className="card-static p-4">
+              {agentKeyVisible ? (
+                <div className="space-y-3">
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                    <p className="text-xs text-yellow-700 font-medium mb-1">Copy this key now — it won't be shown again.</p>
+                    <code className="block text-sm bg-white rounded px-3 py-2 border font-mono break-all">{agentKeyVisible}</code>
+                  </div>
+                  <button onClick={() => { navigator.clipboard.writeText(agentKeyVisible); }} className="btn-secondary text-sm">
+                    Copy to Clipboard
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  {project.has_agent_key ? (
+                    <>
+                      <span className="text-sm text-green-600 flex items-center gap-1">
+                        <CheckCircleIcon className="w-4 h-4" /> Key active
+                      </span>
+                      <button onClick={handleRevokeAgentKey} className="btn-secondary text-sm text-red-600 border-red-200 hover:bg-red-50">
+                        Revoke Key
+                      </button>
+                      <button onClick={handleGenerateAgentKey} disabled={generatingKey} className="btn-secondary text-sm">
+                        {generatingKey ? 'Generating...' : 'Regenerate Key'}
+                      </button>
+                    </>
+                  ) : (
+                    <button onClick={handleGenerateAgentKey} disabled={generatingKey} className="btn-primary text-sm">
+                      {generatingKey ? 'Generating...' : 'Generate Agent Key'}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -2158,16 +2086,6 @@ export default function ProjectDetail() {
         </div>
       )}
 
-      {/* Execution Run Modal */}
-      {showRunModal && (
-        <ExecutionRunModal
-          projectId={id}
-          testCaseIds={Array.from(selectedTcIds)}
-          testCaseCount={selectedTcIds.size}
-          onClose={() => setShowRunModal(false)}
-          onStarted={handleExecutionStarted}
-        />
-      )}
     </div>
   );
 }

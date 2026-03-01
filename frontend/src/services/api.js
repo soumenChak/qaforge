@@ -92,6 +92,8 @@ export const testCasesAPI = {
   delete: (projectId, tcId) => api.delete(`/projects/${projectId}/test-cases/${tcId}`),
   bulkDelete: (projectId, testCaseIds) =>
     api.post(`/projects/${projectId}/test-cases/bulk-delete`, { test_case_ids: testCaseIds }),
+  bulkStatus: (projectId, testCaseIds, status) =>
+    api.post(`/projects/${projectId}/test-cases/bulk-status`, { test_case_ids: testCaseIds, status }),
   rate: (projectId, tcId, data) => api.post(`/projects/${projectId}/test-cases/${tcId}/rate`, data),
   exportExcel: (projectId, data) =>
     api.post(`/projects/${projectId}/test-cases/export`, data, { responseType: 'blob' }),
@@ -135,41 +137,40 @@ export const knowledgeAPI = {
   seed: () => api.post('/knowledge/seed'),
 };
 
-// -- Connections --
-export const connectionsAPI = {
-  getAll: (params = {}) => api.get('/connections/', { params }),
-  getById: (id) => api.get(`/connections/${id}`),
-  create: (data) => api.post('/connections/', data),
-  update: (id, data) => api.put(`/connections/${id}`, data),
-  delete: (id) => api.delete(`/connections/${id}`),
-  test: (id) => api.post(`/connections/${id}/test`),
-};
-
-// -- Test Agents --
-export const testAgentsAPI = {
-  getAll: (params = {}) => api.get('/test-agents/', { params }),
-  getById: (id) => api.get(`/test-agents/${id}`),
-  create: (data) => api.post('/test-agents/', data),
-  update: (id, data) => api.put(`/test-agents/${id}`, data),
-  delete: (id) => api.delete(`/test-agents/${id}`),
-};
-
-// -- Execution --
-export const executionAPI = {
-  create: (data) => api.post('/execution/', data),
-  generateAndExecute: (data) => api.post('/execution/generate-and-execute', data),
-  list: (params = {}) => api.get('/execution/', { params }),
-  getById: (id) => api.get(`/execution/${id}`),
-  getStatus: (id) => api.get(`/execution/${id}/status`),
-  cancel: (id) => api.post(`/execution/${id}/cancel`),
-  delete: (id) => api.delete(`/execution/${id}`),
-};
-
 // -- Settings --
 export const settingsAPI = {
   getLLM: () => api.get('/settings/llm'),
   updateLLM: (data) => api.put('/settings/llm', data),
   getProviders: () => api.get('/settings/llm/providers'),
+};
+
+// -- Test Plans --
+export const testPlansAPI = {
+  list: (projectId, params = {}) => api.get(`/projects/${projectId}/test-plans`, { params }),
+  create: (projectId, data) => api.post(`/projects/${projectId}/test-plans`, data),
+  getById: (projectId, planId) => api.get(`/projects/${projectId}/test-plans/${planId}`),
+  update: (projectId, planId, data) => api.put(`/projects/${projectId}/test-plans/${planId}`, data),
+  delete: (projectId, planId) => api.delete(`/projects/${projectId}/test-plans/${planId}`),
+  // Checkpoints
+  listCheckpoints: (projectId, planId) => api.get(`/projects/${projectId}/test-plans/${planId}/checkpoints`),
+  createCheckpoint: (projectId, planId, data) => api.post(`/projects/${projectId}/test-plans/${planId}/checkpoints`, data),
+  reviewCheckpoint: (projectId, cpId, data) => api.patch(`/projects/${projectId}/checkpoints/${cpId}`, data),
+  // Reports
+  getTraceability: (projectId, planId) => api.get(`/projects/${projectId}/test-plans/${planId}/traceability`),
+  getSummary: (projectId, planId) => api.get(`/projects/${projectId}/test-plans/${planId}/summary`),
+};
+
+// -- Execution Results --
+export const executionsAPI = {
+  list: (projectId, params = {}) => api.get(`/projects/${projectId}/executions`, { params }),
+  getById: (projectId, execId) => api.get(`/projects/${projectId}/executions/${execId}`),
+  review: (projectId, execId, data) => api.post(`/projects/${projectId}/executions/${execId}/review`, data),
+};
+
+// -- Agent Key --
+export const agentKeyAPI = {
+  generate: (projectId) => api.post(`/projects/${projectId}/agent-key`),
+  revoke: (projectId) => api.delete(`/projects/${projectId}/agent-key`),
 };
 
 export default api;

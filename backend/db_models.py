@@ -109,6 +109,9 @@ class Project(Base):
     template_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("test_templates.id", ondelete="SET NULL"), nullable=True
     )
+    agent_api_key_hash: Mapped[Optional[str]] = mapped_column(
+        String(128), nullable=True, comment="SHA-256 hash of agent API key"
+    )
     created_by: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
     )
@@ -130,8 +133,8 @@ class Project(Base):
     test_cases: Mapped[List["TestCase"]] = relationship(
         "TestCase", back_populates="project", cascade="all, delete-orphan", lazy="select"
     )
-    execution_runs: Mapped[List["ExecutionRun"]] = relationship(
-        "ExecutionRun", back_populates="project", lazy="select"
+    test_plans: Mapped[List["TestPlan"]] = relationship(
+        "TestPlan", back_populates="project", cascade="all, delete-orphan", lazy="select"
     )
     generation_runs: Mapped[List["GenerationRun"]] = relationship(
         "GenerationRun", back_populates="project", lazy="select"
@@ -205,6 +208,9 @@ class TestCase(Base):
     requirement_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("requirements.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    test_plan_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("test_plans.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     test_case_id: Mapped[str] = mapped_column(
         String(30), nullable=False, comment="Human-readable ID e.g. TC-001"
     )
@@ -256,9 +262,15 @@ class TestCase(Base):
     requirement: Mapped[Optional["Requirement"]] = relationship(
         "Requirement", back_populates="test_cases"
     )
+    test_plan: Mapped[Optional["TestPlan"]] = relationship(
+        "TestPlan", back_populates="test_cases"
+    )
     creator: Mapped["User"] = relationship("User", lazy="joined")
     feedback_entries: Mapped[List["FeedbackEntry"]] = relationship(
         "FeedbackEntry", back_populates="test_case", cascade="all, delete-orphan", lazy="selectin"
+    )
+    execution_results: Mapped[List["ExecutionResult"]] = relationship(
+        "ExecutionResult", back_populates="test_case", cascade="all, delete-orphan", lazy="select"
     )
 
     __table_args__ = (
@@ -300,149 +312,6 @@ class TestTemplate(Base):
 
     def __repr__(self) -> str:
         return f"<TestTemplate {self.name} [{self.domain}/{self.format}]>"
-
-
-# ---------------------------------------------------------------------------
-# Connections (external systems)
-# ---------------------------------------------------------------------------
-class Connection(Base):
-    """Connection profiles for external systems (databases, APIs, platforms)."""
-
-    __tablename__ = "connections"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=_uuid
-    )
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    type: Mapped[str] = mapped_column(
-        String(30), nullable=False,
-        comment="browser / database / api / platform / integration"
-    )
-    driver: Mapped[str] = mapped_column(
-        String(30), nullable=False,
-        comment="playwright / snowflake / databricks / reltio / semarchy / http / oracle / sqlserver / postgresql / talend / boomi"
-    )
-    config: Mapped[Any] = mapped_column(
-        JSONB, nullable=False, default=dict,
-        comment="host / port / warehouse / schema / options"
-    )
-    credentials_ref: Mapped[Optional[str]] = mapped_column(
-        String(255), nullable=True, comment="Encrypted vault key reference"
-    )
-    status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="disconnected",
-        comment="connected / disconnected / error"
-    )
-    last_tested_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    created_by: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-
-    # -- relationships --
-    creator: Mapped["User"] = relationship("User", lazy="joined")
-
-    def __repr__(self) -> str:
-        return f"<Connection {self.name} [{self.driver}]>"
-
-
-# ---------------------------------------------------------------------------
-# Test Agents
-# ---------------------------------------------------------------------------
-class TestAgent(Base):
-    """AI test agents configured per domain/sub-domain."""
-
-    __tablename__ = "test_agents"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=_uuid
-    )
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    domain: Mapped[str] = mapped_column(String(50), nullable=False)
-    sub_domain: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    agent_type: Mapped[str] = mapped_column(
-        String(30), nullable=False,
-        comment="matcher / validator / smoke_tester / dq_checker / ui_tester / api_tester"
-    )
-    system_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    config: Mapped[Any] = mapped_column(JSONB, nullable=True)
-    connection_ids: Mapped[Any] = mapped_column(
-        JSONB, nullable=True, comment="Array of connection UUIDs"
-    )
-    template_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="draft", comment="draft / active / archived"
-    )
-    created_by: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=_utcnow
-    )
-
-    # -- relationships --
-    creator: Mapped["User"] = relationship("User", lazy="joined")
-
-    def __repr__(self) -> str:
-        return f"<TestAgent {self.name} [{self.agent_type}]>"
-
-
-# ---------------------------------------------------------------------------
-# Execution Runs
-# ---------------------------------------------------------------------------
-class ExecutionRun(Base):
-    """A batch execution of test cases against a connection."""
-
-    __tablename__ = "execution_runs"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=_uuid
-    )
-    project_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    test_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("test_agents.id", ondelete="SET NULL"), nullable=True
-    )
-    test_case_ids: Mapped[Any] = mapped_column(
-        JSONB, nullable=False, default=list, comment="Array of test case UUIDs"
-    )
-    connection_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("connections.id", ondelete="SET NULL"), nullable=True
-    )
-    status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="queued",
-        comment="queued / running / completed / failed / cancelled"
-    )
-    results: Mapped[Any] = mapped_column(
-        JSONB, nullable=True, comment="Per test-case pass/fail results"
-    )
-    started_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    completed_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    executed_by: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
-    )
-
-    # -- relationships --
-    project: Mapped["Project"] = relationship("Project", back_populates="execution_runs")
-    test_agent: Mapped[Optional["TestAgent"]] = relationship("TestAgent", lazy="joined")
-    connection: Mapped[Optional["Connection"]] = relationship("Connection", lazy="joined")
-    executor: Mapped["User"] = relationship("User", lazy="joined")
-
-    def __repr__(self) -> str:
-        return f"<ExecutionRun {self.id} [{self.status}]>"
 
 
 # ---------------------------------------------------------------------------
@@ -604,6 +473,237 @@ class AppSetting(Base):
 
     def __repr__(self) -> str:
         return f"<AppSetting {self.key}>"
+
+
+# ---------------------------------------------------------------------------
+# Cost Tracking
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Test Plans
+# ---------------------------------------------------------------------------
+class TestPlan(Base):
+    """A named collection of test cases targeting a specific scope."""
+
+    __tablename__ = "test_plans"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=_uuid
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    plan_type: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="custom",
+        comment="sit / uat / regression / smoke / migration / custom"
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="draft",
+        comment="draft / active / in_review / completed / failed"
+    )
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=_utcnow
+    )
+
+    # -- relationships --
+    project: Mapped["Project"] = relationship("Project", back_populates="test_plans")
+    creator: Mapped["User"] = relationship("User", lazy="joined")
+    test_cases: Mapped[List["TestCase"]] = relationship(
+        "TestCase", back_populates="test_plan", lazy="select"
+    )
+    execution_results: Mapped[List["ExecutionResult"]] = relationship(
+        "ExecutionResult", back_populates="test_plan", lazy="select"
+    )
+    validation_checkpoints: Mapped[List["ValidationCheckpoint"]] = relationship(
+        "ValidationCheckpoint", back_populates="test_plan", cascade="all, delete-orphan", lazy="select"
+    )
+
+    def __repr__(self) -> str:
+        return f"<TestPlan {self.name} [{self.plan_type}/{self.status}]>"
+
+
+# ---------------------------------------------------------------------------
+# Execution Results (per-test-case)
+# ---------------------------------------------------------------------------
+class ExecutionResult(Base):
+    """Proof that a test case was actually run, with evidence."""
+
+    __tablename__ = "execution_results"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=_uuid
+    )
+    test_case_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("test_cases.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    test_plan_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("test_plans.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False,
+        comment="passed / failed / error / skipped / blocked"
+    )
+    actual_result: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    environment: Mapped[Any] = mapped_column(
+        JSONB, nullable=True, comment="{url, browser, db_version, ...}"
+    )
+    executed_by: Mapped[str] = mapped_column(
+        String(100), nullable=False, comment="agent name or user email"
+    )
+    agent_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agent_sessions.id", ondelete="SET NULL"), nullable=True
+    )
+    executed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    reviewed_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    review_status: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True, comment="pending / approved / rejected"
+    )
+    review_comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # -- relationships --
+    test_case: Mapped["TestCase"] = relationship("TestCase", back_populates="execution_results")
+    test_plan: Mapped[Optional["TestPlan"]] = relationship("TestPlan", back_populates="execution_results")
+    agent_session: Mapped[Optional["AgentSession"]] = relationship("AgentSession", lazy="joined")
+    reviewer: Mapped[Optional["User"]] = relationship("User", lazy="joined")
+    proof_artifacts: Mapped[List["ProofArtifact"]] = relationship(
+        "ProofArtifact", back_populates="execution_result", cascade="all, delete-orphan", lazy="selectin"
+    )
+
+    def __repr__(self) -> str:
+        return f"<ExecutionResult {self.id} [{self.status}]>"
+
+
+# ---------------------------------------------------------------------------
+# Proof Artifacts
+# ---------------------------------------------------------------------------
+class ProofArtifact(Base):
+    """A piece of evidence attached to an execution result."""
+
+    __tablename__ = "proof_artifacts"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=_uuid
+    )
+    execution_result_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("execution_results.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    proof_type: Mapped[str] = mapped_column(
+        String(30), nullable=False,
+        comment="api_response / screenshot / test_output / query_result / data_comparison / dq_scorecard / log / code_diff"
+    )
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    content: Mapped[Any] = mapped_column(
+        JSONB, nullable=True, comment="Structured payload (varies by proof_type)"
+    )
+    file_path: Mapped[Optional[str]] = mapped_column(
+        String(500), nullable=True, comment="For binary files (screenshots)"
+    )
+    file_size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    # -- relationships --
+    execution_result: Mapped["ExecutionResult"] = relationship(
+        "ExecutionResult", back_populates="proof_artifacts"
+    )
+
+    def __repr__(self) -> str:
+        return f"<ProofArtifact {self.proof_type}: {self.title[:40]}>"
+
+
+# ---------------------------------------------------------------------------
+# Agent Sessions
+# ---------------------------------------------------------------------------
+class AgentSession(Base):
+    """Tracks which AI agent is submitting test cases and proofs."""
+
+    __tablename__ = "agent_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=_uuid
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    agent_name: Mapped[str] = mapped_column(
+        String(100), nullable=False, comment="claude-code / codex / gemini-cli"
+    )
+    agent_version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    submission_mode: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="realtime",
+        comment="realtime / batch"
+    )
+    session_meta: Mapped[Any] = mapped_column(JSONB, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_active_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=_utcnow
+    )
+
+    # -- relationships --
+    project: Mapped["Project"] = relationship("Project", lazy="joined")
+
+    def __repr__(self) -> str:
+        return f"<AgentSession {self.agent_name} [{self.submission_mode}]>"
+
+
+# ---------------------------------------------------------------------------
+# Validation Checkpoints
+# ---------------------------------------------------------------------------
+class ValidationCheckpoint(Base):
+    """Human QA gate where review and approval are required."""
+
+    __tablename__ = "validation_checkpoints"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=_uuid
+    )
+    test_plan_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("test_plans.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    checkpoint_type: Mapped[str] = mapped_column(
+        String(30), nullable=False,
+        comment="test_case_review / execution_review / sign_off"
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending",
+        comment="pending / approved / rejected / needs_rework"
+    )
+    reviewer_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    comments: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    # -- relationships --
+    test_plan: Mapped["TestPlan"] = relationship("TestPlan", back_populates="validation_checkpoints")
+    reviewer: Mapped[Optional["User"]] = relationship("User", lazy="joined")
+
+    def __repr__(self) -> str:
+        return f"<ValidationCheckpoint {self.checkpoint_type} [{self.status}]>"
 
 
 # ---------------------------------------------------------------------------

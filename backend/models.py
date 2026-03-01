@@ -128,6 +128,7 @@ class ProjectResponse(BaseModel):
     template_id: Optional[uuid.UUID] = None
     app_profile: Optional[Dict[str, Any]] = None
     brd_prd_text: Optional[str] = None
+    has_agent_key: bool = False
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime
@@ -221,6 +222,7 @@ class TestCaseCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=500)
     description: Optional[str] = None
     requirement_id: Optional[uuid.UUID] = None
+    test_plan_id: Optional[uuid.UUID] = None
     preconditions: Optional[str] = None
     test_steps: Optional[List[TestStepSchema]] = None
     expected_result: Optional[str] = None
@@ -228,7 +230,7 @@ class TestCaseCreate(BaseModel):
     priority: str = Field(default="P2", pattern=r"^(P1|P2|P3|P4)$")
     category: str = Field(
         default="functional",
-        pattern=r"^(functional|integration|regression|smoke|e2e)$",
+        pattern=r"^(functional|integration|regression|smoke|e2e|data_quality|match_rule|migration)$",
     )
     domain_tags: Optional[List[str]] = None
     execution_type: str = Field(default="api", pattern=r"^(api|ui|sql|manual)$")
@@ -247,13 +249,14 @@ class TestCaseUpdate(BaseModel):
     priority: Optional[str] = Field(None, pattern=r"^(P1|P2|P3|P4)$")
     category: Optional[str] = Field(
         None,
-        pattern=r"^(functional|integration|regression|smoke|e2e)$",
+        pattern=r"^(functional|integration|regression|smoke|e2e|data_quality|match_rule|migration)$",
     )
     domain_tags: Optional[List[str]] = None
     execution_type: Optional[str] = Field(None, pattern=r"^(api|ui|sql|manual)$")
+    test_plan_id: Optional[uuid.UUID] = None
     status: Optional[str] = Field(
         None,
-        pattern=r"^(draft|active|passed|failed|blocked|deprecated)$",
+        pattern=r"^(draft|reviewed|approved|executed|passed|failed|blocked|deprecated)$",
     )
 
 
@@ -265,6 +268,7 @@ class TestCaseResponse(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
     requirement_id: Optional[uuid.UUID] = None
+    test_plan_id: Optional[uuid.UUID] = None
     test_case_id: str
     title: str
     description: Optional[str] = None
@@ -365,152 +369,6 @@ class TemplateResponse(BaseModel):
     branding_config: Optional[Dict[str, Any]] = None
     created_by: uuid.UUID
     created_at: datetime
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Connections
-# ═══════════════════════════════════════════════════════════════════════════
-class ConnectionCreate(BaseModel):
-    """Payload to create an external connection profile."""
-
-    name: str = Field(..., min_length=1, max_length=255)
-    type: str = Field(
-        ...,
-        pattern=r"^(browser|database|api|platform|integration)$",
-    )
-    driver: str = Field(
-        ...,
-        pattern=r"^(playwright|snowflake|databricks|reltio|semarchy|http|oracle|sqlserver|postgresql|talend|boomi)$",
-    )
-    config: Dict[str, Any] = Field(default_factory=dict)
-    credentials_ref: Optional[str] = None
-
-
-class ConnectionResponse(BaseModel):
-    """Single connection returned to clients (credentials masked)."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    name: str
-    type: str
-    driver: str
-    config: Dict[str, Any]
-    credentials_ref: Optional[str] = None
-    status: str
-    last_tested_at: Optional[datetime] = None
-    created_by: uuid.UUID
-    created_at: datetime
-
-
-class ConnectionTestResponse(BaseModel):
-    """Result of testing a connection."""
-
-    success: bool
-    message: str
-    latency_ms: Optional[float] = None
-    details: Optional[Dict[str, Any]] = None
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Test Agents
-# ═══════════════════════════════════════════════════════════════════════════
-class TestAgentCreate(BaseModel):
-    """Payload to create a test agent."""
-
-    name: str = Field(..., min_length=1, max_length=255)
-    description: Optional[str] = None
-    domain: str
-    sub_domain: Optional[str] = None
-    agent_type: str = Field(
-        ...,
-        pattern=r"^(matcher|validator|smoke_tester|dq_checker|ui_tester|api_tester)$",
-    )
-    system_prompt: Optional[str] = None
-    config: Optional[Dict[str, Any]] = None
-    connection_ids: Optional[List[uuid.UUID]] = None
-    template_id: Optional[str] = None
-
-
-class TestAgentResponse(BaseModel):
-    """Single test agent returned to clients."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    name: str
-    description: Optional[str] = None
-    domain: str
-    sub_domain: Optional[str] = None
-    agent_type: str
-    system_prompt: Optional[str] = None
-    config: Optional[Dict[str, Any]] = None
-    connection_ids: Optional[List[uuid.UUID]] = None
-    template_id: Optional[str] = None
-    status: str
-    created_by: uuid.UUID
-    created_at: datetime
-    updated_at: datetime
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Execution Runs
-# ═══════════════════════════════════════════════════════════════════════════
-class ExecutionRunCreate(BaseModel):
-    """Payload to create / queue an execution run."""
-
-    project_id: uuid.UUID
-    test_agent_id: Optional[uuid.UUID] = None
-    test_case_ids: List[uuid.UUID] = Field(..., min_length=1)
-    connection_id: Optional[uuid.UUID] = None
-
-
-class ExecutionRunResponse(BaseModel):
-    """Single execution run returned to clients."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    project_id: uuid.UUID
-    test_agent_id: Optional[uuid.UUID] = None
-    test_case_ids: List[uuid.UUID]
-    connection_id: Optional[uuid.UUID] = None
-    status: str
-    results: Optional[Dict[str, Any]] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    executed_by: uuid.UUID
-
-
-class ExecutionRunStatus(BaseModel):
-    """Lightweight status for polling during execution."""
-
-    id: uuid.UUID
-    status: str
-    progress: Optional[Dict[str, Any]] = None
-    started_at: Optional[datetime] = None
-    elapsed_seconds: Optional[float] = None
-
-
-class ConnectionUpdate(BaseModel):
-    """Partial update for a connection."""
-
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    config: Optional[Dict[str, Any]] = None
-    credentials_ref: Optional[str] = None
-    status: Optional[str] = None
-
-
-class TestAgentUpdate(BaseModel):
-    """Partial update for a test agent."""
-
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    description: Optional[str] = None
-    system_prompt: Optional[str] = None
-    config: Optional[Dict[str, Any]] = None
-    connection_ids: Optional[List[uuid.UUID]] = None
-    template_id: Optional[str] = None
-    status: Optional[str] = Field(None, pattern=r"^(draft|active|archived)$")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -782,3 +640,258 @@ class ChatGenerateResponse(BaseModel):
     action: str = Field(..., description="question | generate | confirm")
     test_cases: Optional[List[TestCaseResponse]] = None
     suggested_config: Optional[Dict[str, Any]] = None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Test Plans
+# ═══════════════════════════════════════════════════════════════════════════
+class TestPlanCreate(BaseModel):
+    """Payload to create a test plan."""
+
+    name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = None
+    plan_type: str = Field(
+        default="custom",
+        pattern=r"^(sit|uat|regression|smoke|migration|custom)$",
+    )
+
+
+class TestPlanUpdate(BaseModel):
+    """Payload to update a test plan (partial)."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = None
+    plan_type: Optional[str] = Field(
+        None, pattern=r"^(sit|uat|regression|smoke|migration|custom)$"
+    )
+    status: Optional[str] = Field(
+        None, pattern=r"^(draft|active|in_review|completed|failed)$"
+    )
+
+
+class TestPlanResponse(BaseModel):
+    """Single test plan returned to clients."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    name: str
+    description: Optional[str] = None
+    plan_type: str
+    status: str
+    created_by: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
+    # Computed stats (populated by route, not ORM)
+    test_case_count: int = 0
+    executed_count: int = 0
+    passed_count: int = 0
+    failed_count: int = 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Execution Results
+# ═══════════════════════════════════════════════════════════════════════════
+class ProofArtifactSubmit(BaseModel):
+    """A proof artifact submitted with an execution result."""
+
+    proof_type: str = Field(
+        ...,
+        pattern=r"^(api_response|screenshot|test_output|query_result|data_comparison|dq_scorecard|log|code_diff|manual_note)$",
+    )
+    title: str = Field(..., min_length=1, max_length=500)
+    content: Optional[Dict[str, Any]] = None
+    file_path: Optional[str] = None
+
+
+class ProofArtifactResponse(BaseModel):
+    """Single proof artifact returned to clients."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    execution_result_id: uuid.UUID
+    proof_type: str
+    title: str
+    content: Optional[Dict[str, Any]] = None
+    file_path: Optional[str] = None
+    file_size_bytes: Optional[int] = None
+    created_at: datetime
+
+
+class ExecutionResultSubmit(BaseModel):
+    """Payload to submit an execution result (from agent or user)."""
+
+    test_case_id: uuid.UUID
+    test_plan_id: Optional[uuid.UUID] = None
+    status: str = Field(..., pattern=r"^(passed|failed|error|skipped|blocked)$")
+    actual_result: Optional[str] = None
+    duration_ms: Optional[int] = None
+    error_message: Optional[str] = None
+    environment: Optional[Dict[str, Any]] = None
+    proof_artifacts: Optional[List[ProofArtifactSubmit]] = None
+
+
+class ExecutionResultResponse(BaseModel):
+    """Single execution result returned to clients."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    test_case_id: uuid.UUID
+    test_plan_id: Optional[uuid.UUID] = None
+    status: str
+    actual_result: Optional[str] = None
+    duration_ms: Optional[int] = None
+    error_message: Optional[str] = None
+    environment: Optional[Dict[str, Any]] = None
+    executed_by: str
+    executed_at: datetime
+    review_status: Optional[str] = None
+    review_comment: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+    proof_artifacts: List[ProofArtifactResponse] = Field(default_factory=list)
+
+
+class ExecutionReviewRequest(BaseModel):
+    """Payload to review (approve/reject) an execution result."""
+
+    review_status: str = Field(..., pattern=r"^(approved|rejected)$")
+    review_comment: Optional[str] = None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Agent Sessions
+# ═══════════════════════════════════════════════════════════════════════════
+class AgentSessionCreate(BaseModel):
+    """Payload to start an agent session."""
+
+    agent_name: str = Field(..., min_length=1, max_length=100)
+    agent_version: Optional[str] = Field(None, max_length=50)
+    submission_mode: str = Field(
+        default="realtime", pattern=r"^(realtime|batch)$"
+    )
+    session_meta: Optional[Dict[str, Any]] = None
+
+
+class AgentSessionResponse(BaseModel):
+    """Agent session returned after creation."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    agent_name: str
+    agent_version: Optional[str] = None
+    submission_mode: str
+    started_at: datetime
+    last_active_at: datetime
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Validation Checkpoints
+# ═══════════════════════════════════════════════════════════════════════════
+class ValidationCheckpointCreate(BaseModel):
+    """Payload to create a validation checkpoint."""
+
+    checkpoint_type: str = Field(
+        ..., pattern=r"^(test_case_review|execution_review|sign_off)$"
+    )
+
+
+class ValidationCheckpointUpdate(BaseModel):
+    """Payload to review a validation checkpoint."""
+
+    status: str = Field(
+        ..., pattern=r"^(approved|rejected|needs_rework)$"
+    )
+    comments: Optional[str] = None
+
+
+class ValidationCheckpointResponse(BaseModel):
+    """Single validation checkpoint returned to clients."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    test_plan_id: uuid.UUID
+    checkpoint_type: str
+    status: str
+    reviewer_id: Optional[uuid.UUID] = None
+    comments: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+    created_at: datetime
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Agent API — Composite Schemas
+# ═══════════════════════════════════════════════════════════════════════════
+class AgentTestCaseSubmit(BaseModel):
+    """Test case submitted by an agent (simplified, no project_id needed)."""
+
+    test_case_id: str = Field(..., min_length=1, max_length=30)
+    title: str = Field(..., min_length=1, max_length=500)
+    description: Optional[str] = None
+    requirement_id: Optional[uuid.UUID] = None
+    test_plan_id: Optional[uuid.UUID] = None
+    preconditions: Optional[str] = None
+    test_steps: Optional[List[TestStepSchema]] = None
+    expected_result: Optional[str] = None
+    test_data: Optional[Dict[str, Any]] = None
+    priority: str = Field(default="P2", pattern=r"^(P1|P2|P3|P4)$")
+    category: str = Field(
+        default="functional",
+        pattern=r"^(functional|integration|regression|smoke|e2e|data_quality|match_rule|migration)$",
+    )
+    domain_tags: Optional[List[str]] = None
+    execution_type: str = Field(default="api", pattern=r"^(api|ui|sql|manual)$")
+
+
+class AgentTestCaseBatchSubmit(BaseModel):
+    """Batch or single test case submission from agent."""
+
+    test_cases: List[AgentTestCaseSubmit] = Field(..., min_length=1)
+    test_plan_id: Optional[uuid.UUID] = None
+
+
+class AgentExecutionSubmit(BaseModel):
+    """Execution result submitted by an agent."""
+
+    test_case_id: uuid.UUID
+    test_plan_id: Optional[uuid.UUID] = None
+    status: str = Field(..., pattern=r"^(passed|failed|error|skipped|blocked)$")
+    actual_result: Optional[str] = None
+    duration_ms: Optional[int] = None
+    error_message: Optional[str] = None
+    environment: Optional[Dict[str, Any]] = None
+    proof_artifacts: Optional[List[ProofArtifactSubmit]] = None
+
+
+class AgentExecutionBatchSubmit(BaseModel):
+    """Batch or single execution result submission from agent."""
+
+    executions: List[AgentExecutionSubmit] = Field(..., min_length=1)
+
+
+class AgentSummaryResponse(BaseModel):
+    """Progress summary returned to agent."""
+
+    project_name: str
+    test_plan_id: Optional[uuid.UUID] = None
+    total_test_cases: int = 0
+    by_status: Dict[str, int] = Field(default_factory=dict)
+    total_executions: int = 0
+    passed: int = 0
+    failed: int = 0
+    pending_review: int = 0
+    pass_rate: Optional[float] = None
+
+
+class AgentKeyResponse(BaseModel):
+    """Response when generating an agent API key."""
+
+    api_key: str = Field(..., description="Show once — store securely")
+    project_id: uuid.UUID
+    project_name: str

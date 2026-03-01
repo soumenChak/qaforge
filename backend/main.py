@@ -122,7 +122,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         for idx_sql in [
             "CREATE INDEX IF NOT EXISTS ix_test_cases_status ON test_cases(status)",
             "CREATE INDEX IF NOT EXISTS ix_test_cases_execution_type ON test_cases(execution_type)",
-            "CREATE INDEX IF NOT EXISTS ix_execution_runs_status ON execution_runs(status)",
+            "CREATE INDEX IF NOT EXISTS ix_execution_results_status ON execution_results(status)",
             "CREATE INDEX IF NOT EXISTS ix_projects_domain ON projects(domain)",
             "CREATE INDEX IF NOT EXISTS ix_projects_status ON projects(status)",
         ]:
@@ -169,7 +169,7 @@ app.add_middleware(
     allow_origins=ALLOWED_ORIGINS if ALLOWED_ORIGINS != ["*"] else ["*"],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With", "X-Agent-Key"],
 )
 
 
@@ -231,12 +231,11 @@ def _register_routes() -> None:
         "requirements": "/api/projects",
         "test_cases": "/api/projects",
         "templates": "/api/templates",
-        "connections": "/api/connections",
-        "test_agents": "/api/test-agents",
-        "execution": "/api/execution",
         "knowledge": "/api/knowledge",
         "feedback": "/api/feedback",
         "settings": "/api/settings",
+        "agent_api": "/api/agent",
+        "test_plans": "/api/projects",
     }
 
     for importer, module_name, is_pkg in pkgutil.iter_modules(package_path):

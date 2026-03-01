@@ -772,6 +772,7 @@ def list_test_cases(
     category: Optional[str] = Query(None, description="Filter by category"),
     source: Optional[str] = Query(None, description="Filter by source (ai_generated/manual/hybrid)"),
     execution_type: Optional[str] = Query(None, description="Filter by execution type (api/ui/sql/manual)"),
+    test_plan_id: Optional[uuid.UUID] = Query(None, description="Filter by test plan"),
     limit: int = Query(50, ge=1, le=500, description="Page size"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     db: Session = Depends(get_db),
@@ -794,6 +795,8 @@ def list_test_cases(
         query = query.filter(TestCase.source == source)
     if execution_type:
         query = query.filter(TestCase.execution_type == execution_type)
+    if test_plan_id:
+        query = query.filter(TestCase.test_plan_id == test_plan_id)
 
     test_cases = (
         query.order_by(TestCase.created_at.desc())
@@ -1345,6 +1348,57 @@ def bulk_delete_test_cases(
     return MessageResponse(
         message=f"Deleted {deleted_count} test cases",
         detail=f"Requested: {len(tc_ids)}, deleted: {deleted_count}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /{project_id}/test-cases/bulk-status — bulk status update
+# ---------------------------------------------------------------------------
+@router.post(
+    "/{project_id}/test-cases/bulk-status",
+    response_model=MessageResponse,
+    summary="Bulk update test case status",
+)
+def bulk_update_status(
+    project_id: uuid.UUID,
+    body: dict,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update the status of multiple test cases at once (e.g., draft → approved)."""
+    _get_project_or_404(project_id, db)
+
+    tc_ids = body.get("test_case_ids", [])
+    new_status = body.get("status")
+
+    if not tc_ids or not new_status:
+        raise HTTPException(400, "test_case_ids and status are required")
+
+    valid_statuses = {"draft", "reviewed", "approved", "executed", "passed", "failed", "blocked", "deprecated"}
+    if new_status not in valid_statuses:
+        raise HTTPException(400, f"Invalid status. Valid: {sorted(valid_statuses)}")
+
+    updated = 0
+    for tc_id in tc_ids:
+        try:
+            uid = uuid.UUID(str(tc_id))
+        except ValueError:
+            continue
+        tc = db.query(TestCase).filter(
+            TestCase.id == uid,
+            TestCase.project_id == project_id,
+        ).first()
+        if tc:
+            tc.status = new_status
+            updated += 1
+
+    db.commit()
+
+    logger.info("Bulk status update: %d test cases → %s for project %s", updated, new_status, project_id)
+
+    return MessageResponse(
+        message=f"Updated {updated} test cases to '{new_status}'",
     )
 
 

@@ -12,6 +12,7 @@ Provides:
 JWT config reads SECRET_KEY from env; algorithm HS256; 24-hour expiry.
 """
 
+import hashlib
 import logging
 import os
 import re
@@ -25,7 +26,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
-from db_models import AuditLog, CostTracking, User
+from db_models import AuditLog, CostTracking, Project, User
 from db_session import get_db
 
 logger = logging.getLogger(__name__)
@@ -225,6 +226,44 @@ def get_client_ip(request: Request) -> Optional[str]:
     if request.client:
         return request.client.host
     return None
+
+
+# ---------------------------------------------------------------------------
+# Agent API key authentication
+# ---------------------------------------------------------------------------
+async def get_agent_project(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Project:
+    """
+    Validate the X-Agent-Key header and return the matching project.
+
+    This is the auth mechanism for the agent API — no JWT needed.
+    The API key is SHA-256 hashed and matched against
+    ``project.agent_api_key_hash``.
+
+    Raises:
+        HTTPException 401 if key missing or invalid.
+    """
+    api_key = request.headers.get("X-Agent-Key")
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing X-Agent-Key header",
+        )
+
+    key_hash = hashlib.sha256(api_key.encode()).hexdigest()
+    project = (
+        db.query(Project)
+        .filter(Project.agent_api_key_hash == key_hash)
+        .first()
+    )
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid agent API key",
+        )
+    return project
 
 
 # ---------------------------------------------------------------------------

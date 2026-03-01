@@ -12,9 +12,11 @@ Endpoints:
     DELETE /{id}         — delete project (cascades test cases & requirements)
 """
 
+import hashlib
 import ipaddress
 import json
 import logging
+import secrets
 import uuid
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
@@ -25,7 +27,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from db_models import ExecutionRun, FeedbackEntry, GenerationRun, Project, Requirement, TestCase, User
+from db_models import ExecutionResult, FeedbackEntry, GenerationRun, Project, Requirement, TestCase, TestPlan, User
 from db_session import get_db
 from dependencies import (
     audit_log,
@@ -34,6 +36,7 @@ from dependencies import (
     sanitize_string,
 )
 from models import (
+    AgentKeyResponse,
     CoverageResult,
     MessageResponse,
     OpenAPIDiscoverRequest,
@@ -464,8 +467,15 @@ def delete_project(
         FeedbackEntry.test_case_id.in_(tc_ids)
     ).delete(synchronize_session=False)
 
-    # 2. Execution runs
-    db.query(ExecutionRun).filter(ExecutionRun.project_id == project_id).delete(
+    # 2. Execution results (via test cases)
+    tc_id_list = [r[0] for r in db.query(TestCase.id).filter(TestCase.project_id == project_id).all()]
+    if tc_id_list:
+        db.query(ExecutionResult).filter(ExecutionResult.test_case_id.in_(tc_id_list)).delete(
+            synchronize_session=False
+        )
+
+    # 2b. Test plans
+    db.query(TestPlan).filter(TestPlan.project_id == project_id).delete(
         synchronize_session=False
     )
 
@@ -1462,3 +1472,78 @@ async def discover_ui_pages_route(
     )
 
     return ProjectResponse.model_validate(project)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Agent API Key Management
+# ═══════════════════════════════════════════════════════════════════════════
+@router.post("/{project_id}/agent-key", response_model=AgentKeyResponse)
+def generate_agent_key(
+    project_id: uuid.UUID,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Generate an agent API key for the project.
+    The raw key is returned ONCE — only the SHA-256 hash is stored.
+    """
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    # Generate a secure random key with prefix for identification
+    raw_key = f"qf_{secrets.token_urlsafe(48)}"
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+
+    project.agent_api_key_hash = key_hash
+    db.commit()
+
+    audit_log(
+        db,
+        current_user.id,
+        action="generate_agent_key",
+        entity_type="project",
+        entity_id=str(project.id),
+        ip_address=get_client_ip(request),
+    )
+
+    logger.info("Agent API key generated for project %s by %s", project.name, current_user.email)
+
+    return AgentKeyResponse(
+        api_key=raw_key,
+        project_id=project.id,
+        project_name=project.name,
+    )
+
+
+@router.delete("/{project_id}/agent-key", response_model=MessageResponse)
+def revoke_agent_key(
+    project_id: uuid.UUID,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Revoke the agent API key for the project."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    if not project.agent_api_key_hash:
+        raise HTTPException(400, "No agent key exists for this project")
+
+    project.agent_api_key_hash = None
+    db.commit()
+
+    audit_log(
+        db,
+        current_user.id,
+        action="revoke_agent_key",
+        entity_type="project",
+        entity_id=str(project.id),
+        ip_address=get_client_ip(request),
+    )
+
+    logger.info("Agent API key revoked for project %s by %s", project.name, current_user.email)
+
+    return MessageResponse(message="Agent API key revoked")
