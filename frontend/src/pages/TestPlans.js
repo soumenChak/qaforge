@@ -13,7 +13,7 @@ const TYPE_COLORS = { sit: 'badge-teal', uat: 'badge-green', regression: 'badge-
 const STATUS_COLORS = { draft: 'badge-gray', active: 'badge-teal', in_progress: 'badge-yellow', completed: 'badge-green', archived: 'badge-gray' };
 
 export default function TestPlans() {
-  const { projectId } = useParams();
+  const { id: projectId } = useParams();
   const navigate = useNavigate();
 
   const [project, setProject] = useState(null);

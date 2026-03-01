@@ -22,7 +22,7 @@ function StatCard({ label, value, color, icon }) {
 }
 
 export default function TestPlanDetail() {
-  const { projectId, planId } = useParams();
+  const { id: projectId, planId } = useParams();
   const navigate = useNavigate();
   const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(true);
