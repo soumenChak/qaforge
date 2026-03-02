@@ -35,6 +35,8 @@ from models import (
     ProofArtifactResponse,
     ProofArtifactSubmit,
     TestCaseResponse,
+    TestPlanCreate,
+    TestPlanResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -71,6 +73,38 @@ def create_agent_session(
         body.submission_mode,
     )
     return session
+
+
+# ---------------------------------------------------------------------------
+# Test Plans (agent can create plans to group test cases + results)
+# ---------------------------------------------------------------------------
+@router.post("/test-plans", response_model=TestPlanResponse)
+def create_test_plan(
+    body: TestPlanCreate,
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """Create a test plan so agent can group test cases and execution results."""
+    plan = TestPlan(
+        id=uuid.uuid4(),
+        project_id=project.id,
+        name=body.name,
+        description=body.description,
+        plan_type=body.plan_type,
+        status="active",
+        created_by=project.created_by,
+    )
+    db.add(plan)
+    db.commit()
+    db.refresh(plan)
+
+    logger.info(
+        "Agent created test plan '%s' (%s) for project %s",
+        body.name,
+        plan.id,
+        project.name,
+    )
+    return plan
 
 
 # ---------------------------------------------------------------------------
