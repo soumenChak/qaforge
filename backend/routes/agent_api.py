@@ -44,6 +44,39 @@ router = APIRouter()
 
 
 # ---------------------------------------------------------------------------
+# Project metadata (agent can populate app profile, description, BRD/PRD)
+# ---------------------------------------------------------------------------
+@router.put("/project", response_model=dict)
+def update_project_metadata(
+    body: dict,
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """
+    Update the authenticated project's metadata.
+    Agents can set: app_profile, description, brd_prd_text.
+    """
+    allowed_fields = {"app_profile", "description", "brd_prd_text"}
+    updated = []
+
+    for field in allowed_fields:
+        if field in body:
+            setattr(project, field, body[field])
+            updated.append(field)
+
+    if updated:
+        project.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        logger.info("Agent updated project %s fields: %s", project.name, updated)
+
+    return {
+        "project_id": str(project.id),
+        "project_name": project.name,
+        "updated_fields": updated,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Sessions
 # ---------------------------------------------------------------------------
 @router.post("/sessions", response_model=AgentSessionResponse)
