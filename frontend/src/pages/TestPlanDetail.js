@@ -310,22 +310,26 @@ export default function TestPlanDetail() {
 
       {/* ── Summary ── */}
       {activeTab === 'summary' && <div className="animate-fade-in">
-        {sumLoading ? <Spinner /> : !summary ? <p className="text-fg-mid text-sm py-8 text-center">No summary data available.</p> : (
+        {sumLoading ? <Spinner /> : !summary ? <p className="text-fg-mid text-sm py-8 text-center">No summary data available.</p> : (() => {
+          const tc = summary.test_cases || {};
+          const ex = summary.executions || {};
+          const rv = summary.reviews || {};
+          return (
           <div className="space-y-6">
             <div className="card p-5">
               <h3 className="text-sm font-semibold text-fg-navy mb-4 uppercase tracking-wider">Test Cases</h3>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <StatCard label="Total" value={summary.total_test_cases ?? 0} />
-                {summary.by_status && Object.entries(summary.by_status).map(([k, v]) => <StatCard key={k} label={k} value={v} />)}
+                <StatCard label="Total" value={tc.total ?? 0} />
+                {tc.by_status && Object.entries(tc.by_status).map(([k, v]) => <StatCard key={k} label={k} value={v} />)}
               </div>
-              {(summary.by_category || summary.by_priority) && <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-4">
-                {summary.by_category && <div>
+              {(tc.by_category || tc.by_priority) && <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-4">
+                {tc.by_category && <div>
                   <p className="text-xs font-semibold text-fg-mid mb-2">By Category</p>
-                  {Object.entries(summary.by_category).map(([k, v]) => <div key={k} className="flex justify-between text-sm"><span className="text-fg-mid capitalize">{k}</span><span className="font-medium text-fg-dark">{v}</span></div>)}
+                  {Object.entries(tc.by_category).map(([k, v]) => <div key={k} className="flex justify-between text-sm"><span className="text-fg-mid capitalize">{k}</span><span className="font-medium text-fg-dark">{v}</span></div>)}
                 </div>}
-                {summary.by_priority && <div>
+                {tc.by_priority && <div>
                   <p className="text-xs font-semibold text-fg-mid mb-2">By Priority</p>
-                  {Object.entries(summary.by_priority).map(([k, v]) => <div key={k} className="flex justify-between text-sm"><span className="text-fg-mid">{k}</span><span className="font-medium text-fg-dark">{v}</span></div>)}
+                  {Object.entries(tc.by_priority).map(([k, v]) => <div key={k} className="flex justify-between text-sm"><span className="text-fg-mid">{k}</span><span className="font-medium text-fg-dark">{v}</span></div>)}
                 </div>}
               </div>}
             </div>
@@ -333,20 +337,20 @@ export default function TestPlanDetail() {
             <div className="card p-5">
               <h3 className="text-sm font-semibold text-fg-navy mb-4 uppercase tracking-wider">Execution Results</h3>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <StatCard label="Total Executed" value={summary.total_executions ?? 0} />
-                <StatCard label="Passed" value={summary.passed ?? 0} color="text-green-600" />
-                <StatCard label="Failed" value={summary.failed ?? 0} color="text-red-600" />
-                <StatCard label="Pass Rate" value={summary.pass_rate != null ? `${summary.pass_rate.toFixed(1)}%` : 'N/A'}
-                  color={(summary.pass_rate ?? 0) >= 80 ? 'text-green-600' : (summary.pass_rate ?? 0) >= 50 ? 'text-yellow-600' : 'text-red-600'} />
+                <StatCard label="Total Executed" value={ex.total ?? 0} />
+                <StatCard label="Passed" value={ex.passed ?? 0} color="text-green-600" />
+                <StatCard label="Failed" value={ex.failed ?? 0} color="text-red-600" />
+                <StatCard label="Pass Rate" value={ex.pass_rate != null ? `${ex.pass_rate.toFixed(1)}%` : 'N/A'}
+                  color={(ex.pass_rate ?? 0) >= 80 ? 'text-green-600' : (ex.pass_rate ?? 0) >= 50 ? 'text-yellow-600' : 'text-red-600'} />
               </div>
             </div>
 
             <div className="card p-5">
               <h3 className="text-sm font-semibold text-fg-navy mb-4 uppercase tracking-wider">Reviews</h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                <StatCard label="Pending" value={summary.reviews_pending ?? 0} icon={<ClockIcon className="w-5 h-5 text-yellow-500" />} />
-                <StatCard label="Approved" value={summary.reviews_approved ?? 0} icon={<CheckCircleIcon className="w-5 h-5 text-green-500" />} />
-                <StatCard label="Rejected" value={summary.reviews_rejected ?? 0} icon={<XCircleIcon className="w-5 h-5 text-red-500" />} />
+                <StatCard label="Pending" value={rv.pending ?? 0} icon={<ClockIcon className="w-5 h-5 text-yellow-500" />} />
+                <StatCard label="Approved" value={rv.approved ?? 0} icon={<CheckCircleIcon className="w-5 h-5 text-green-500" />} />
+                <StatCard label="Rejected" value={rv.rejected ?? 0} icon={<XCircleIcon className="w-5 h-5 text-red-500" />} />
               </div>
             </div>
 
@@ -360,7 +364,8 @@ export default function TestPlanDetail() {
               </div>
             </div>}
           </div>
-        )}
+          );
+        })()}
       </div>}
     </div>
   );
