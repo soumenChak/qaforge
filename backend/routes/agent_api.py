@@ -80,6 +80,152 @@ def update_project_metadata(
 
 
 # ---------------------------------------------------------------------------
+# BRD-aware KB retrieval helper
+# ---------------------------------------------------------------------------
+# Stop-words excluded from keyword extraction (common words that add noise)
+_STOP_WORDS = frozenset(
+    "the a an and or is in on to of for by at as it this that with from be "
+    "are was were has have had will can should not all any each no yes "
+    "test case step verify check ensure result expected actual data "
+    "table column row record field value status name type description "
+    "select from where insert update delete count distinct group order limit "
+    "into values set null true false between like join left right inner "
+    "pre requisite prerequisites preconditions given when then should "
+    "1 2 3 4 5 6 7 8 9 0 none n/a na".split()
+)
+
+
+def _extract_brd_keywords(brd_text: str, max_keywords: int = 30) -> List[str]:
+    """
+    Extract meaningful keywords from BRD text for KB matching.
+
+    Prioritises domain-specific terms: entity names, table names,
+    system names, technical terms — things that distinguish one
+    BRD from another.
+    """
+    import re
+
+    text = brd_text.lower()
+
+    # Extract ALL_CAPS or CamelCase terms (table names, entity names)
+    tech_terms = set()
+    # UPPER_SNAKE_CASE (e.g. TITLE_NETWORK_LANDING, MDM_NETWORK_C)
+    for m in re.finditer(r"\b[A-Z][A-Z0-9_]{3,}\b", brd_text):
+        tech_terms.add(m.group().lower())
+    # CamelCase terms (e.g. NetworkEntity, ReltioUI)
+    for m in re.finditer(r"\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b", brd_text):
+        tech_terms.add(m.group().lower())
+
+    # Extract regular words (3+ chars, not stop words)
+    words = re.findall(r"\b[a-z][a-z0-9_]{2,}\b", text)
+    word_freq: dict = {}
+    for w in words:
+        if w not in _STOP_WORDS and len(w) >= 3:
+            word_freq[w] = word_freq.get(w, 0) + 1
+
+    # Prioritise: tech terms first, then by frequency
+    # Tech terms get a frequency boost
+    for t in tech_terms:
+        word_freq[t] = word_freq.get(t, 0) + 5
+
+    # Sort by frequency descending, take top N
+    sorted_kw = sorted(word_freq.items(), key=lambda x: -x[1])
+    return [kw for kw, _ in sorted_kw[:max_keywords]]
+
+
+def _retrieve_kb_for_brd(
+    db: "Session",
+    brd_text: str,
+    domain: str,
+    sub_domain: str,
+    limit: int = 10,
+) -> list:
+    """
+    Retrieve KB entries relevant to a specific BRD document.
+
+    Strategy:
+      1. Extract keywords from the BRD text
+      2. Fetch all domain-relevant KB test_case entries
+      3. Score each entry by how many BRD keywords appear in its content
+      4. Return top entries sorted by relevance score + usage_count
+    """
+    keywords = _extract_brd_keywords(brd_text)
+    if not keywords:
+        # Fallback: just return domain-matched entries
+        return (
+            db.query(KnowledgeEntry)
+            .filter(
+                KnowledgeEntry.entry_type == "test_case",
+                or_(
+                    KnowledgeEntry.domain == domain,
+                    KnowledgeEntry.domain == "general",
+                ),
+            )
+            .order_by(
+                KnowledgeEntry.usage_count.desc(),
+                KnowledgeEntry.created_at.desc(),
+            )
+            .limit(limit)
+            .all()
+        )
+
+    # Fetch all candidate KB entries for this domain (broader pool)
+    candidates = (
+        db.query(KnowledgeEntry)
+        .filter(
+            KnowledgeEntry.entry_type == "test_case",
+            or_(
+                KnowledgeEntry.domain == domain,
+                KnowledgeEntry.domain == "general",
+            ),
+        )
+        .order_by(KnowledgeEntry.created_at.desc())
+        .limit(100)  # Broad pool to score from
+        .all()
+    )
+
+    if not candidates:
+        return []
+
+    # Score each entry by keyword overlap with BRD
+    scored = []
+    for entry in candidates:
+        content_lower = entry.content.lower()
+        title_lower = entry.title.lower()
+        # Keyword hits (content match = 1 point, title match = 3 points)
+        score = 0
+        for kw in keywords:
+            if kw in title_lower:
+                score += 3
+            elif kw in content_lower:
+                score += 1
+        # Bonus for sub_domain match
+        if sub_domain and entry.sub_domain == sub_domain:
+            score += 5
+        # Small boost for usage (popular entries are likely good)
+        score += min(entry.usage_count, 5) * 0.5
+        scored.append((score, entry))
+
+    # Sort by score descending, return top N
+    scored.sort(key=lambda x: -x[0])
+
+    # Only return entries with score > 0 (at least some relevance)
+    relevant = [entry for score, entry in scored if score > 0]
+    if not relevant:
+        # No keyword overlap at all — return top by usage as fallback
+        relevant = [entry for _, entry in scored]
+
+    result = relevant[:limit]
+    if result:
+        top_kw = keywords[:10]
+        logger.info(
+            "BRD keywords: %s → matched %d/%d KB entries",
+            top_kw, len(result), len(candidates),
+        )
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Generate from BRD (enterprise test case generation)
 # ---------------------------------------------------------------------------
 @router.post("/generate-from-brd", response_model=List[TestCaseResponse])
@@ -130,31 +276,14 @@ def generate_from_brd(
                 ref_lines.append(step_info)
         ref_text = "\n".join(ref_lines)[:3000]
     else:
-        # --- AUTO-RETRIEVE from KB when no reference TCs provided ---
-        kb_entries = (
-            db.query(KnowledgeEntry)
-            .filter(
-                KnowledgeEntry.entry_type == "test_case",
-                or_(
-                    KnowledgeEntry.domain == domain,
-                    KnowledgeEntry.domain == "general",
-                ),
-            )
-            .order_by(
-                KnowledgeEntry.usage_count.desc(),
-                KnowledgeEntry.created_at.desc(),
-            )
-            .limit(10)
-            .all()
-        )
-        if sub_domain:
-            # Prefer sub_domain matches, then fallback to domain-only
-            sub_matches = [e for e in kb_entries if e.sub_domain == sub_domain]
-            others = [e for e in kb_entries if e.sub_domain != sub_domain]
-            kb_entries = (sub_matches + others)[:10]
+        # --- AUTO-RETRIEVE from KB — BRD-aware keyword matching ---
+        kb_entries = _retrieve_kb_for_brd(db, brd_text, domain, sub_domain)
 
         if kb_entries:
-            ref_lines = [f"=== KNOWLEDGE BASE REFERENCE TEST CASES ({len(kb_entries)} entries) ==="]
+            ref_lines = [
+                f"=== KNOWLEDGE BASE REFERENCE TEST CASES "
+                f"({len(kb_entries)} entries, matched to your BRD) ==="
+            ]
             for entry in kb_entries:
                 ref_lines.append(f"\n{entry.content[:600]}")
                 entry.usage_count += 1
@@ -162,7 +291,8 @@ def generate_from_brd(
             kb_retrieved = len(kb_entries)
             db.flush()
             logger.info(
-                "Auto-retrieved %d KB reference TCs for domain=%s sub=%s",
+                "Auto-retrieved %d KB reference TCs for domain=%s sub=%s "
+                "(BRD-aware keyword matching)",
                 kb_retrieved, domain, sub_domain,
             )
 
