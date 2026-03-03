@@ -1260,6 +1260,85 @@ def update_test_case(
 
 
 # ---------------------------------------------------------------------------
+# POST /{project_id}/test-cases/{tc_id}/duplicate
+# ---------------------------------------------------------------------------
+@router.post(
+    "/{project_id}/test-cases/{tc_id}/duplicate",
+    response_model=TestCaseResponse,
+    summary="Duplicate a test case",
+)
+def duplicate_test_case(
+    project_id: uuid.UUID,
+    tc_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Duplicate a test case. Copies all fields (steps, assertions, test data)
+    with a new UUID and auto-incremented test_case_id. Status = draft.
+    """
+    from sqlalchemy import func
+
+    _get_project_or_404(project_id, db)
+    source = _get_test_case_or_404(tc_id, project_id, db)
+
+    # Auto-increment test_case_id
+    max_tc = db.query(func.count(TestCase.id)).filter(
+        TestCase.project_id == project_id,
+    ).scalar() or 0
+    new_tc_id = f"TC-{max_tc + 1:03d}"
+
+    # Ensure uniqueness
+    while db.query(TestCase).filter(
+        TestCase.project_id == project_id,
+        TestCase.test_case_id == new_tc_id,
+    ).first():
+        max_tc += 1
+        new_tc_id = f"TC-{max_tc + 1:03d}"
+
+    clone = TestCase(
+        id=uuid.uuid4(),
+        project_id=project_id,
+        requirement_id=source.requirement_id,
+        test_plan_id=source.test_plan_id,
+        test_case_id=new_tc_id,
+        title=f"{source.title} (Copy)",
+        description=source.description,
+        preconditions=source.preconditions,
+        test_steps=source.test_steps,
+        expected_result=source.expected_result,
+        test_data=source.test_data,
+        priority=source.priority,
+        category=source.category,
+        domain_tags=source.domain_tags,
+        execution_type=source.execution_type,
+        source="duplicated",
+        status="draft",
+        created_by=current_user.id,
+    )
+    db.add(clone)
+    db.commit()
+    db.refresh(clone)
+
+    audit_log(
+        db,
+        user_id=current_user.id,
+        action="duplicate_test_case",
+        entity_type="test_case",
+        entity_id=str(clone.id),
+        details={
+            "source_id": str(tc_id),
+            "source_tc_id": source.test_case_id,
+            "new_tc_id": new_tc_id,
+        },
+        ip_address=get_client_ip(request),
+    )
+
+    return TestCaseResponse.model_validate(clone)
+
+
+# ---------------------------------------------------------------------------
 # DELETE /{project_id}/test-cases/{tc_id}
 # ---------------------------------------------------------------------------
 @router.delete(

@@ -95,6 +95,7 @@ export const testCasesAPI = {
   getById: (projectId, tcId) => api.get(`/projects/${projectId}/test-cases/${tcId}`),
   update: (projectId, tcId, data) => api.put(`/projects/${projectId}/test-cases/${tcId}`, data),
   delete: (projectId, tcId) => api.delete(`/projects/${projectId}/test-cases/${tcId}`),
+  duplicate: (projectId, tcId) => api.post(`/projects/${projectId}/test-cases/${tcId}/duplicate`),
   bulkDelete: (projectId, testCaseIds) =>
     api.post(`/projects/${projectId}/test-cases/bulk-delete`, { test_case_ids: testCaseIds }),
   bulkStatus: (projectId, testCaseIds, status) =>

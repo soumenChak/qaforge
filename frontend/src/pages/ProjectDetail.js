@@ -433,6 +433,18 @@ export default function ProjectDetail() {
     }
   };
 
+  const handleDuplicateTc = async (tc) => {
+    try {
+      const res = await testCasesAPI.duplicate(id, tc.id);
+      loadTestCases();
+      loadProject();
+      // Navigate to the new test case editor
+      navigate(`/projects/${id}/test-cases/${res.data.id}`);
+    } catch (err) {
+      alert('Failed to duplicate test case.');
+    }
+  };
+
   const handleDeleteTc = async (tc) => {
     if (!window.confirm(`Delete test case ${tc.test_case_id}: "${tc.title}"?`)) return;
     try {
@@ -1371,6 +1383,7 @@ export default function ProjectDetail() {
             loading={tcLoading}
             onRowClick={(tc) => navigate(`/projects/${id}/test-cases/${tc.id}`)}
             onStatusChange={handleStatusChange}
+            onDuplicate={handleDuplicateTc}
             onDelete={handleDeleteTc}
             selectedIds={selectedTcIds}
             onSelectChange={setSelectedTcIds}

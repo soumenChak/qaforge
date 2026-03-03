@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { TrashIcon } from '@heroicons/react/24/outline';
+import { TrashIcon, DocumentDuplicateIcon } from '@heroicons/react/24/outline';
 import RatingWidget from './RatingWidget';
 
 const PRIORITY_STYLES = {
@@ -33,6 +33,7 @@ const EXEC_TYPE_STYLES = {
  *   onRowClick    - callback(testCase) when a row is clicked
  *   onStatusChange - callback(testCase, newStatus) for inline status update
  *   onDelete      - callback(testCase) for deleting a test case
+ *   onDuplicate   - callback(testCase) for duplicating a test case
  *   selectedIds   - Set of selected test case IDs
  *   onSelectChange - callback(newSelectedIds) for checkbox selection
  *   loading       - boolean loading state
@@ -43,6 +44,7 @@ export default function TestCaseTable({
   onRowClick,
   onStatusChange,
   onDelete,
+  onDuplicate,
   selectedIds = new Set(),
   onSelectChange,
   loading = false,
@@ -160,7 +162,7 @@ export default function TestCaseTable({
                 Status <SortIcon field="status" />
               </th>
               <th className="px-4 py-3">Rating</th>
-              {onDelete && <th className="px-4 py-3 w-16">Actions</th>}
+              {(onDelete || onDuplicate) && <th className="px-4 py-3 w-24">Actions</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
@@ -229,15 +231,28 @@ export default function TestCaseTable({
                 <td className="px-4 py-3">
                   <RatingWidget value={tc.rating || 0} readOnly size="sm" />
                 </td>
-                {onDelete && (
+                {(onDelete || onDuplicate) && (
                   <td className="px-4 py-3">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onDelete(tc); }}
-                      className="text-gray-300 hover:text-red-500 transition-colors p-1"
-                      title={`Delete ${tc.test_case_id}`}
-                    >
-                      <TrashIcon className="w-4 h-4" />
-                    </button>
+                    <div className="flex gap-1">
+                      {onDuplicate && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onDuplicate(tc); }}
+                          className="text-gray-300 hover:text-teal-600 transition-colors p-1"
+                          title={`Duplicate ${tc.test_case_id}`}
+                        >
+                          <DocumentDuplicateIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                      {onDelete && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onDelete(tc); }}
+                          className="text-gray-300 hover:text-red-500 transition-colors p-1"
+                          title={`Delete ${tc.test_case_id}`}
+                        >
+                          <TrashIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 )}
               </tr>

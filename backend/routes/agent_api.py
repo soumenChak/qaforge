@@ -165,6 +165,22 @@ def bootstrap_agent(
 # ---------------------------------------------------------------------------
 # Project metadata (agent can populate app profile, description, BRD/PRD)
 # ---------------------------------------------------------------------------
+@router.get("/project", response_model=dict)
+def get_project_metadata(
+    project: Project = Depends(get_agent_project),
+):
+    """Get the authenticated project's metadata including app_profile."""
+    return {
+        "project_id": str(project.id),
+        "project_name": project.name,
+        "domain": project.domain,
+        "sub_domain": project.sub_domain,
+        "description": project.description,
+        "app_profile": project.app_profile or {},
+        "status": project.status,
+    }
+
+
 @router.put("/project", response_model=dict)
 def update_project_metadata(
     body: dict,
@@ -984,6 +1000,139 @@ def create_test_plan(
         project.name,
     )
     return plan
+
+
+@router.get("/test-plans", response_model=List[TestPlanResponse])
+def list_test_plans(
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """List all test plans for the authenticated project."""
+    from sqlalchemy import func
+
+    plans = db.query(TestPlan).filter(
+        TestPlan.project_id == project.id,
+    ).order_by(TestPlan.created_at.desc()).all()
+
+    results = []
+    for plan in plans:
+        tc_count = db.query(func.count(TestCase.id)).filter(
+            TestCase.test_plan_id == plan.id,
+        ).scalar() or 0
+
+        ex_total = db.query(func.count(ExecutionResult.id)).filter(
+            ExecutionResult.test_plan_id == plan.id,
+        ).scalar() or 0
+        ex_passed = db.query(func.count(ExecutionResult.id)).filter(
+            ExecutionResult.test_plan_id == plan.id,
+            ExecutionResult.status == "passed",
+        ).scalar() or 0
+        ex_failed = db.query(func.count(ExecutionResult.id)).filter(
+            ExecutionResult.test_plan_id == plan.id,
+            ExecutionResult.status == "failed",
+        ).scalar() or 0
+
+        results.append(TestPlanResponse(
+            id=plan.id,
+            project_id=plan.project_id,
+            name=plan.name,
+            description=plan.description,
+            plan_type=plan.plan_type,
+            status=plan.status,
+            execution_config=plan.execution_config,
+            created_by=plan.created_by,
+            created_at=plan.created_at,
+            updated_at=plan.updated_at,
+            test_case_count=tc_count,
+            executed_count=ex_total,
+            passed_count=ex_passed,
+            failed_count=ex_failed,
+        ))
+
+    return results
+
+
+@router.get("/test-plans/{plan_id}/test-cases", response_model=List[TestCaseResponse])
+def get_plan_test_cases(
+    plan_id: uuid.UUID,
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """Get all test cases assigned to a specific test plan."""
+    plan = db.query(TestPlan).filter(
+        TestPlan.id == plan_id,
+        TestPlan.project_id == project.id,
+    ).first()
+    if not plan:
+        raise HTTPException(404, "Test plan not found")
+
+    cases = db.query(TestCase).filter(
+        TestCase.test_plan_id == plan_id,
+        TestCase.project_id == project.id,
+    ).order_by(TestCase.test_case_id).all()
+
+    return [TestCaseResponse.model_validate(tc) for tc in cases]
+
+
+@router.post("/test-cases/{tc_id}/duplicate", response_model=TestCaseResponse)
+def duplicate_test_case(
+    tc_id: uuid.UUID,
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """
+    Duplicate a test case. Copies all fields (steps, assertions, data)
+    with a new UUID and auto-incremented test_case_id. Status = draft.
+    """
+    source = db.query(TestCase).filter(
+        TestCase.id == tc_id,
+        TestCase.project_id == project.id,
+    ).first()
+    if not source:
+        raise HTTPException(404, "Test case not found")
+
+    # Auto-increment test_case_id
+    from sqlalchemy import func
+    max_tc = db.query(func.count(TestCase.id)).filter(
+        TestCase.project_id == project.id,
+    ).scalar() or 0
+    new_tc_id = f"TC-{max_tc + 1:03d}"
+
+    # Ensure uniqueness
+    while db.query(TestCase).filter(
+        TestCase.project_id == project.id,
+        TestCase.test_case_id == new_tc_id,
+    ).first():
+        max_tc += 1
+        new_tc_id = f"TC-{max_tc + 1:03d}"
+
+    clone = TestCase(
+        id=uuid.uuid4(),
+        project_id=project.id,
+        requirement_id=source.requirement_id,
+        test_plan_id=source.test_plan_id,
+        test_case_id=new_tc_id,
+        title=f"{source.title} (Copy)",
+        description=source.description,
+        preconditions=source.preconditions,
+        test_steps=source.test_steps,
+        expected_result=source.expected_result,
+        test_data=source.test_data,
+        priority=source.priority,
+        category=source.category,
+        domain_tags=source.domain_tags,
+        execution_type=source.execution_type,
+        source="duplicated",
+        status="draft",
+        created_by=project.created_by,
+    )
+    db.add(clone)
+    db.commit()
+    db.refresh(clone)
+
+    logger.info("Agent duplicated TC %s → %s for project %s",
+                source.test_case_id, new_tc_id, project.name)
+    return TestCaseResponse.model_validate(clone)
 
 
 # ---------------------------------------------------------------------------

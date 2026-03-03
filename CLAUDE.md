@@ -135,6 +135,108 @@ docker compose build --parallel && docker compose up -d
 | `models.py` | ~900 | All Pydantic schemas |
 | `db_models.py` | ~750 | All SQLAlchemy models |
 
+## LLM-Driven Testing Workflow
+
+QAForge is designed as a data platform that LLMs (Claude, Codex, etc.) orchestrate via CLI.
+The LLM acts as the user interface. QAForge stores everything; the LLM executes the flow.
+
+### CLI Tool: `qaforge.py`
+
+Located at `scripts/qaforge.py` (in client project repos like Orbit). 16 commands:
+
+```bash
+# Setup & Status
+qaforge.py setup --project "Name" --domain mdm --token $TOKEN
+qaforge.py status
+
+# MCP Discovery & Execution
+qaforge.py discover --mcp-url http://localhost:8000/sse [--save]
+qaforge.py execute --plan "Smoke Test" [--mcp-url http://...]
+
+# Test Management
+qaforge.py init --plan "Sprint 1 Tests"
+qaforge.py submit-cases '[{...}]'
+qaforge.py submit-results '[{...}]'
+qaforge.py summary
+
+# Test Runners (auto-submit results)
+qaforge.py run-smoke
+qaforge.py run-pytest backend/tests/
+qaforge.py run-playwright --spec e2e/test.spec.js
+
+# BRD/PRD Generation
+qaforge.py generate-from-brd --brd file.xlsx --domain mdm --sub-domain reltio
+qaforge.py upload-reference --file samples.xlsx --domain mdm
+qaforge.py kb-stats --domain mdm
+```
+
+### Flow 1: Fresh Project Setup
+
+When user says "set up testing for [project]":
+
+1. **Ask for:** project name, domain (mdm/ai/data_eng/integration/digital), MCP server URL, BRD/PRD docs
+2. **Bootstrap:** `qaforge.py setup --project "Name" --domain mdm --token $QAFORGE_BOOTSTRAP_TOKEN`
+3. **Discover tools:** `qaforge.py discover --mcp-url http://localhost:8000/sse --save`
+4. **Sanity check:** Submit a health_check_tool test case and execute to verify connectivity
+5. **Report:** "Project ready, X tools discovered. Share BRD/PRD or describe what to test."
+
+### Flow 2: Test Case Generation
+
+When user provides BRD/PRD or testing requirements:
+
+1. **Check KB:** `qaforge.py kb-stats --domain mdm` — see if reference samples exist
+2. **Upload reference** (if provided): `qaforge.py upload-reference --file ref.xlsx --domain mdm`
+3. **Generate:** `qaforge.py generate-from-brd --brd file.xlsx --reference ref.xlsx --domain mdm --count 10`
+   - KB + reference framework ensures enterprise quality standards
+   - Auto-saves best samples to KB for continuous learning
+4. **PAUSE** — show user the generated test case summary, ask for review
+5. **If changes needed:** fix and resubmit via `qaforge.py submit-cases`
+6. **Duplicate:** users can duplicate good test cases via UI or API for quick variants
+
+### Flow 3: Test Plan & Execution
+
+1. **Create plan:** via agent API `POST /agent/test-plans`
+2. **Assign test cases** to the plan
+3. **PAUSE** — ask user to review plan
+4. **Execute:** `qaforge.py execute --plan "Plan Name"`
+5. **Review results:** show pass/fail per test case
+6. **Fix failures:** if user asks, read the test case, identify issue, resubmit fix via API
+
+### MCP Execution Engine
+
+`scripts/mcp_executor.py` handles mechanical test execution:
+- Connects to MCP servers via SSE transport
+- Calls tools with specified params from structured test steps
+- Validates assertions (json_path, contains, not_empty, response_time_ms, etc.)
+- Supports variable binding between steps: `{{step_1.parsed.field}}`
+- Records results + proof artifacts back to QAForge
+- **Zero LLM tokens** — pure automation
+
+### Multi-Tool Test Cases
+
+Each test step specifies its own `tool_name` and `connection_ref`:
+- Step 1: `search_entities_tool` → find entities
+- Step 2: `merge_entities_tool` → merge using `{{step_1.parsed.objects.0.uri}}`
+- Steps can reference different MCP servers via `connection_ref`
+
+### Agent API Endpoints (X-Agent-Key auth)
+
+```
+POST /api/agent/bootstrap          — Create project + get API key
+GET  /api/agent/project            — Get project metadata + app_profile
+PUT  /api/agent/project            — Update app_profile, description
+GET  /api/agent/test-plans         — List test plans (with stats)
+POST /api/agent/test-plans         — Create test plan
+GET  /api/agent/test-plans/{id}/test-cases — Get plan's test cases
+POST /api/agent/test-cases         — Submit test cases (batch)
+POST /api/agent/test-cases/{id}/duplicate — Duplicate a test case
+POST /api/agent/executions         — Submit execution results
+GET  /api/agent/summary            — Progress summary
+POST /api/agent/generate-from-brd  — AI test case generation
+POST /api/agent/upload-reference   — Upload KB reference samples
+GET  /api/agent/kb-stats           — Knowledge base coverage
+```
+
 ## Ports (Avoid Conflicts)
 
 | QAForge | Orbit | AgentForge |
