@@ -7,17 +7,20 @@ test cases, execution results, and proof artifacts.
 Auth: X-Agent-Key header (project-scoped API key, no JWT needed).
 """
 
+import json as _json
 import logging
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from db_models import (
     AgentSession,
     ExecutionResult,
+    KnowledgeEntry,
     ProofArtifact,
     TestCase,
     TestPlan,
@@ -108,9 +111,11 @@ def generate_from_brd(
     count = min(body.get("count", 10), 50)
     ref_tcs = body.get("reference_test_cases", [])
     test_plan_id_str = body.get("test_plan_id")
+    save_to_kb = body.get("save_to_kb", True)  # Auto-save references to KB
 
     # Build reference TC context text
     ref_text = ""
+    kb_retrieved = 0
     if ref_tcs:
         ref_lines = []
         for tc in ref_tcs[:5]:
@@ -124,6 +129,42 @@ def generate_from_brd(
                 step_info += f"\n    Expected: {step.get('expected_result', '')}"
                 ref_lines.append(step_info)
         ref_text = "\n".join(ref_lines)[:3000]
+    else:
+        # --- AUTO-RETRIEVE from KB when no reference TCs provided ---
+        kb_entries = (
+            db.query(KnowledgeEntry)
+            .filter(
+                KnowledgeEntry.entry_type == "test_case",
+                or_(
+                    KnowledgeEntry.domain == domain,
+                    KnowledgeEntry.domain == "general",
+                ),
+            )
+            .order_by(
+                KnowledgeEntry.usage_count.desc(),
+                KnowledgeEntry.created_at.desc(),
+            )
+            .limit(10)
+            .all()
+        )
+        if sub_domain:
+            # Prefer sub_domain matches, then fallback to domain-only
+            sub_matches = [e for e in kb_entries if e.sub_domain == sub_domain]
+            others = [e for e in kb_entries if e.sub_domain != sub_domain]
+            kb_entries = (sub_matches + others)[:10]
+
+        if kb_entries:
+            ref_lines = [f"=== KNOWLEDGE BASE REFERENCE TEST CASES ({len(kb_entries)} entries) ==="]
+            for entry in kb_entries:
+                ref_lines.append(f"\n{entry.content[:600]}")
+                entry.usage_count += 1
+            ref_text = "\n".join(ref_lines)[:3000]
+            kb_retrieved = len(kb_entries)
+            db.flush()
+            logger.info(
+                "Auto-retrieved %d KB reference TCs for domain=%s sub=%s",
+                kb_retrieved, domain, sub_domain,
+            )
 
     # Build generation request
     gen_request = GenerateRequest(
@@ -253,15 +294,215 @@ def generate_from_brd(
         db.add(tc)
         saved.append(tc)
 
+    # --- AUTO-SAVE reference TCs to Knowledge Base ---
+    kb_saved = 0
+    if save_to_kb and ref_tcs:
+        for tc in ref_tcs[:10]:  # Limit to 10 KB entries per upload
+            tc_id = tc.get("test_case_id", "TC-REF")
+            tc_title = tc.get("title", "Reference TC")[:200]
+
+            # Check if already exists in KB (by title + domain)
+            existing_kb = db.query(KnowledgeEntry).filter(
+                KnowledgeEntry.domain == domain,
+                KnowledgeEntry.title == f"[REF] {tc_title}",
+            ).first()
+            if existing_kb:
+                continue
+
+            # Build rich content from the TC for KB storage
+            content_parts = [f"Test Case: {tc_id} — {tc_title}"]
+            if tc.get("description"):
+                content_parts.append(f"Description: {tc['description'][:300]}")
+            if tc.get("preconditions"):
+                content_parts.append(f"Prerequisites: {tc['preconditions'][:200]}")
+            for step in tc.get("test_steps", [])[:8]:
+                if isinstance(step, dict):
+                    step_line = f"Step {step.get('step_number', '?')}: {step.get('action', '')}"
+                    if step.get("step_type"):
+                        step_line += f" [{step['step_type']}]"
+                    if step.get("sql_script"):
+                        step_line += f"\n  SQL: {step['sql_script'][:200]}"
+                    step_line += f"\n  Expected: {step.get('expected_result', '')}"
+                    content_parts.append(step_line)
+            if tc.get("expected_result"):
+                content_parts.append(f"Overall Expected: {tc['expected_result'][:200]}")
+
+            kb_entry = KnowledgeEntry(
+                domain=domain,
+                sub_domain=sub_domain or None,
+                entry_type="test_case",
+                title=f"[REF] {tc_title}",
+                content="\n".join(content_parts),
+                tags=[domain, sub_domain, "reference", "enterprise"]
+                     if sub_domain else [domain, "reference", "enterprise"],
+                source_project_id=project.id,
+                created_by=project.created_by,
+            )
+            db.add(kb_entry)
+            kb_saved += 1
+
     db.commit()
     for tc in saved:
         db.refresh(tc)
 
     logger.info(
-        "Generated %d test cases from BRD for project %s (domain=%s, sub=%s)",
-        len(saved), project.name, domain, sub_domain,
+        "Generated %d test cases from BRD for project %s (domain=%s, sub=%s), "
+        "KB: %d retrieved, %d saved",
+        len(saved), project.name, domain, sub_domain, kb_retrieved, kb_saved,
     )
     return saved
+
+
+# ---------------------------------------------------------------------------
+# Upload Reference TCs to Knowledge Base
+# ---------------------------------------------------------------------------
+@router.post("/upload-reference")
+def upload_reference_to_kb(
+    body: dict,
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """
+    Upload reference test cases to the Knowledge Base for future generation.
+
+    Agents upload parsed reference TCs (from Excel, JSON, etc.) and QAForge
+    stores them as KB entries. Future generate-from-brd calls automatically
+    retrieve these as context — no need to re-upload samples.
+
+    Body fields:
+      - reference_test_cases: list[dict] (required) — parsed reference TCs
+      - domain: str (required) — mdm, data_engineering, api, ui
+      - sub_domain: str (optional) — reltio, snowflake, databricks, etc.
+      - source_name: str (optional) — human-readable source (e.g. "MDM Network Entity Load.xlsx")
+    """
+    ref_tcs = body.get("reference_test_cases", [])
+    if not ref_tcs:
+        raise HTTPException(400, "reference_test_cases is required (non-empty list)")
+
+    domain = body.get("domain", "mdm")
+    sub_domain = body.get("sub_domain", "")
+    source_name = body.get("source_name", "agent-upload")
+
+    created = 0
+    skipped = 0
+    for tc in ref_tcs[:50]:  # Max 50 per upload
+        tc_id = tc.get("test_case_id", "TC-REF")
+        tc_title = tc.get("title", "Reference TC")[:200]
+        kb_title = f"[REF] {tc_title}"
+
+        # Skip duplicates (by title + domain)
+        existing = db.query(KnowledgeEntry).filter(
+            KnowledgeEntry.domain == domain,
+            KnowledgeEntry.title == kb_title,
+        ).first()
+        if existing:
+            skipped += 1
+            continue
+
+        # Build rich content from the TC
+        content_parts = [f"Test Case: {tc_id} — {tc_title}"]
+        if tc.get("description"):
+            content_parts.append(f"Description: {tc['description'][:300]}")
+        if tc.get("category"):
+            content_parts.append(f"Category: {tc['category']}")
+        if tc.get("preconditions"):
+            content_parts.append(f"Prerequisites: {tc['preconditions'][:200]}")
+        for step in tc.get("test_steps", [])[:10]:
+            if isinstance(step, dict):
+                step_line = f"Step {step.get('step_number', '?')}: {step.get('action', '')}"
+                if step.get("step_type"):
+                    step_line += f" [{step['step_type']}]"
+                if step.get("sql_script"):
+                    step_line += f"\n  SQL: {step['sql_script'][:250]}"
+                step_line += f"\n  Expected: {step.get('expected_result', '')}"
+                content_parts.append(step_line)
+        if tc.get("expected_result"):
+            content_parts.append(f"Overall Expected: {tc['expected_result'][:200]}")
+
+        tags = [domain, "reference", "enterprise", f"source:{source_name}"]
+        if sub_domain:
+            tags.insert(1, sub_domain)
+
+        kb_entry = KnowledgeEntry(
+            domain=domain,
+            sub_domain=sub_domain or None,
+            entry_type="test_case",
+            title=kb_title,
+            content="\n".join(content_parts),
+            tags=tags,
+            source_project_id=project.id,
+            created_by=project.created_by,
+        )
+        db.add(kb_entry)
+        created += 1
+
+    db.commit()
+
+    # Count total KB entries for this domain
+    total_domain = db.query(KnowledgeEntry).filter(
+        KnowledgeEntry.domain == domain,
+        KnowledgeEntry.entry_type == "test_case",
+    ).count()
+
+    logger.info(
+        "Agent uploaded %d reference TCs to KB for project %s (domain=%s, sub=%s, skipped=%d)",
+        created, project.name, domain, sub_domain, skipped,
+    )
+
+    return {
+        "message": f"Uploaded {created} reference TCs to knowledge base"
+                   + (f" ({skipped} duplicates skipped)" if skipped else ""),
+        "created": created,
+        "skipped": skipped,
+        "total_domain_kb_entries": total_domain,
+        "domain": domain,
+        "sub_domain": sub_domain,
+    }
+
+
+# ---------------------------------------------------------------------------
+# KB Stats for Agent (lightweight, no JWT needed)
+# ---------------------------------------------------------------------------
+@router.get("/kb-stats")
+def get_kb_stats_for_agent(
+    domain: Optional[str] = Query(None, description="Filter by domain"),
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """
+    Get knowledge base statistics for the agent.
+    Shows how many reference TCs are available per domain.
+    """
+    from sqlalchemy import func
+
+    query = db.query(
+        KnowledgeEntry.domain,
+        KnowledgeEntry.sub_domain,
+        KnowledgeEntry.entry_type,
+        func.count(KnowledgeEntry.id).label("count"),
+    ).group_by(
+        KnowledgeEntry.domain,
+        KnowledgeEntry.sub_domain,
+        KnowledgeEntry.entry_type,
+    )
+
+    if domain:
+        query = query.filter(KnowledgeEntry.domain == domain)
+
+    rows = query.all()
+    stats = {}
+    total = 0
+    for row in rows:
+        key = f"{row.domain}/{row.sub_domain or 'general'}"
+        if key not in stats:
+            stats[key] = {"domain": row.domain, "sub_domain": row.sub_domain, "entries": {}}
+        stats[key]["entries"][row.entry_type] = row.count
+        total += row.count
+
+    return {
+        "total_kb_entries": total,
+        "by_domain": list(stats.values()),
+    }
 
 
 # ---------------------------------------------------------------------------
