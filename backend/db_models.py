@@ -757,80 +757,84 @@ class CostTracking(Base):
 # Connection — reusable connection profile for test execution
 # ---------------------------------------------------------------------------
 class Connection(Base):
-    """A reusable connection profile for test execution (API, DB, MCP)."""
+    """A reusable connection profile for test execution (API, DB, MCP).
+
+    NOTE: Schema matches existing DB table created by execution engine.
+    Columns: id, name, type, driver, config, credentials_ref, status,
+    last_tested_at, created_by, created_at, project_id, is_default, connection_type
+    """
 
     __tablename__ = "connections"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=_uuid
     )
-    project_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False, index=True,
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    driver: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    config: Mapped[Any] = mapped_column(JSONB, nullable=False, server_default="{}")
+    credentials_ref: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    status: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    last_tested_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
-    name: Mapped[str] = mapped_column(
-        String(255), nullable=False,
-        comment="Human-readable label e.g. 'Orbit API (Staging)'",
-    )
-    connection_type: Mapped[str] = mapped_column(
-        String(30), nullable=False, server_default="rest_api",
-        comment="rest_api / database / mcp / graphql",
-    )
-    config: Mapped[Any] = mapped_column(
-        JSONB, nullable=False, server_default="{}",
-        comment="base_url, auth_token, login_endpoint, credentials, etc.",
-    )
-    is_default: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default="false",
-        comment="If true, auto-selected when no connection_id specified",
-    )
-    created_by: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False,
+    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(),
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-
-    # -- relationships --
-    project: Mapped["Project"] = relationship("Project", lazy="joined")
-
-    __table_args__ = (
-        UniqueConstraint("project_id", "name", name="uq_connection_project_name"),
+    # Added columns for project-scoped connections
+    project_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=True, index=True,
+    )
+    is_default: Mapped[bool] = mapped_column(
+        Boolean, nullable=True, server_default="false",
+    )
+    connection_type: Mapped[Optional[str]] = mapped_column(
+        String(30), nullable=True, server_default="rest_api",
     )
 
     def __repr__(self) -> str:
-        return f"<Connection {self.name} ({self.connection_type})>"
+        return f"<Connection {self.name} ({self.type or self.connection_type})>"
 
 
 # ---------------------------------------------------------------------------
 # TestAgent — configuration for automated test agents
 # ---------------------------------------------------------------------------
 class TestAgent(Base):
-    """Configuration for automated test agents."""
+    """Configuration for automated test agents.
+
+    NOTE: Schema matches existing DB table created by execution engine.
+    """
 
     __tablename__ = "test_agents"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=_uuid
     )
-    project_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"),
-        nullable=False, index=True,
+    name: Mapped[str] = mapped_column(String(100), nullable=False, server_default="default")
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    domain: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    sub_domain: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    agent_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    system_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    config: Mapped[Any] = mapped_column(JSONB, nullable=False, server_default="{}")
+    connection_ids: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    template_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), nullable=True
     )
-    name: Mapped[str] = mapped_column(
-        String(100), nullable=False, server_default="default",
-        comment="Agent name e.g. 'qaforge-engine'",
-    )
-    config: Mapped[Any] = mapped_column(
-        JSONB, nullable=False, server_default="{}",
-        comment="allow_sandbox, sandbox_timeout, etc.",
+    status: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(),
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-
-    # -- relationships --
-    project: Mapped["Project"] = relationship("Project", lazy="joined")
+    updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     def __repr__(self) -> str:
         return f"<TestAgent {self.name}>"
@@ -840,7 +844,11 @@ class TestAgent(Base):
 # ExecutionRun — a single execution run of a test plan
 # ---------------------------------------------------------------------------
 class ExecutionRun(Base):
-    """A single execution run of a test plan (one or more test cases)."""
+    """A single execution run of a test plan (one or more test cases).
+
+    NOTE: Schema matches existing DB table + added columns (test_plan_id,
+    triggered_by, created_at).
+    """
 
     __tablename__ = "execution_runs"
 
@@ -851,46 +859,41 @@ class ExecutionRun(Base):
         UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False, index=True,
     )
-    test_plan_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("test_plans.id", ondelete="SET NULL"),
-        nullable=True, index=True,
-    )
-    connection_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("connections.id", ondelete="SET NULL"),
-        nullable=True,
-    )
     test_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("test_agents.id", ondelete="SET NULL"),
         nullable=True,
     )
     test_case_ids: Mapped[Any] = mapped_column(
         JSONB, nullable=False, server_default="[]",
-        comment="Array of test case UUIDs to execute",
+    )
+    connection_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("connections.id", ondelete="SET NULL"),
+        nullable=True,
     )
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="pending",
-        comment="pending / running / completed / failed / cancelled",
     )
-    results: Mapped[Optional[Any]] = mapped_column(
-        JSONB, nullable=True,
-        comment="Live-updated results: {test_results: [...], summary: {...}}",
-    )
-    triggered_by: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False,
-    )
+    results: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True,
     )
     completed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True,
     )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(),
+    executed_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), nullable=True,
     )
-
-    # -- relationships --
-    project: Mapped["Project"] = relationship("Project", lazy="joined")
-    test_plan: Mapped[Optional["TestPlan"]] = relationship("TestPlan", lazy="joined")
+    # Added columns
+    test_plan_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("test_plans.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
+    triggered_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True,
+    )
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, server_default=func.now(),
+    )
 
     def __repr__(self) -> str:
         return f"<ExecutionRun {self.status} ({len(self.test_case_ids or [])} TCs)>"
