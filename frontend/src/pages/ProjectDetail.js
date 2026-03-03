@@ -1433,8 +1433,8 @@ export default function ProjectDetail() {
           ) : (
             <div className="space-y-3">
               {testPlans.map((plan) => {
-                const passRate = plan.test_case_count > 0
-                  ? Math.round((plan.passed_count / plan.test_case_count) * 100) : 0;
+                const passRate = plan.executed_count > 0
+                  ? Math.round((plan.passed_count / plan.executed_count) * 100) : 0;
                 return (
                   <div
                     key={plan.id}
