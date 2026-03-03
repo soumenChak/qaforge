@@ -127,6 +127,17 @@ class MCPConnection:
                 except (json.JSONDecodeError, TypeError):
                     pass
 
+            # Try YAML parse if JSON failed (many MCP tools return YAML)
+            if parsed is None:
+                try:
+                    import yaml
+                    parsed = yaml.safe_load(raw)
+                    # Only accept dict/list, not plain strings
+                    if not isinstance(parsed, (dict, list)):
+                        parsed = None
+                except Exception:
+                    pass
+
         is_error = getattr(result, "isError", False)
 
         return {"raw": raw, "parsed": parsed, "is_error": is_error}
