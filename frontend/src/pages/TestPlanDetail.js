@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { testCasesAPI, testPlansAPI, executionsAPI, projectsAPI } from '../services/api';
+import { testCasesAPI, testPlansAPI, executionsAPI, executionRunsAPI, projectsAPI } from '../services/api';
 import Breadcrumb from '../components/Breadcrumb';
 import ProofViewer from '../components/ProofViewer';
-import { CheckCircleIcon, XCircleIcon, ClockIcon, ChevronDownIcon, ChevronUpIcon, EyeIcon, DocumentArrowDownIcon, TrashIcon } from '@heroicons/react/24/outline';
+import { CheckCircleIcon, XCircleIcon, ClockIcon, ChevronDownIcon, ChevronUpIcon, EyeIcon, DocumentArrowDownIcon, TrashIcon, PlayIcon, StopIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 
 const STATUS_CHIP = { draft: 'badge-gray', reviewed: 'bg-blue-100 text-blue-800', approved: 'badge-green', executed: 'bg-orange-100 text-orange-800', passed: 'badge-green', failed: 'badge-red' };
 const CP_STATUS = { pending: 'badge-yellow', approved: 'badge-green', rejected: 'badge-red', needs_rework: 'bg-orange-100 text-orange-800' };
@@ -49,6 +49,10 @@ export default function TestPlanDetail() {
   // Playbook
   const [projectData, setProjectData] = useState(null);
   const [playbookTcData, setPlaybookTcData] = useState([]);
+  // Execution Run
+  const [executing, setExecuting] = useState(false);
+  const [activeRun, setActiveRun] = useState(null);
+  const [runPolling, setRunPolling] = useState(false);
 
   // ── Loaders ──
   const load = useCallback(async (fn, setter, loadingSetter) => {
@@ -79,6 +83,40 @@ export default function TestPlanDetail() {
     }
   }, [activeTab, projectId, planId]);
 
+  // ── Execute Plan ──
+  const handleExecute = async () => {
+    if (executing || runPolling) return;
+    if (!window.confirm(`Execute all test cases in "${plan.name}"? This will run them against the configured connection.`)) return;
+    setExecuting(true);
+    try {
+      const res = await testPlansAPI.execute(projectId, planId);
+      setActiveRun(res.data);
+      setRunPolling(true);
+      setActiveTab('executions');
+    } catch (e) {
+      const d = e.response?.data?.detail;
+      alert(typeof d === 'string' ? d : (e.message || 'Failed to start execution.'));
+    } finally {
+      setExecuting(false);
+    }
+  };
+
+  // Poll active execution run for progress
+  useEffect(() => {
+    if (!runPolling || !activeRun?.id) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await executionRunsAPI.getById(projectId, activeRun.id);
+        setActiveRun(res.data);
+        if (['completed', 'failed', 'cancelled'].includes(res.data.status)) {
+          setRunPolling(false);
+          loadExec();
+        }
+      } catch (e) { console.error('Poll failed:', e); }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [runPolling, activeRun, projectId, loadExec]);
+
   // ── Handlers ──
   const toggleTc = (id) => setSelectedTcIds(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const selectAllTc = () => setSelectedTcIds(p => p.size === testCases.length ? new Set() : new Set(testCases.map(t => t.id)));
@@ -87,13 +125,13 @@ export default function TestPlanDetail() {
     if (!selectedTcIds.size) return;
     setBulkApproving(true);
     try { await testCasesAPI.bulkStatus(projectId, [...selectedTcIds], 'approved'); setSelectedTcIds(new Set()); loadTC(); }
-    catch (e) { alert(e.response?.data?.detail || 'Bulk approve failed.'); }
+    catch (e) { const d = e.response?.data?.detail; alert(typeof d === 'string' ? d : (e.message || 'Bulk approve failed.')); }
     finally { setBulkApproving(false); }
   };
 
   const execReview = async (id, status) => {
-    try { await executionsAPI.review(projectId, id, { status, comment: reviewComment }); setReviewingExecId(null); setReviewComment(''); loadExec(); }
-    catch (e) { alert(e.response?.data?.detail || 'Review failed.'); }
+    try { await executionsAPI.review(projectId, id, { review_status: status, review_comment: reviewComment }); setReviewingExecId(null); setReviewComment(''); loadExec(); }
+    catch (e) { const d = e.response?.data?.detail; alert(typeof d === 'string' ? d : (e.message || 'Review failed.')); }
   };
 
   // ── Guards ──
@@ -119,21 +157,47 @@ export default function TestPlanDetail() {
         <Breadcrumb items={[{ label: 'Projects', to: '/projects' }, { label: plan.project_name || 'Project', to: `/projects/${projectId}` }, { label: plan.name || 'Test Plan' }]} />
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-fg-navy mt-2">{plan.name}</h1>
-          <button
-            onClick={async () => {
-              if (!window.confirm(`Delete test plan "${plan.name}"? This cannot be undone.`)) return;
-              try {
-                await testPlansAPI.delete(projectId, planId);
-                navigate(`/projects/${projectId}`, { state: { tab: 'test_plans' } });
-              } catch (err) {
-                alert('Failed to delete test plan.');
-              }
-            }}
-            className="btn-secondary text-sm flex items-center gap-1.5 border-red-200 text-red-600 hover:bg-red-50"
-          >
-            <TrashIcon className="w-4 h-4" />
-            Delete Plan
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Execute Plan Button */}
+            <button
+              onClick={handleExecute}
+              disabled={executing || runPolling}
+              className="btn-primary text-sm flex items-center gap-1.5"
+            >
+              {executing || runPolling ? (
+                <><ArrowPathIcon className="w-4 h-4 animate-spin" />{runPolling ? 'Running...' : 'Starting...'}</>
+              ) : (
+                <><PlayIcon className="w-4 h-4" />Execute Plan</>
+              )}
+            </button>
+            {/* Cancel Button (visible during run) */}
+            {runPolling && activeRun && (
+              <button
+                onClick={async () => {
+                  try { await executionRunsAPI.cancel(projectId, activeRun.id); setRunPolling(false); loadExec(); }
+                  catch (e) { alert('Failed to cancel.'); }
+                }}
+                className="btn-secondary text-sm flex items-center gap-1.5 border-red-200 text-red-600 hover:bg-red-50"
+              >
+                <StopIcon className="w-4 h-4" />Cancel
+              </button>
+            )}
+            {/* Delete Plan Button */}
+            <button
+              onClick={async () => {
+                if (!window.confirm(`Delete test plan "${plan.name}"? This cannot be undone.`)) return;
+                try {
+                  await testPlansAPI.delete(projectId, planId);
+                  navigate(`/projects/${projectId}`, { state: { tab: 'test_plans' } });
+                } catch (err) {
+                  alert('Failed to delete test plan.');
+                }
+              }}
+              className="btn-secondary text-sm flex items-center gap-1.5 border-red-200 text-red-600 hover:bg-red-50"
+            >
+              <TrashIcon className="w-4 h-4" />Delete Plan
+            </button>
+          </div>
         </div>
         {plan.description && <p className="text-sm text-fg-mid mt-1">{plan.description}</p>}
         <div className="flex items-center gap-2 mt-2">
@@ -151,6 +215,62 @@ export default function TestPlanDetail() {
           </button>
         ))}
       </div>
+
+      {/* ── Execution Progress Banner ── */}
+      {activeRun && ['pending', 'running'].includes(activeRun.status) && (
+        <div className="card-static p-4 mb-6 border-l-4 border-fg-teal">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <ArrowPathIcon className="w-4 h-4 text-fg-teal animate-spin" />
+              <span className="text-sm font-semibold text-fg-dark">
+                Execution {activeRun.status === 'pending' ? 'starting...' : 'in progress'}
+              </span>
+            </div>
+            {activeRun.results?.summary && (
+              <div className="flex items-center gap-3 text-xs">
+                <span className="text-fg-mid">
+                  {activeRun.results.summary.completed || 0}/{activeRun.results.summary.total || 0} tests
+                </span>
+                <span className="text-green-600 font-semibold">{activeRun.results.summary.passed || 0} passed</span>
+                <span className="text-red-600 font-semibold">{activeRun.results.summary.failed || 0} failed</span>
+              </div>
+            )}
+          </div>
+          {(activeRun.results?.summary?.total || 0) > 0 && (
+            <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+              <div className="h-full bg-fg-teal rounded-full transition-all duration-500"
+                style={{ width: `${((activeRun.results.summary.completed || 0) / activeRun.results.summary.total) * 100}%` }} />
+            </div>
+          )}
+        </div>
+      )}
+      {activeRun && activeRun.status === 'completed' && (
+        <div className="card-static p-4 mb-6 border-l-4 border-green-500">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <CheckCircleIcon className="w-4 h-4 text-green-500" />
+              <span className="text-sm font-semibold text-fg-dark">Execution completed</span>
+            </div>
+            <div className="flex items-center gap-3 text-xs">
+              <span className="text-green-600 font-semibold">{activeRun.results?.summary?.passed || 0} passed</span>
+              <span className="text-red-600 font-semibold">{activeRun.results?.summary?.failed || 0} failed</span>
+              <span className="font-bold">{activeRun.results?.summary?.pass_rate || 0}% pass rate</span>
+            </div>
+            <button onClick={() => setActiveRun(null)} className="text-xs text-fg-mid hover:text-fg-dark">Dismiss</button>
+          </div>
+        </div>
+      )}
+      {activeRun && activeRun.status === 'failed' && (
+        <div className="card-static p-4 mb-6 border-l-4 border-red-500">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <XCircleIcon className="w-4 h-4 text-red-500" />
+              <span className="text-sm font-semibold text-fg-dark">Execution failed</span>
+            </div>
+            <button onClick={() => setActiveRun(null)} className="text-xs text-fg-mid hover:text-fg-dark">Dismiss</button>
+          </div>
+        </div>
+      )}
 
       {/* ── Test Cases ── */}
       {activeTab === 'test_cases' && <div className="animate-fade-in">

@@ -169,6 +169,8 @@ export const testPlansAPI = {
   // Reports
   getTraceability: (projectId, planId) => api.get(`/projects/${projectId}/test-plans/${planId}/traceability`),
   getSummary: (projectId, planId) => api.get(`/projects/${projectId}/test-plans/${planId}/summary`),
+  // Execution
+  execute: (projectId, planId, data = {}) => api.post(`/projects/${projectId}/test-plans/${planId}/execute`, data),
 };
 
 // -- Execution Results --
@@ -176,6 +178,13 @@ export const executionsAPI = {
   list: (projectId, params = {}) => api.get(`/projects/${projectId}/executions`, { params }),
   getById: (projectId, execId) => api.get(`/projects/${projectId}/executions/${execId}`),
   review: (projectId, execId, data) => api.post(`/projects/${projectId}/executions/${execId}/review`, data),
+};
+
+// -- Execution Runs --
+export const executionRunsAPI = {
+  list: (projectId, params = {}) => api.get(`/projects/${projectId}/execution-runs`, { params }),
+  getById: (projectId, runId) => api.get(`/projects/${projectId}/execution-runs/${runId}`),
+  cancel: (projectId, runId) => api.post(`/projects/${projectId}/execution-runs/${runId}/cancel`),
 };
 
 // -- Agent Key --

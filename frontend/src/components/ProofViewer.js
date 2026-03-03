@@ -28,8 +28,13 @@ const pre = {
 const label = { fontWeight: 600, fontSize: 13, color: '#555', marginTop: 12, display: 'block' };
 const kvRow = { display: 'flex', gap: 8, padding: '2px 0', fontSize: 13 };
 
+function safeParse(content) {
+  if (typeof content !== 'string') return content;
+  try { return JSON.parse(content); } catch { return { _raw: content }; }
+}
+
 function ApiResponse({ content }) {
-  const c = typeof content === 'string' ? JSON.parse(content) : content;
+  const c = safeParse(content);
   // If content doesn't have standard HTTP fields (method/url), render as generic JSON
   const isStandardHttp = c.method || c.url || c.body;
   if (!isStandardHttp) {
@@ -63,7 +68,7 @@ function ApiResponse({ content }) {
 }
 
 function Screenshot({ content, file_path }) {
-  const c = typeof content === 'string' ? JSON.parse(content) : content;
+  const c = safeParse(content);
   // Support multiple field names used by different agents (Codex uses data_base64, others use image_base64)
   const b64 = c?.image_base64 || c?.data_base64 || c?.base64 || c?.screenshot || null;
   const mime = c?.mime_type || 'image/png';
@@ -89,7 +94,7 @@ function Screenshot({ content, file_path }) {
 }
 
 function TestOutput({ content }) {
-  const c = typeof content === 'string' ? JSON.parse(content) : content;
+  const c = safeParse(content);
   return (
     <>
       <span style={{ fontWeight: 700, color: c.exit_code === 0 ? '#22c55e' : '#ef4444' }}>
@@ -104,7 +109,7 @@ function TestOutput({ content }) {
 }
 
 function QueryResult({ content }) {
-  const c = typeof content === 'string' ? JSON.parse(content) : content;
+  const c = safeParse(content);
   return (
     <>
       <span style={label}>SQL</span>
@@ -133,7 +138,7 @@ function QueryResult({ content }) {
 }
 
 function DataComparison({ content }) {
-  const c = typeof content === 'string' ? JSON.parse(content) : content;
+  const c = safeParse(content);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={kvRow}><span style={{ fontWeight: 600 }}>Source count:</span><span>{c.source_count}</span></div>
@@ -145,7 +150,7 @@ function DataComparison({ content }) {
 }
 
 function DqScorecard({ content }) {
-  const c = typeof content === 'string' ? JSON.parse(content) : content;
+  const c = safeParse(content);
   const metrics = Object.entries(c).filter(([, v]) => typeof v === 'number');
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

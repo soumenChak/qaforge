@@ -240,7 +240,7 @@ export default function ProjectDetail() {
       loadRequirements();
       loadProject();
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to add requirement.');
+      { const d = err.response?.data?.detail; alert(typeof d === 'string' ? d : (err.message || 'Failed to add requirement.')); }
     }
   };
 
@@ -263,7 +263,7 @@ export default function ProjectDetail() {
         alert(`✅ Successfully extracted ${count} requirements from your document using AI.`);
       }
     } catch (err) {
-      alert(err.response?.data?.detail || 'Extraction failed. Please try again.');
+      { const d = err.response?.data?.detail; alert(typeof d === 'string' ? d : (err.message || 'Extraction failed. Please try again.')); }
     } finally {
       setExtracting(false);
     }
@@ -288,7 +288,7 @@ export default function ProjectDetail() {
         alert(`✅ Successfully extracted ${count} requirements from "${extractFile.name}" using AI.`);
       }
     } catch (err) {
-      alert(err.response?.data?.detail || 'File extraction failed. Please try again.');
+      { const d = err.response?.data?.detail; alert(typeof d === 'string' ? d : (err.message || 'File extraction failed. Please try again.')); }
     } finally {
       setExtracting(false);
     }
@@ -376,7 +376,7 @@ export default function ProjectDetail() {
       loadTestCases();
       loadProject();
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to add test case.');
+      { const d = err.response?.data?.detail; alert(typeof d === 'string' ? d : (err.message || 'Failed to add test case.')); }
     }
   };
 
@@ -483,7 +483,7 @@ export default function ProjectDetail() {
       setAgentKeyVisible(res.data.api_key);
       loadProject();
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to generate agent key');
+      { const d = err.response?.data?.detail; alert(typeof d === 'string' ? d : (err.message || 'Failed to generate agent key')); }
     } finally {
       setGeneratingKey(false);
     }
@@ -496,7 +496,7 @@ export default function ProjectDetail() {
       setAgentKeyVisible(null);
       loadProject();
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to revoke agent key');
+      { const d = err.response?.data?.detail; alert(typeof d === 'string' ? d : (err.message || 'Failed to revoke agent key')); }
     }
   };
 

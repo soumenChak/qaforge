@@ -73,7 +73,7 @@ export default function Users() {
       setEditingId(null);
       loadUsers();
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to update user.');
+      { const d = err.response?.data?.detail; alert(typeof d === 'string' ? d : (err.message || 'Failed to update user.')); }
     }
   };
 
@@ -83,7 +83,7 @@ export default function Users() {
       await usersAPI.delete(userId);
       loadUsers();
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to deactivate user.');
+      { const d = err.response?.data?.detail; alert(typeof d === 'string' ? d : (err.message || 'Failed to deactivate user.')); }
     }
   };
 

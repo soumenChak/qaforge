@@ -176,7 +176,7 @@ export default function KnowledgeBase() {
       loadEntries(browseDomain);
       loadStats();
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to update entry.');
+      { const d = err.response?.data?.detail; alert(typeof d === 'string' ? d : (err.message || 'Failed to update entry.')); }
     } finally {
       setEditSaving(false);
     }
@@ -189,7 +189,7 @@ export default function KnowledgeBase() {
       loadEntries(browseDomain);
       loadStats();
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to delete entry.');
+      { const d = err.response?.data?.detail; alert(typeof d === 'string' ? d : (err.message || 'Failed to delete entry.')); }
     }
   };
 

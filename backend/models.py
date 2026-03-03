@@ -960,3 +960,60 @@ class AgentKeyResponse(BaseModel):
     api_key: str = Field(..., description="Show once — store securely")
     project_id: uuid.UUID
     project_name: str
+
+
+# ===================================================================
+# Execution Runs (Test Plan Execution)
+# ===================================================================
+class ExecuteTestPlanRequest(BaseModel):
+    """Payload to trigger execution of a test plan."""
+
+    connection_id: Optional[uuid.UUID] = Field(
+        None, description="Connection to use; if None, auto-creates from app_profile"
+    )
+    test_case_ids: Optional[List[uuid.UUID]] = Field(
+        None, description="Specific test case IDs to run; if None, runs all in plan"
+    )
+
+
+class ExecutionRunResponse(BaseModel):
+    """Execution run status returned to clients."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    test_plan_id: Optional[uuid.UUID] = None
+    connection_id: Optional[uuid.UUID] = None
+    status: str
+    results: Optional[Dict[str, Any]] = None
+    triggered_by: uuid.UUID
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class ConnectionCreate(BaseModel):
+    """Payload to create a connection."""
+
+    name: str = Field(..., min_length=1, max_length=255)
+    connection_type: str = Field(
+        default="rest_api",
+        pattern=r"^(rest_api|database|mcp|graphql)$",
+    )
+    config: Dict[str, Any] = Field(default_factory=dict)
+    is_default: bool = False
+
+
+class ConnectionResponse(BaseModel):
+    """Connection returned to clients."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    name: str
+    connection_type: str
+    config: Dict[str, Any] = Field(default_factory=dict)
+    is_default: bool
+    created_at: datetime

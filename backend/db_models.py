@@ -751,3 +751,146 @@ class CostTracking(Base):
 
     def __repr__(self) -> str:
         return f"<CostTracking {self.operation_type} ${self.estimated_cost_usd:.4f}>"
+
+
+# ---------------------------------------------------------------------------
+# Connection — reusable connection profile for test execution
+# ---------------------------------------------------------------------------
+class Connection(Base):
+    """A reusable connection profile for test execution (API, DB, MCP)."""
+
+    __tablename__ = "connections"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=_uuid
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    name: Mapped[str] = mapped_column(
+        String(255), nullable=False,
+        comment="Human-readable label e.g. 'Orbit API (Staging)'",
+    )
+    connection_type: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default="rest_api",
+        comment="rest_api / database / mcp / graphql",
+    )
+    config: Mapped[Any] = mapped_column(
+        JSONB, nullable=False, server_default="{}",
+        comment="base_url, auth_token, login_endpoint, credentials, etc.",
+    )
+    is_default: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false",
+        comment="If true, auto-selected when no connection_id specified",
+    )
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(),
+    )
+
+    # -- relationships --
+    project: Mapped["Project"] = relationship("Project", lazy="joined")
+
+    __table_args__ = (
+        UniqueConstraint("project_id", "name", name="uq_connection_project_name"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<Connection {self.name} ({self.connection_type})>"
+
+
+# ---------------------------------------------------------------------------
+# TestAgent — configuration for automated test agents
+# ---------------------------------------------------------------------------
+class TestAgent(Base):
+    """Configuration for automated test agents."""
+
+    __tablename__ = "test_agents"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=_uuid
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    name: Mapped[str] = mapped_column(
+        String(100), nullable=False, server_default="default",
+        comment="Agent name e.g. 'qaforge-engine'",
+    )
+    config: Mapped[Any] = mapped_column(
+        JSONB, nullable=False, server_default="{}",
+        comment="allow_sandbox, sandbox_timeout, etc.",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(),
+    )
+
+    # -- relationships --
+    project: Mapped["Project"] = relationship("Project", lazy="joined")
+
+    def __repr__(self) -> str:
+        return f"<TestAgent {self.name}>"
+
+
+# ---------------------------------------------------------------------------
+# ExecutionRun — a single execution run of a test plan
+# ---------------------------------------------------------------------------
+class ExecutionRun(Base):
+    """A single execution run of a test plan (one or more test cases)."""
+
+    __tablename__ = "execution_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=_uuid
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    test_plan_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("test_plans.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
+    connection_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("connections.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    test_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("test_agents.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    test_case_ids: Mapped[Any] = mapped_column(
+        JSONB, nullable=False, server_default="[]",
+        comment="Array of test case UUIDs to execute",
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="pending",
+        comment="pending / running / completed / failed / cancelled",
+    )
+    results: Mapped[Optional[Any]] = mapped_column(
+        JSONB, nullable=True,
+        comment="Live-updated results: {test_results: [...], summary: {...}}",
+    )
+    triggered_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False,
+    )
+    started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(),
+    )
+
+    # -- relationships --
+    project: Mapped["Project"] = relationship("Project", lazy="joined")
+    test_plan: Mapped[Optional["TestPlan"]] = relationship("TestPlan", lazy="joined")
+
+    def __repr__(self) -> str:
+        return f"<ExecutionRun {self.status} ({len(self.test_case_ids or [])} TCs)>"

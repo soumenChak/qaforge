@@ -339,7 +339,7 @@ export default function TestCaseEditor() {
       const res = await testCasesAPI.rate(projectId, tcId, { rating, feedback_text });
       setTc(res.data);
     } catch (err) {
-      alert('Failed to submit rating.');
+      { const d = err.response?.data?.detail; alert(typeof d === 'string' ? d : (err.message || 'Failed to submit rating.')); }
     }
   };
 
