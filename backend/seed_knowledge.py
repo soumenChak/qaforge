@@ -558,6 +558,164 @@ KB_ENTRIES = [
         ),
         "tags": ["reference", "ai", "llm", "api"],
     },
+
+    # ── Framework Patterns & Anti-Patterns ──────────────────────────────
+    {
+        "domain": "app",
+        "entry_type": "anti_pattern",
+        "title": "Never use html.escape() for sanitization",
+        "content": (
+            "html.escape() causes double-encoding (&amp; becomes &amp;amp;). "
+            "Use sanitize_string() which strips dangerous HTML tags instead."
+        ),
+        "tags": ["security", "input-sanitization", "framework"],
+    },
+    {
+        "domain": "app",
+        "entry_type": "anti_pattern",
+        "title": "Never use except: pass (silent exception swallowing)",
+        "content": (
+            "Silently swallowing exceptions loses critical error data. "
+            "Always use: logger.error('message', exc_info=True) to capture stack traces."
+        ),
+        "tags": ["error-handling", "debugging", "framework"],
+    },
+    {
+        "domain": "app",
+        "entry_type": "anti_pattern",
+        "title": "Never skip flag_modified() for JSONB updates",
+        "content": (
+            "SQLAlchemy doesn't detect in-place mutations on JSONB columns. "
+            "After modifying a JSONB field, always call flag_modified(row, 'column_name') before commit."
+        ),
+        "tags": ["database", "sqlalchemy", "framework"],
+    },
+    {
+        "domain": "app",
+        "entry_type": "anti_pattern",
+        "title": "Never compare naive vs timezone-aware datetimes",
+        "content": (
+            "Always use datetime.now(timezone.utc), never datetime.utcnow() or datetime.now(). "
+            "All dates must be timezone-aware UTC."
+        ),
+        "tags": ["datetime", "timezone", "framework"],
+    },
+    {
+        "domain": "app",
+        "entry_type": "anti_pattern",
+        "title": "Never use raw SQL in route handlers",
+        "content": (
+            "All database access must go through database_pg.py methods. "
+            "Routes should never import SQLAlchemy session or write raw SQL queries."
+        ),
+        "tags": ["architecture", "database", "framework"],
+    },
+    {
+        "domain": "app",
+        "entry_type": "anti_pattern",
+        "title": "Never store tokens/passwords in plaintext",
+        "content": (
+            "Use bcrypt for passwords (12 rounds minimum), SHA-256 for API keys. "
+            "Never log or store secrets in plaintext."
+        ),
+        "tags": ["security", "authentication", "framework"],
+    },
+    {
+        "domain": "app",
+        "entry_type": "anti_pattern",
+        "title": "Never use ALLOWED_ORIGINS=* in production",
+        "content": (
+            "CORS must use explicit origin allowlist in production. "
+            "Wildcard origins enable cross-site attacks."
+        ),
+        "tags": ["security", "cors", "framework"],
+    },
+    {
+        "domain": "app",
+        "entry_type": "anti_pattern",
+        "title": "Never skip health checks in Docker Compose",
+        "content": (
+            "Every service in docker-compose.yml must have a healthcheck. "
+            "Services depending on others must use 'condition: service_healthy'."
+        ),
+        "tags": ["infrastructure", "docker", "framework"],
+    },
+    {
+        "domain": "app",
+        "entry_type": "framework_pattern",
+        "title": "Database access via database_pg.py only",
+        "content": (
+            "All CRUD operations are methods in database_pg.py. "
+            "Routes call these methods — they never import SQLAlchemy models directly or write queries. "
+            "This centralizes all data access for consistency and testability."
+        ),
+        "tags": ["architecture", "database", "framework"],
+    },
+    {
+        "domain": "app",
+        "entry_type": "framework_pattern",
+        "title": "Audit logging for all state changes",
+        "content": (
+            "Every create, update, and delete route must call "
+            "audit_log(db, user_id, action, entity_type, entity_id, ip_address=get_client_ip(request)). "
+            "This creates an immutable trail for compliance."
+        ),
+        "tags": ["security", "audit", "framework"],
+    },
+    {
+        "domain": "app",
+        "entry_type": "framework_pattern",
+        "title": "Input sanitization with sanitize_string()",
+        "content": (
+            "All user-provided strings must pass through sanitize_string() from dependencies.py before storage. "
+            "This strips script tags, event handlers, and dangerous HTML without double-encoding."
+        ),
+        "tags": ["security", "input-sanitization", "framework"],
+    },
+    {
+        "domain": "app",
+        "entry_type": "framework_pattern",
+        "title": "RBAC via require_roles() dependency",
+        "content": (
+            "Use require_roles('admin') as a FastAPI Depends() for admin-only routes. "
+            "The dependency extracts and validates the JWT, then checks the user's roles array. "
+            "Roles: admin, engineer."
+        ),
+        "tags": ["security", "authorization", "framework"],
+    },
+    {
+        "domain": "app",
+        "entry_type": "compliance_rule",
+        "title": "Every route must have audit logging",
+        "content": (
+            "Rule: All POST, PUT, PATCH, DELETE route handlers must call audit_log() "
+            "with the current user, action name, entity type, and entity ID. "
+            "Violation: missing audit_log call in a state-changing route."
+        ),
+        "tags": ["compliance", "audit", "framework"],
+    },
+    {
+        "domain": "app",
+        "entry_type": "compliance_rule",
+        "title": "Every service must have Docker health check",
+        "content": (
+            "Rule: Every service in docker-compose.yml must include a healthcheck block. "
+            "Dependent services must use 'condition: service_healthy'. "
+            "Violation: service without healthcheck or missing dependency condition."
+        ),
+        "tags": ["compliance", "infrastructure", "framework"],
+    },
+    {
+        "domain": "app",
+        "entry_type": "compliance_rule",
+        "title": "Backend port must be internal-only (expose, not ports)",
+        "content": (
+            "Rule: The backend service in docker-compose.yml must use 'expose:' (internal) "
+            "not 'ports:' (public). Only the frontend (nginx) should have public ports. "
+            "Violation: backend with ports: mapping."
+        ),
+        "tags": ["compliance", "security", "infrastructure", "framework"],
+    },
 ]
 
 

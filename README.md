@@ -98,6 +98,7 @@ Then during vibe coding, just say: *"use QAForge to document testing"*
 
 | Document | Description |
 |----------|-------------|
+| [Testing Guide](docs/QAFORGE_TESTING_GUIDE.md) | **Start here** — Complete guide to using QAForge while vibe coding |
 | [Architecture](docs/ARCHITECTURE.md) | System design, data model, security |
 | [Agent Integration](docs/AGENT_INTEGRATION.md) | How to integrate any AI agent with QAForge |
 | [Runbook](docs/RUNBOOK.md) | Deploy, monitor, troubleshoot |

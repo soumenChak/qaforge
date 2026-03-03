@@ -46,7 +46,7 @@ def _uuid() -> uuid.UUID:
 # Users
 # ---------------------------------------------------------------------------
 class User(Base):
-    """Platform users (admin, lead, tester)."""
+    """Platform users (admin, engineer)."""
 
     __tablename__ = "users"
 
@@ -56,7 +56,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    roles: Mapped[Any] = mapped_column(JSONB, nullable=False, default=lambda: ["tester"])
+    roles: Mapped[Any] = mapped_column(JSONB, nullable=False, default=lambda: ["engineer"])
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -111,6 +111,10 @@ class Project(Base):
     )
     agent_api_key_hash: Mapped[Optional[str]] = mapped_column(
         String(128), nullable=True, comment="SHA-256 hash of agent API key"
+    )
+    assigned_users: Mapped[Any] = mapped_column(
+        JSONB, nullable=True, default=None,
+        comment="List of user UUIDs assigned to this project"
     )
     created_by: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
@@ -329,7 +333,7 @@ class KnowledgeEntry(Base):
     sub_domain: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     entry_type: Mapped[str] = mapped_column(
         String(30), nullable=False,
-        comment="pattern / defect / best_practice / test_case"
+        comment="pattern / defect / best_practice / test_case / framework_pattern / anti_pattern / compliance_rule"
     )
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)

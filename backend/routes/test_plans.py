@@ -398,6 +398,42 @@ def review_execution(
     return result
 
 
+@router.delete(
+    "/{project_id}/test-plans/executions/{exec_id}",
+    summary="Delete an execution result",
+)
+def delete_execution(
+    project_id: uuid.UUID,
+    exec_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete an execution result. Cascades to proof artifacts."""
+    execution = db.query(ExecutionResult).filter(ExecutionResult.id == exec_id).first()
+    if not execution:
+        raise HTTPException(status_code=404, detail="Execution result not found")
+
+    # Verify project ownership
+    tc = db.query(TestCase).filter(TestCase.id == execution.test_case_id).first()
+    if not tc or tc.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Execution result not found in this project")
+
+    db.delete(execution)
+    db.flush()
+
+    audit_log(
+        db,
+        user_id=current_user.id,
+        action="delete_execution",
+        entity_type="execution_result",
+        entity_id=str(exec_id),
+        ip_address=get_client_ip(request),
+    )
+
+    return {"message": "Execution result deleted"}
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Traceability Matrix
 # ═══════════════════════════════════════════════════════════════════════════

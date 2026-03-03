@@ -54,11 +54,28 @@ function ApiResponse({ content }) {
 
 function Screenshot({ content, file_path }) {
   const c = typeof content === 'string' ? JSON.parse(content) : content;
-  const src = c?.image_base64
-    ? `data:image/png;base64,${c.image_base64}`
-    : file_path || null;
-  if (!src) return <p>No image available.</p>;
-  return <img src={src} alt="screenshot" style={{ maxWidth: '100%', borderRadius: 4 }} />;
+  // Support multiple field names used by different agents (Codex uses data_base64, others use image_base64)
+  const b64 = c?.image_base64 || c?.data_base64 || c?.base64 || c?.screenshot || null;
+  const mime = c?.mime_type || 'image/png';
+  const src = b64
+    ? `data:${mime};base64,${b64}`
+    : c?.url || file_path || null;
+  if (!src) {
+    const keys = c ? Object.keys(c).join(', ') : 'none';
+    return (
+      <div style={{ padding: 16, background: '#fef3c7', borderRadius: 6, fontSize: 13 }}>
+        <p style={{ fontWeight: 600, color: '#92400e', marginBottom: 4 }}>No image data found</p>
+        <p style={{ color: '#78350f' }}>Available fields: {keys}</p>
+        {c?.filename && <p style={{ color: '#78350f', marginTop: 4 }}>Filename: {c.filename}</p>}
+      </div>
+    );
+  }
+  return (
+    <div>
+      {c?.filename && <p style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>{c.filename}</p>}
+      <img src={src} alt={c?.filename || 'screenshot'} style={{ maxWidth: '100%', borderRadius: 4 }} />
+    </div>
+  );
 }
 
 function TestOutput({ content }) {
@@ -155,6 +172,16 @@ function CodeDiff({ content }) {
   );
 }
 
+function GenericContent({ content }) {
+  const c = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+  return (
+    <div>
+      <span style={label}>Content</span>
+      <pre style={{ ...pre, maxHeight: 500, overflowY: 'auto' }}>{c}</pre>
+    </div>
+  );
+}
+
 const RENDERERS = {
   api_response: ApiResponse,
   screenshot: Screenshot,
@@ -169,7 +196,7 @@ const RENDERERS = {
 export default function ProofViewer({ proof, onClose, visible }) {
   if (!visible || !proof) return null;
 
-  const Renderer = RENDERERS[proof.proof_type] || LogViewer;
+  const Renderer = RENDERERS[proof.proof_type] || GenericContent;
 
   return (
     <div style={overlay} onClick={onClose}>

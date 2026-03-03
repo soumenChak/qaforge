@@ -2,10 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { testCasesAPI, testPlansAPI, executionsAPI } from '../services/api';
 import Breadcrumb from '../components/Breadcrumb';
-import { CheckCircleIcon, XCircleIcon, ClockIcon, ChevronDownIcon, ChevronUpIcon, PlusIcon } from '@heroicons/react/24/outline';
+import ProofViewer from '../components/ProofViewer';
+import { CheckCircleIcon, XCircleIcon, ClockIcon, ChevronDownIcon, ChevronUpIcon, EyeIcon } from '@heroicons/react/24/outline';
 
 const STATUS_CHIP = { draft: 'badge-gray', reviewed: 'bg-blue-100 text-blue-800', approved: 'badge-green', executed: 'bg-orange-100 text-orange-800', passed: 'badge-green', failed: 'badge-red' };
-const CP_TYPES = ['test_case_review', 'execution_review', 'sign_off'];
 const CP_STATUS = { pending: 'badge-yellow', approved: 'badge-green', rejected: 'badge-red', needs_rework: 'bg-orange-100 text-orange-800' };
 const REV_STATUS = { pending: 'badge-yellow', approved: 'badge-green', rejected: 'badge-red' };
 
@@ -39,14 +39,8 @@ export default function TestPlanDetail() {
   const [expandedExecId, setExpandedExecId] = useState(null);
   const [reviewingExecId, setReviewingExecId] = useState(null);
   const [reviewComment, setReviewComment] = useState('');
-  // Checkpoints
-  const [checkpoints, setCheckpoints] = useState([]);
-  const [cpLoading, setCpLoading] = useState(false);
-  const [showAddCp, setShowAddCp] = useState(false);
-  const [newCpType, setNewCpType] = useState(CP_TYPES[0]);
-  const [cpAdding, setCpAdding] = useState(false);
-  const [reviewingCpId, setReviewingCpId] = useState(null);
-  const [cpReviewComment, setCpReviewComment] = useState('');
+  // Proof Viewer
+  const [selectedProof, setSelectedProof] = useState(null);
   // Traceability & Summary
   const [traceability, setTraceability] = useState(null);
   const [traceLoading, setTraceLoading] = useState(false);
@@ -67,14 +61,12 @@ export default function TestPlanDetail() {
 
   const loadTC = useCallback(() => load(() => testCasesAPI.list(projectId, { test_plan_id: planId }), setTestCases, setTcLoading), [projectId, planId, load]);
   const loadExec = useCallback(() => load(() => executionsAPI.list(projectId, { test_plan_id: planId }), setExecutions, setExecLoading), [projectId, planId, load]);
-  const loadCP = useCallback(() => load(() => testPlansAPI.listCheckpoints(projectId, planId), setCheckpoints, setCpLoading), [projectId, planId, load]);
   const loadTrace = useCallback(() => load(() => testPlansAPI.getTraceability(projectId, planId), setTraceability, setTraceLoading), [projectId, planId, load]);
   const loadSum = useCallback(() => load(() => testPlansAPI.getSummary(projectId, planId), setSummary, setSumLoading), [projectId, planId, load]);
 
   useEffect(() => { loadPlan(); }, [loadPlan]);
   useEffect(() => { if (activeTab === 'test_cases') loadTC(); }, [activeTab, loadTC]);
   useEffect(() => { if (activeTab === 'executions') loadExec(); }, [activeTab, loadExec]);
-  useEffect(() => { if (activeTab === 'checkpoints') loadCP(); }, [activeTab, loadCP]);
   useEffect(() => { if (activeTab === 'traceability') loadTrace(); }, [activeTab, loadTrace]);
   useEffect(() => { if (activeTab === 'summary') loadSum(); }, [activeTab, loadSum]);
 
@@ -95,18 +87,6 @@ export default function TestPlanDetail() {
     catch (e) { alert(e.response?.data?.detail || 'Review failed.'); }
   };
 
-  const addCheckpoint = async () => {
-    setCpAdding(true);
-    try { await testPlansAPI.createCheckpoint(projectId, planId, { type: newCpType }); setShowAddCp(false); loadCP(); }
-    catch (e) { alert(e.response?.data?.detail || 'Failed to add checkpoint.'); }
-    finally { setCpAdding(false); }
-  };
-
-  const cpReview = async (id, status) => {
-    try { await testPlansAPI.reviewCheckpoint(projectId, id, { status, comment: cpReviewComment }); setReviewingCpId(null); setCpReviewComment(''); loadCP(); }
-    catch (e) { alert(e.response?.data?.detail || 'Checkpoint review failed.'); }
-  };
-
   // ── Guards ──
   if (loading) return <div className="page-container"><Spinner /></div>;
   if (!plan) return <div className="page-container"><p className="text-fg-mid">Test plan not found.</p><button onClick={() => navigate(-1)} className="btn-secondary mt-4">Go Back</button></div>;
@@ -114,7 +94,6 @@ export default function TestPlanDetail() {
   const tabs = [
     { key: 'test_cases', label: `Test Cases (${testCases.length})` },
     { key: 'executions', label: `Executions (${executions.length})` },
-    { key: 'checkpoints', label: `Checkpoints (${checkpoints.length})` },
     { key: 'traceability', label: 'Traceability' },
     { key: 'summary', label: 'Summary' },
   ];
@@ -196,7 +175,7 @@ export default function TestPlanDetail() {
                   <td className="px-4 py-3 text-sm font-mono text-fg-dark">{ex.test_case_id}</td>
                   <td className="px-4 py-3"><Chip status={ex.status} /></td>
                   <td className="px-4 py-3 text-sm text-fg-mid">{ex.executed_by || '-'}</td>
-                  <td className="px-4 py-3 text-sm text-fg-mid">{ex.duration != null ? `${ex.duration}s` : '-'}</td>
+                  <td className="px-4 py-3 text-sm text-fg-mid">{ex.duration_ms != null ? `${ex.duration_ms}ms` : ex.duration != null ? `${ex.duration}s` : '-'}</td>
                   <td className="px-4 py-3"><span className={`badge ${REV_STATUS[ex.review_status] || 'badge-gray'}`}>{ex.review_status || 'pending'}</span></td>
                   <td className="px-4 py-3 text-sm text-fg-mid">{ex.executed_at ? new Date(ex.executed_at).toLocaleString() : '-'}</td>
                   <td className="px-4 py-3">
@@ -213,58 +192,31 @@ export default function TestPlanDetail() {
                   </td>
                 </tr>
                 {expandedExecId === ex.id && <tr><td colSpan={8} className="px-8 py-4 bg-gray-50">
+                  {ex.actual_result && <div className="mb-3">
+                    <p className="text-xs font-semibold text-fg-mid mb-1 uppercase tracking-wider">Actual Result</p>
+                    <p className="text-sm text-fg-dark">{ex.actual_result}</p>
+                  </div>}
+                  {ex.error_message && <div className="mb-3">
+                    <p className="text-xs font-semibold text-red-500 mb-1 uppercase tracking-wider">Error</p>
+                    <pre className="text-xs text-red-700 bg-red-50 p-2 rounded overflow-x-auto">{ex.error_message}</pre>
+                  </div>}
                   {ex.proof_artifacts?.length > 0 ? (<div>
-                    <p className="text-xs font-semibold text-fg-mid mb-2 uppercase tracking-wider">Proof Artifacts</p>
+                    <p className="text-xs font-semibold text-fg-mid mb-2 uppercase tracking-wider">Proof Artifacts ({ex.proof_artifacts.length})</p>
                     <div className="flex flex-wrap gap-2">
-                      {ex.proof_artifacts.map((a, i) => <div key={i} className="card-static px-3 py-2 text-xs">
-                        <span className="font-medium text-fg-dark">{a.title || 'Untitled'}</span>
-                        <span className="badge badge-gray ml-2">{a.type}</span>
-                      </div>)}
+                      {ex.proof_artifacts.map((a, i) => (
+                        <button key={i} onClick={() => setSelectedProof(a)}
+                          className="card-static px-3 py-2 text-xs cursor-pointer hover:bg-blue-50 hover:border-blue-300 transition-colors flex items-center gap-2 border border-gray-200 rounded">
+                          <EyeIcon className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+                          <span className="font-medium text-fg-dark">{a.title || 'Untitled'}</span>
+                          <span className="badge badge-gray ml-1">{a.proof_type || a.type}</span>
+                        </button>
+                      ))}
                     </div>
                   </div>) : <p className="text-xs text-fg-mid">No proof artifacts for this execution.</p>}
                 </td></tr>}
               </React.Fragment>)}
             </tbody>
           </table></div>
-        )}
-      </div>}
-
-      {/* ── Checkpoints ── */}
-      {activeTab === 'checkpoints' && <div className="animate-fade-in">
-        <div className="flex items-center gap-3 mb-4">
-          {showAddCp ? (<div className="flex items-center gap-2">
-            <select value={newCpType} onChange={e => setNewCpType(e.target.value)} className="input-field text-sm w-48">
-              {CP_TYPES.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
-            </select>
-            <button onClick={addCheckpoint} disabled={cpAdding} className="btn-primary text-sm">{cpAdding ? 'Adding...' : 'Add'}</button>
-            <button onClick={() => setShowAddCp(false)} className="btn-ghost text-sm">Cancel</button>
-          </div>) : (
-            <button onClick={() => setShowAddCp(true)} className="btn-secondary flex items-center gap-2 text-sm"><PlusIcon className="w-4 h-4" /> Add Checkpoint</button>
-          )}
-        </div>
-        {cpLoading ? <Spinner /> : !checkpoints.length ? <p className="text-fg-mid text-sm py-8 text-center">No checkpoints defined.</p> : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {checkpoints.map(cp => <div key={cp.id} className="card p-5">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-semibold text-fg-navy capitalize">{cp.type?.replace(/_/g, ' ')}</span>
-                <span className={`badge ${CP_STATUS[cp.status] || 'badge-gray'}`}>{cp.status}</span>
-              </div>
-              {cp.reviewer && <p className="text-xs text-fg-mid mb-1">Reviewer: {cp.reviewer}</p>}
-              {cp.reviewed_at && <p className="text-xs text-fg-mid mb-3">Reviewed: {new Date(cp.reviewed_at).toLocaleString()}</p>}
-              {cp.comment && <p className="text-xs text-fg-mid italic mb-3">"{cp.comment}"</p>}
-              {reviewingCpId === cp.id ? (
-                <div className="flex flex-col gap-2 mt-2">
-                  <input type="text" placeholder="Comment (optional)" value={cpReviewComment} onChange={e => setCpReviewComment(e.target.value)} className="input-field text-xs" />
-                  <div className="flex gap-1 flex-wrap">
-                    <button onClick={() => cpReview(cp.id, 'approved')} className="btn-primary text-xs px-2 py-1">Approve</button>
-                    <button onClick={() => cpReview(cp.id, 'rejected')} className="btn-danger text-xs px-2 py-1">Reject</button>
-                    <button onClick={() => cpReview(cp.id, 'needs_rework')} className="btn-secondary text-xs px-2 py-1">Needs Rework</button>
-                    <button onClick={() => { setReviewingCpId(null); setCpReviewComment(''); }} className="btn-ghost text-xs px-2 py-1">Cancel</button>
-                  </div>
-                </div>
-              ) : <button onClick={() => setReviewingCpId(cp.id)} className="btn-secondary text-xs mt-2">Review</button>}
-            </div>)}
-          </div>
         )}
       </div>}
 
@@ -367,6 +319,9 @@ export default function TestPlanDetail() {
           );
         })()}
       </div>}
+
+      {/* Proof Viewer Modal */}
+      <ProofViewer proof={selectedProof} visible={!!selectedProof} onClose={() => setSelectedProof(null)} />
     </div>
   );
 }

@@ -472,13 +472,7 @@ export default function ProjectDetail() {
             </div>
           </div>
 
-          <button
-            onClick={() => navigate(`/projects/${id}/generate`)}
-            className="btn-primary flex items-center gap-2"
-          >
-            <SparklesIcon className="w-4 h-4" />
-            Generate Test Cases
-          </button>
+          {/* Generate Test Cases button removed — no frontend page yet; use Agent API */}
         </div>
 
         {project.description && (
@@ -883,12 +877,7 @@ export default function ProjectDetail() {
                       </div>
                     ))}
                   </div>
-                  <button
-                    onClick={() => navigate(`/projects/${id}/generate?requirement_ids=${coverage.uncovered_details.map(r => r.id).join(',')}`)}
-                    className="mt-2 text-xs px-3 py-1.5 rounded bg-amber-100 text-amber-800 hover:bg-amber-200 font-medium transition-colors"
-                  >
-                    Generate Tests for Gaps →
-                  </button>
+                  {/* Generate Tests for Gaps button removed — no frontend page yet */}
                 </details>
               )}
             </div>

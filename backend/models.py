@@ -41,12 +41,12 @@ class UserCreate(BaseModel):
     email: EmailStr
     name: str = Field(..., min_length=1, max_length=255)
     password: str = Field(..., min_length=6)
-    roles: List[str] = Field(default_factory=lambda: ["tester"])
+    roles: List[str] = Field(default_factory=lambda: ["engineer"])
 
     @field_validator("roles", mode="before")
     @classmethod
     def validate_roles(cls, v: Any) -> List[str]:
-        allowed = {"admin", "lead", "tester"}
+        allowed = {"admin", "engineer"}
         roles = v if isinstance(v, list) else [v]
         for r in roles:
             if r not in allowed:
@@ -66,7 +66,7 @@ class UserUpdate(BaseModel):
     def validate_roles(cls, v: Any) -> Optional[List[str]]:
         if v is None:
             return v
-        allowed = {"admin", "lead", "tester"}
+        allowed = {"admin", "engineer"}
         roles = v if isinstance(v, list) else [v]
         for r in roles:
             if r not in allowed:
@@ -101,6 +101,8 @@ class ProjectCreate(BaseModel):
     template_id: Optional[uuid.UUID] = None
     app_profile: Optional[Dict[str, Any]] = None
     brd_prd_text: Optional[str] = None
+    assigned_users: Optional[List[uuid.UUID]] = None
+    auto_generate_key: bool = False
 
 
 class ProjectUpdate(BaseModel):
@@ -129,6 +131,7 @@ class ProjectResponse(BaseModel):
     app_profile: Optional[Dict[str, Any]] = None
     brd_prd_text: Optional[str] = None
     has_agent_key: bool = False
+    assigned_users: Optional[List[uuid.UUID]] = None
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime
@@ -146,6 +149,7 @@ class ProjectListResponse(BaseModel):
     description: Optional[str] = None
     status: str
     app_profile: Optional[Dict[str, Any]] = None
+    assigned_users: Optional[List[uuid.UUID]] = None
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime
@@ -501,7 +505,7 @@ class KnowledgeEntryCreate(BaseModel):
     sub_domain: Optional[str] = Field(None, max_length=100)
     entry_type: str = Field(
         ...,
-        pattern=r"^(pattern|defect|best_practice|test_case)$",
+        pattern=r"^(pattern|defect|best_practice|test_case|framework_pattern|anti_pattern|compliance_rule)$",
     )
     title: str = Field(..., min_length=1, max_length=500)
     content: str = Field(..., min_length=1)

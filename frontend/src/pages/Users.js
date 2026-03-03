@@ -6,8 +6,7 @@ import Spinner from '../components/Spinner';
 
 const ROLE_COLORS = {
   admin: 'bg-red-100 text-red-700',
-  lead: 'bg-blue-100 text-blue-700',
-  tester: 'bg-green-100 text-green-700',
+  engineer: 'bg-blue-100 text-blue-700',
 };
 
 export default function Users() {
@@ -19,7 +18,7 @@ export default function Users() {
   const [editData, setEditData] = useState({});
 
   // Add user form
-  const [newUser, setNewUser] = useState({ name: '', email: '', password: '', roles: ['tester'] });
+  const [newUser, setNewUser] = useState({ name: '', email: '', password: '', roles: ['engineer'] });
   const [addError, setAddError] = useState('');
   const [adding, setAdding] = useState(false);
 
@@ -54,7 +53,7 @@ export default function Users() {
     try {
       await authAPI.register(newUser);
       setShowAddModal(false);
-      setNewUser({ name: '', email: '', password: '', roles: ['tester'] });
+      setNewUser({ name: '', email: '', password: '', roles: ['engineer'] });
       loadUsers();
     } catch (err) {
       setAddError(err.response?.data?.detail || 'Failed to add user.');
@@ -65,7 +64,7 @@ export default function Users() {
 
   const handleEditStart = (u) => {
     setEditingId(u.id);
-    setEditData({ name: u.name, roles: u.roles || ['tester'] });
+    setEditData({ name: u.name, roles: u.roles || ['engineer'] });
   };
 
   const handleEditSave = async (userId) => {
@@ -214,7 +213,7 @@ export default function Users() {
         </div>
         <button onClick={() => setShowAddModal(true)} className="btn-primary flex items-center gap-2">
           <PlusIcon className="w-4 h-4" />
-          Add User
+          Add Engineer
         </button>
       </div>
 
@@ -262,7 +261,7 @@ export default function Users() {
                     <td className="px-4 py-3">
                       {isEditing ? (
                         <div className="flex gap-1">
-                          {['admin', 'lead', 'tester'].map((role) => (
+                          {['admin', 'engineer'].map((role) => (
                             <button
                               key={role}
                               onClick={() => toggleRole(role)}
@@ -380,7 +379,7 @@ export default function Users() {
                 <div>
                   <label className="label">Roles</label>
                   <div className="flex gap-2">
-                    {['admin', 'lead', 'tester'].map((role) => (
+                    {['admin', 'engineer'].map((role) => (
                       <button
                         key={role}
                         type="button"

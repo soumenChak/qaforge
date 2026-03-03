@@ -137,6 +137,11 @@ export const knowledgeAPI = {
   seed: () => api.post('/knowledge/seed'),
 };
 
+// -- Reviews --
+export const reviewsAPI = {
+  getPending: () => api.get('/reviews/pending'),
+};
+
 // -- Settings --
 export const settingsAPI = {
   getLLM: () => api.get('/settings/llm'),

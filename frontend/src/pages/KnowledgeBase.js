@@ -11,13 +11,15 @@ import {
 } from '@heroicons/react/24/outline';
 import ConfirmModal from '../components/ConfirmModal';
 import { DOMAIN_COLORS, DOMAIN_NAMES } from '../constants/domains';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 const TYPE_COLORS = {
   pattern: 'bg-teal-100 text-teal-700',
   defect: 'bg-red-100 text-red-700',
   best_practice: 'bg-green-100 text-green-700',
   test_case: 'bg-blue-100 text-blue-700',
+  framework_pattern: 'bg-purple-100 text-purple-700',
+  anti_pattern: 'bg-orange-100 text-orange-700',
+  compliance_rule: 'bg-indigo-100 text-indigo-700',
 };
 
 export default function KnowledgeBase() {
@@ -191,11 +193,6 @@ export default function KnowledgeBase() {
     }
   };
 
-  // Chart data from stats
-  const chartData = stats?.entries_by_domain
-    ? Object.entries(stats.entries_by_domain).map(([domain, count]) => ({ domain, count }))
-    : [];
-
   return (
     <div className="page-container">
       <div className="section-header">
@@ -278,6 +275,7 @@ export default function KnowledgeBase() {
             <option value="mdm">MDM</option>
             <option value="ai">AI / GenAI</option>
             <option value="data_eng">Data Engineering</option>
+            <option value="app">App Framework</option>
           </select>
           <button type="submit" disabled={searching || !query.trim()} className="btn-primary">
             {searching ? 'Searching...' : 'Search'}
@@ -346,6 +344,7 @@ export default function KnowledgeBase() {
                 { key: 'mdm', label: 'MDM' },
                 { key: 'ai', label: 'AI / GenAI' },
                 { key: 'data_eng', label: 'Data Eng' },
+                { key: 'app', label: 'App' },
               ].map((tab) => (
                 <button
                   key={tab.key}
@@ -389,6 +388,11 @@ export default function KnowledgeBase() {
                             <span className={`badge text-xs ${DOMAIN_COLORS[entry.domain] || 'badge-gray'}`}>
                               {DOMAIN_NAMES[entry.domain] || entry.domain}
                             </span>
+                            {entry.source_project_id && (
+                              <span className="text-[10px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">
+                                Auto-learned
+                              </span>
+                            )}
                             {entry.usage_count > 0 && (
                               <span className="text-[10px] text-fg-mid">
                                 Used {entry.usage_count}x in generation
@@ -456,6 +460,7 @@ export default function KnowledgeBase() {
                                 <option value="mdm">MDM</option>
                                 <option value="ai">AI / GenAI</option>
                                 <option value="data_eng">Data Engineering</option>
+                                <option value="app">App Framework</option>
                               </select>
                             </div>
                             <div>
@@ -469,6 +474,9 @@ export default function KnowledgeBase() {
                                 <option value="defect">Known Defect</option>
                                 <option value="best_practice">Best Practice</option>
                                 <option value="test_case">Test Case</option>
+                                <option value="framework_pattern">Framework Pattern</option>
+                                <option value="anti_pattern">Anti-Pattern</option>
+                                <option value="compliance_rule">Compliance Rule</option>
                               </select>
                             </div>
                             <div>
@@ -525,65 +533,30 @@ export default function KnowledgeBase() {
 
       {/* Stats section */}
       {stats && stats.total_entries > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Stats summary */}
-          <div className="card-static overflow-hidden">
-            <div className="h-1 bg-gradient-to-r from-fg-teal to-fg-green" />
-            <div className="p-5">
-              <h3 className="text-sm font-bold text-fg-navy uppercase tracking-wider mb-4">
-                Statistics
-              </h3>
-              <div className="text-3xl font-black text-fg-navy mb-4">
-                {stats.total_entries || 0}
-                <span className="text-sm font-normal text-fg-mid ml-2">total entries</span>
+        <div className="card-static overflow-hidden">
+          <div className="h-1 bg-gradient-to-r from-fg-teal to-fg-green" />
+          <div className="p-5">
+            <h3 className="text-sm font-bold text-fg-navy uppercase tracking-wider mb-4">
+              Statistics
+            </h3>
+            <div className="text-3xl font-black text-fg-navy mb-4">
+              {stats.total_entries || 0}
+              <span className="text-sm font-normal text-fg-mid ml-2">total entries</span>
+            </div>
+
+            {stats.entries_by_type && Object.keys(stats.entries_by_type).length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-xs font-semibold text-fg-mid uppercase">By Type</h4>
+                {Object.entries(stats.entries_by_type).map(([type, count]) => (
+                  <div key={type} className="flex items-center justify-between">
+                    <span className={`badge text-xs ${TYPE_COLORS[type] || 'badge-gray'}`}>
+                      {type.replace(/_/g, ' ')}
+                    </span>
+                    <span className="text-sm font-medium text-fg-dark">{count}</span>
+                  </div>
+                ))}
               </div>
-
-              {stats.entries_by_type && Object.keys(stats.entries_by_type).length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="text-xs font-semibold text-fg-mid uppercase">By Type</h4>
-                  {Object.entries(stats.entries_by_type).map(([type, count]) => (
-                    <div key={type} className="flex items-center justify-between">
-                      <span className={`badge text-xs ${TYPE_COLORS[type] || 'badge-gray'}`}>
-                        {type.replace(/_/g, ' ')}
-                      </span>
-                      <span className="text-sm font-medium text-fg-dark">{count}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Chart */}
-          <div className="card-static overflow-hidden">
-            <div className="h-1 bg-gradient-to-r from-fg-teal to-fg-green" />
-            <div className="p-5">
-              <h3 className="text-sm font-bold text-fg-navy uppercase tracking-wider mb-4">
-                Entries by Domain
-              </h3>
-              {chartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis dataKey="domain" tick={{ fontSize: 12, fill: '#50606c' }} />
-                    <YAxis tick={{ fontSize: 12, fill: '#50606c' }} />
-                    <Tooltip
-                      contentStyle={{
-                        borderRadius: '8px',
-                        border: '1px solid #e5e7eb',
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                        fontSize: '12px',
-                      }}
-                    />
-                    <Bar dataKey="count" fill="#2bb8c6" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex items-center justify-center h-[220px]">
-                  <p className="text-sm text-fg-mid">No data yet</p>
-                </div>
-              )}
-            </div>
+            )}
           </div>
         </div>
       )}
@@ -652,6 +625,7 @@ export default function KnowledgeBase() {
                       <option value="mdm">MDM</option>
                       <option value="ai">AI / GenAI</option>
                       <option value="data_eng">Data Engineering</option>
+                      <option value="app">App Framework</option>
                     </select>
                   </div>
                   <div>
@@ -665,6 +639,9 @@ export default function KnowledgeBase() {
                       <option value="defect">Known Defect</option>
                       <option value="best_practice">Best Practice</option>
                       <option value="test_case">Test Case</option>
+                      <option value="framework_pattern">Framework Pattern</option>
+                      <option value="anti_pattern">Anti-Pattern</option>
+                      <option value="compliance_rule">Compliance Rule</option>
                     </select>
                   </div>
                 </div>

@@ -236,6 +236,7 @@ def _register_routes() -> None:
         "settings": "/api/settings",
         "agent_api": "/api/agent",
         "test_plans": "/api/projects",
+        "reviews": "/api/reviews",
     }
 
     for importer, module_name, is_pkg in pkgutil.iter_modules(package_path):

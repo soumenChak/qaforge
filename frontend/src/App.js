@@ -12,7 +12,7 @@ import TestPlans from './pages/TestPlans';
 import TestPlanDetail from './pages/TestPlanDetail';
 import Settings from './pages/Settings';
 import Users from './pages/Users';
-import TemplateManager from './pages/TemplateManager';
+import ReviewQueue from './pages/ReviewQueue';
 import KnowledgeBase from './pages/KnowledgeBase';
 
 /**
@@ -84,9 +84,9 @@ export default function App() {
             <Route path="projects/:id/test-plans" element={<TestPlans />} />
             <Route path="projects/:id/test-plans/:planId" element={<TestPlanDetail />} />
             <Route path="projects/:id/test-cases/:tcId" element={<TestCaseEditor />} />
-            <Route path="templates" element={<TemplateManager />} />
+            <Route path="reviews" element={<ReviewQueue />} />
             <Route path="knowledge" element={<KnowledgeBase />} />
-            <Route path="settings" element={<Settings />} />
+            <Route path="settings" element={<AdminRoute><Settings /></AdminRoute>} />
             <Route
               path="users"
               element={

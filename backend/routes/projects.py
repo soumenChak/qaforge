@@ -33,6 +33,7 @@ from dependencies import (
     audit_log,
     get_client_ip,
     get_current_user,
+    is_admin,
     sanitize_string,
 )
 from models import (
@@ -76,10 +77,19 @@ def create_project(
         description=sanitize_string(body.description) if body.description else None,
         template_id=body.template_id,
         app_profile=body.app_profile,
+        assigned_users=[str(u) for u in body.assigned_users] if body.assigned_users else None,
         created_by=current_user.id,
     )
     db.add(project)
     db.flush()
+
+    # Auto-generate agent API key if requested
+    generated_key = None
+    if body.auto_generate_key:
+        raw_key = secrets.token_urlsafe(32)
+        project.agent_api_key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+        db.flush()
+        generated_key = raw_key
 
     audit_log(
         db,
@@ -93,7 +103,15 @@ def create_project(
 
     logger.info("Project created: %s by %s", project.name, current_user.email)
 
-    return ProjectResponse.model_validate(project)
+    response = ProjectResponse.model_validate(project)
+    if generated_key:
+        response.has_agent_key = True
+        # Return the key in the response as extra data
+        return {
+            **response.model_dump(mode="json"),
+            "agent_api_key": generated_key,
+        }
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +134,7 @@ def list_projects(
     List all projects with aggregated stats.
 
     Supports filtering by domain and status.
+    Non-admin users only see projects they created or are assigned to.
     """
     query = db.query(Project)
 
@@ -125,6 +144,15 @@ def list_projects(
         query = query.filter(Project.status == project_status)
 
     projects = query.order_by(Project.created_at.desc()).all()
+
+    # Non-admin users: filter to projects they created or are assigned to
+    if not is_admin(current_user):
+        uid_str = str(current_user.id)
+        projects = [
+            p for p in projects
+            if p.created_by == current_user.id
+            or (p.assigned_users and uid_str in [str(u) for u in p.assigned_users])
+        ]
 
     results = []
     for p in projects:

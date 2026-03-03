@@ -64,6 +64,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const isAdmin = user?.roles?.includes('admin');
+  const isEngineer = user?.roles?.includes('engineer');
 
   const value = {
     user,
@@ -72,6 +73,7 @@ export function AuthProvider({ children }) {
     login,
     logout,
     isAdmin,
+    isEngineer,
     refreshUser: fetchMe,
   };
 

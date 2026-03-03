@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   HomeIcon,
   FolderIcon,
-  DocumentTextIcon,
+  ClipboardDocumentCheckIcon,
   BookOpenIcon,
   CogIcon,
   UsersIcon,
@@ -17,12 +17,14 @@ import {
 const NAV_ITEMS = [
   { path: '/', label: 'Dashboard', icon: HomeIcon, end: true },
   { path: '/projects', label: 'Projects', icon: FolderIcon },
-  { path: '/templates', label: 'Templates', icon: DocumentTextIcon },
+  { path: '/reviews', label: 'Review Queue', icon: ClipboardDocumentCheckIcon },
   { path: '/knowledge', label: 'Knowledge Base', icon: BookOpenIcon },
-  { path: '/settings', label: 'Settings', icon: CogIcon },
 ];
 
-const ADMIN_NAV = { path: '/users', label: 'Users', icon: UsersIcon };
+const ADMIN_NAV_ITEMS = [
+  { path: '/settings', label: 'Settings', icon: CogIcon },
+  { path: '/users', label: 'Users', icon: UsersIcon },
+];
 
 export default function Layout() {
   const { user, logout, isAdmin } = useAuth();
@@ -34,7 +36,7 @@ export default function Layout() {
     navigate('/login');
   };
 
-  const navItems = isAdmin ? [...NAV_ITEMS, ADMIN_NAV] : NAV_ITEMS;
+  // navItems no longer merges admin items; admin section is rendered separately
 
   const initials = user?.name
     ? user.name
@@ -45,7 +47,7 @@ export default function Layout() {
         .toUpperCase()
     : 'U';
 
-  const roleBadge = isAdmin ? 'Admin' : user?.roles?.[0] || 'User';
+  const roleBadge = isAdmin ? 'Admin' : 'Engineer';
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
@@ -63,7 +65,7 @@ export default function Layout() {
 
       {/* Navigation */}
       <nav className="flex-1 px-3 space-y-1">
-        {navItems.map((item) => (
+        {NAV_ITEMS.map((item) => (
           <NavLink
             key={item.path}
             to={item.path}
@@ -88,6 +90,40 @@ export default function Layout() {
             )}
           </NavLink>
         ))}
+
+        {/* Admin section */}
+        {isAdmin && (
+          <>
+            <div className="pt-4 pb-1 px-4">
+              <p className="text-[10px] text-gray-500 uppercase tracking-widest font-semibold">Admin</p>
+            </div>
+            {ADMIN_NAV_ITEMS.map((item) => (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                end={item.end}
+                onClick={() => setSidebarOpen(false)}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-150
+                  ${isActive
+                    ? 'bg-gradient-to-r from-fg-teal/20 to-fg-green/15 text-white shadow-sm'
+                    : 'text-gray-300 hover:text-white hover:bg-white/10'
+                  }`
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    <item.icon className={`w-5 h-5 flex-shrink-0 ${isActive ? 'text-fg-teal' : ''}`} />
+                    <span>{item.label}</span>
+                    {isActive && (
+                      <div className="ml-auto w-1.5 h-1.5 rounded-full bg-fg-teal" />
+                    )}
+                  </>
+                )}
+              </NavLink>
+            ))}
+          </>
+        )}
       </nav>
 
       {/* User info + logout at bottom */}

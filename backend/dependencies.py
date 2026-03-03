@@ -164,7 +164,7 @@ def require_roles(*allowed_roles: str) -> Callable:
         ):
             ...
 
-    Allowed role values: ``admin``, ``lead``, ``tester``.
+    Allowed role values: ``admin``, ``engineer``.
     """
 
     async def _role_checker(
@@ -180,6 +180,20 @@ def require_roles(*allowed_roles: str) -> Callable:
         return current_user
 
     return _role_checker
+
+
+# ---------------------------------------------------------------------------
+# Valid roles for the platform
+# ---------------------------------------------------------------------------
+VALID_ROLES = {"admin", "engineer"}
+
+
+def is_admin(user) -> bool:
+    return "admin" in (user.roles or [])
+
+
+def is_engineer(user) -> bool:
+    return "engineer" in (user.roles or [])
 
 
 # ---------------------------------------------------------------------------
