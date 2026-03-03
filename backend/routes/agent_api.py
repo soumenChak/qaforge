@@ -7,13 +7,16 @@ test cases, execution results, and proof artifacts.
 Auth: X-Agent-Key header (project-scoped API key, no JWT needed).
 """
 
+import hashlib
 import json as _json
 import logging
+import os
+import secrets
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -25,6 +28,7 @@ from db_models import (
     TestCase,
     TestPlan,
     Project,
+    User,
 )
 from db_session import get_db
 from dependencies import get_agent_project
@@ -44,6 +48,115 @@ from models import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# ---------------------------------------------------------------------------
+# Bootstrap Token — Admin sets QAFORGE_BOOTSTRAP_TOKEN env var.
+# Agents use it ONCE to create a project + get an agent API key.
+# This is a gatekeeper: limited scope, no admin access, project-create only.
+# ---------------------------------------------------------------------------
+_BOOTSTRAP_TOKEN = os.environ.get("QAFORGE_BOOTSTRAP_TOKEN", "")
+
+
+def _verify_bootstrap_token(x_bootstrap_token: str = Header(...)):
+    """Verify the bootstrap token for agent onboarding."""
+    if not _BOOTSTRAP_TOKEN:
+        raise HTTPException(
+            403,
+            "Bootstrap onboarding is not enabled. "
+            "Admin must set QAFORGE_BOOTSTRAP_TOKEN env var.",
+        )
+    if x_bootstrap_token != _BOOTSTRAP_TOKEN:
+        raise HTTPException(401, "Invalid bootstrap token")
+    return True
+
+
+@router.post("/bootstrap")
+def bootstrap_agent(
+    body: dict,
+    db: Session = Depends(get_db),
+    _: bool = Depends(_verify_bootstrap_token),
+):
+    """
+    Agent onboarding — create project + generate API key in one step.
+
+    Gatekeeper: requires X-Bootstrap-Token header (admin-controlled).
+    Scope: can ONLY create projects and generate keys.
+    Cannot: delete, modify, access admin features, or read other projects.
+
+    Body:
+      - project_name: str (required)
+      - domain: str (default "mdm") — mdm | ai | data_eng | integration | digital
+      - sub_domain: str (default "general")
+      - description: str (optional)
+
+    Returns: { project_id, project_name, agent_api_key }
+    """
+    project_name = body.get("project_name", "").strip()
+    if not project_name:
+        raise HTTPException(400, "project_name is required")
+
+    domain = body.get("domain", "mdm")
+    sub_domain = body.get("sub_domain", "general")
+    description = body.get("description", "")
+
+    # Validate domain
+    valid_domains = {"mdm", "ai", "data_eng", "integration", "digital"}
+    if domain not in valid_domains:
+        raise HTTPException(400, f"Invalid domain. Must be one of: {valid_domains}")
+
+    # Get admin user (first admin in DB — bootstrap operations attributed to admin)
+    admin = db.query(User).filter(User.roles.contains(["admin"])).first()
+    if not admin:
+        raise HTTPException(500, "No admin user found in system")
+
+    # Check if project already exists (return existing key if so)
+    existing = db.query(Project).filter(Project.name == project_name).first()
+    if existing:
+        # Project exists — generate new key for it
+        raw_key = f"qf_{secrets.token_urlsafe(48)}"
+        key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+        existing.agent_api_key_hash = key_hash
+        db.commit()
+        logger.info(
+            "Bootstrap: regenerated key for existing project '%s'", project_name
+        )
+        return {
+            "project_id": str(existing.id),
+            "project_name": existing.name,
+            "agent_api_key": raw_key,
+            "created": False,
+            "message": f"Project '{project_name}' already exists. New agent key generated.",
+        }
+
+    # Create new project
+    project = Project(
+        name=project_name,
+        domain=domain,
+        sub_domain=sub_domain,
+        description=description or f"Created via agent bootstrap",
+        created_by=admin.id,
+    )
+    db.add(project)
+    db.flush()
+
+    # Generate agent API key
+    raw_key = f"qf_{secrets.token_urlsafe(48)}"
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    project.agent_api_key_hash = key_hash
+    db.commit()
+
+    logger.info(
+        "Bootstrap: created project '%s' (%s/%s) with agent key",
+        project_name, domain, sub_domain,
+    )
+
+    return {
+        "project_id": str(project.id),
+        "project_name": project.name,
+        "agent_api_key": raw_key,
+        "created": True,
+        "message": f"Project '{project_name}' created with agent API key.",
+    }
 
 
 # ---------------------------------------------------------------------------
