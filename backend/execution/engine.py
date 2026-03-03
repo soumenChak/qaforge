@@ -812,6 +812,49 @@ def _find_best_endpoint_match(
     return None
 
 
+def _extract_mcp_params_from_steps(tc: "TestCase") -> Dict[str, Any]:
+    """
+    Extract MCP tool call parameters directly from test case steps.
+
+    MCP test steps contain structured fields (tool_name, tool_params, assertions)
+    that can be used directly without LLM extraction.
+    """
+    steps = getattr(tc, "test_steps", None) or []
+    tool_name = ""
+    arguments = {}
+    expected_fields = []
+    expected_contains = None
+    max_time_ms = 30000
+
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        # Extract tool_name from step
+        if step.get("tool_name"):
+            tool_name = step["tool_name"]
+        # Extract tool_params as arguments
+        if step.get("tool_params"):
+            arguments = step["tool_params"]
+        # Extract assertions for expected_fields and expected_contains
+        for assertion in (step.get("assertions") or []):
+            if isinstance(assertion, dict):
+                atype = assertion.get("type", "")
+                if atype == "contains" and assertion.get("value"):
+                    expected_contains = assertion["value"]
+                elif atype == "response_time_ms" and assertion.get("value"):
+                    max_time_ms = assertion["value"]
+                elif atype == "has_field" and assertion.get("value"):
+                    expected_fields.append(assertion["value"])
+
+    return {
+        "tool_name": tool_name,
+        "arguments": arguments,
+        "expected_fields": expected_fields,
+        "expected_body_contains": expected_contains,
+        "max_response_time_ms": max_time_ms,
+    }
+
+
 async def _execute_single_test(
     tc: TestCase,
     connection_config: Dict[str, Any],
@@ -825,18 +868,25 @@ async def _execute_single_test(
     # Determine execution type from test case
     execution_type = getattr(tc, "execution_type", "api") or "api"
 
-    # Step 1: Extract parameters via LLM (using type-specific prompt + app profile)
-    extraction = await _extract_params_via_llm(tc_text, connection_config, execution_type, app_profile)
+    # MCP fast-path: skip LLM extraction, use structured step data directly
+    if execution_type == "mcp":
+        mcp_params = _extract_mcp_params_from_steps(tc)
+        template_name = "mcp_tool"
+        params = mcp_params
+        logger.info("MCP fast-path: tool=%s", mcp_params.get("tool_name", "unknown"))
+    else:
+        # Step 1: Extract parameters via LLM (using type-specific prompt + app profile)
+        extraction = await _extract_params_via_llm(tc_text, connection_config, execution_type, app_profile)
 
-    # Step 1.5: Apply template guardrails (rule-based correction)
-    extraction = _apply_template_guardrails(tc, extraction, execution_type)
+        # Step 1.5: Apply template guardrails (rule-based correction)
+        extraction = _apply_template_guardrails(tc, extraction, execution_type)
 
-    # Step 1.6: Validate extracted endpoint against known app_profile endpoints
-    if execution_type == "api" and app_profile:
-        extraction = _validate_endpoint_against_profile(extraction, app_profile)
+        # Step 1.6: Validate extracted endpoint against known app_profile endpoints
+        if execution_type == "api" and app_profile:
+            extraction = _validate_endpoint_against_profile(extraction, app_profile)
 
-    template_name = extraction.get("template", "unknown")
-    params = extraction.get("params", {})
+        template_name = extraction.get("template", "unknown")
+        params = extraction.get("params", {})
 
     # Step 2: Execute via appropriate template
     from execution.templates import TEMPLATE_REGISTRY
