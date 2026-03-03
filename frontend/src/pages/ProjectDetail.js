@@ -673,10 +673,10 @@ export default function ProjectDetail() {
       {/* Tab bar */}
       <div className="flex border-b border-gray-200 mb-6">
         {[
-          { key: 'requirements', label: `Requirements (${requirements.length})` },
-          { key: 'test_cases', label: `Test Cases (${project.test_case_count || 0})` },
-          { key: 'test_plans', label: `Test Plans (${testPlans.length})` },
-          { key: 'app_profile', label: `App Profile${appProfile.api_endpoints?.length > 0 ? ` (${appProfile.api_endpoints.length} EP)` : appProfile.app_url || appProfile.api_base_url ? ' \u2713' : ''}` },
+          { key: 'requirements', label: 'Requirements' },
+          { key: 'test_cases', label: 'Test Cases' },
+          { key: 'test_plans', label: 'Test Plans' },
+          { key: 'app_profile', label: 'App Profile' },
         ].map((tab) => (
           <button
             key={tab.key}

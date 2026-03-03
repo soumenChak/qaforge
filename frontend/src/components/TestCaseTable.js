@@ -237,19 +237,19 @@ export default function TestCaseTable({
                       {onDuplicate && (
                         <button
                           onClick={(e) => { e.stopPropagation(); onDuplicate(tc); }}
-                          className="text-gray-300 hover:text-teal-600 transition-colors p-1"
+                          className="text-gray-400 hover:text-teal-600 transition-colors p-1"
                           title={`Duplicate ${tc.test_case_id}`}
                         >
-                          <DocumentDuplicateIcon className="w-4 h-4" />
+                          <DocumentDuplicateIcon className="w-5 h-5" />
                         </button>
                       )}
                       {onDelete && (
                         <button
                           onClick={(e) => { e.stopPropagation(); onDelete(tc); }}
-                          className="text-gray-300 hover:text-red-500 transition-colors p-1"
+                          className="text-gray-400 hover:text-red-500 transition-colors p-1"
                           title={`Delete ${tc.test_case_id}`}
                         >
-                          <TrashIcon className="w-4 h-4" />
+                          <TrashIcon className="w-5 h-5" />
                         </button>
                       )}
                     </div>
