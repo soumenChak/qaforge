@@ -179,6 +179,56 @@ def generate_from_brd(
         if existing:
             tc_id = f"{tc_id}-{uuid.uuid4().hex[:4].upper()}"
 
+        # Map enterprise priority names to QAForge P1-P4
+        raw_pri = str(tc_data.get("priority", "P2")).strip().lower()
+        if raw_pri in ("p1", "critical", "blocker"):
+            priority = "P1"
+        elif raw_pri in ("p2", "high"):
+            priority = "P2"
+        elif raw_pri in ("p3", "medium"):
+            priority = "P3"
+        elif raw_pri in ("p4", "low"):
+            priority = "P4"
+        elif raw_pri.startswith("p") and raw_pri[1:].isdigit():
+            priority = raw_pri.upper()[:2]
+        else:
+            priority = "P2"
+
+        # Map enterprise category names to valid QAForge categories
+        raw_cat = str(tc_data.get("category", "functional")).strip().lower()
+        category_map = {
+            "functional": "functional",
+            "integration": "integration",
+            "regression": "regression",
+            "smoke": "smoke",
+            "e2e": "e2e",
+            "data_quality": "data_quality",
+            "match_rule": "match_rule",
+            "migration": "migration",
+            # Enterprise category aliases
+            "schema/table changes": "functional",
+            "entity load validation": "functional",
+            "relationship load": "functional",
+            "data mapping": "functional",
+            "count reconciliation": "functional",
+            "rdm/lookup validation": "functional",
+            "odl/incremental changes": "functional",
+            "schema validation": "functional",
+            "data comparison": "functional",
+            "aggregate validation": "functional",
+            "freshness check": "functional",
+            "scd type 2": "migration",
+            "incremental load": "migration",
+            "duplicate detection": "data_quality",
+            "null pk validation": "data_quality",
+        }
+        category = category_map.get(raw_cat, "functional")
+
+        # Map execution_type to valid QAForge values
+        raw_exec = str(tc_data.get("execution_type", "manual")).strip().lower()
+        valid_exec_types = {"api", "ui", "sql", "manual", "mdm"}
+        execution_type = raw_exec if raw_exec in valid_exec_types else "manual"
+
         tc = TestCase(
             id=uuid.uuid4(),
             project_id=project.id,
@@ -190,10 +240,10 @@ def generate_from_brd(
             test_steps=tc_data.get("test_steps", []),
             expected_result=tc_data.get("expected_result", ""),
             test_data=tc_data.get("test_data"),
-            priority=tc_data.get("priority", "P2"),
-            category=tc_data.get("category", "functional"),
+            priority=priority,
+            category=category,
             domain_tags=tc_data.get("domain_tags", []),
-            execution_type=tc_data.get("execution_type", "manual"),
+            execution_type=execution_type,
             source="ai_generated",
             status="draft",
             created_by=project.created_by,
