@@ -12,11 +12,205 @@ import {
   ChevronDownIcon,
   ClockIcon,
   DocumentMagnifyingGlassIcon,
+  WrenchScrewdriverIcon,
 } from '@heroicons/react/24/outline';
 import {
   CheckCircleIcon,
   XCircleIcon,
 } from '@heroicons/react/24/solid';
+
+/* ── Spec Details helpers ─────────────────────────────────────────────── */
+const STEP_TYPES = [
+  { value: '', label: 'None' },
+  { value: 'mcp', label: 'MCP Tool' },
+  { value: 'api', label: 'REST API' },
+  { value: 'sql', label: 'SQL Query' },
+  { value: 'ui', label: 'UI Action' },
+  { value: 'manual', label: 'Manual' },
+];
+
+const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
+
+function JsonField({ label, value, onChange, rows = 3, placeholder }) {
+  const [raw, setRaw] = useState(() => {
+    if (!value) return '';
+    return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+  });
+  const [jsonErr, setJsonErr] = useState('');
+
+  const handleBlur = () => {
+    if (!raw.trim()) {
+      setJsonErr('');
+      onChange(null);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      setJsonErr('');
+      onChange(parsed);
+    } catch {
+      setJsonErr('Invalid JSON');
+    }
+  };
+
+  // sync external value changes
+  useEffect(() => {
+    if (value === null || value === undefined) {
+      setRaw('');
+    } else {
+      const next = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+      setRaw(prev => {
+        try { if (JSON.stringify(JSON.parse(prev)) === JSON.stringify(value)) return prev; } catch {}
+        return next;
+      });
+    }
+  }, [value]);
+
+  return (
+    <div>
+      <label className="text-xs font-medium text-fg-mid">{label}</label>
+      <textarea
+        value={raw}
+        onChange={(e) => setRaw(e.target.value)}
+        onBlur={handleBlur}
+        rows={rows}
+        className={`input-field text-xs font-mono ${jsonErr ? 'border-red-400' : ''}`}
+        placeholder={placeholder || '{}'}
+      />
+      {jsonErr && <span className="text-xs text-red-500">{jsonErr}</span>}
+    </div>
+  );
+}
+
+function StepSpecDetails({ step, index, updateStep, executionType }) {
+  const [open, setOpen] = useState(!!(step.step_type || step.tool_name || step.method || step.sql_script));
+  const stepType = step.step_type || executionType || '';
+
+  return (
+    <div className="mt-2 border-t border-gray-200 pt-2">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+      >
+        <WrenchScrewdriverIcon className="w-3.5 h-3.5" />
+        Spec Details
+        <ChevronDownIcon className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="mt-2 space-y-2 p-2 bg-indigo-50/50 rounded-lg">
+          {/* Step type selector */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs font-medium text-fg-mid">Step Type</label>
+              <select
+                value={step.step_type || ''}
+                onChange={(e) => updateStep(index, 'step_type', e.target.value || null)}
+                className="input-field text-xs"
+              >
+                {STEP_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-fg-mid">Connection Ref</label>
+              <input
+                value={step.connection_ref || ''}
+                onChange={(e) => updateStep(index, 'connection_ref', e.target.value || null)}
+                className="input-field text-xs"
+                placeholder="e.g. reltio_mcp"
+              />
+            </div>
+          </div>
+
+          {/* MCP fields */}
+          {(stepType === 'mcp') && (
+            <div className="space-y-2">
+              <div>
+                <label className="text-xs font-medium text-fg-mid">Tool Name</label>
+                <input
+                  value={step.tool_name || ''}
+                  onChange={(e) => updateStep(index, 'tool_name', e.target.value || null)}
+                  className="input-field text-xs font-mono"
+                  placeholder="e.g. health_check_tool"
+                />
+              </div>
+              <JsonField
+                label="Tool Parameters"
+                value={step.tool_params}
+                onChange={(v) => updateStep(index, 'tool_params', v)}
+                placeholder='{"entity_type": "Individual", "max_results": 5}'
+              />
+            </div>
+          )}
+
+          {/* API fields */}
+          {(stepType === 'api') && (
+            <div className="space-y-2">
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-xs font-medium text-fg-mid">Method</label>
+                  <select
+                    value={step.method || 'GET'}
+                    onChange={(e) => updateStep(index, 'method', e.target.value)}
+                    className="input-field text-xs"
+                  >
+                    {HTTP_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <label className="text-xs font-medium text-fg-mid">Endpoint</label>
+                  <input
+                    value={step.endpoint || ''}
+                    onChange={(e) => updateStep(index, 'endpoint', e.target.value || null)}
+                    className="input-field text-xs font-mono"
+                    placeholder="/api/v1/entities"
+                  />
+                </div>
+              </div>
+              <JsonField
+                label="Headers"
+                value={step.headers}
+                onChange={(v) => updateStep(index, 'headers', v)}
+                rows={2}
+                placeholder='{"Authorization": "Bearer ..."}'
+              />
+              <JsonField
+                label="Request Body"
+                value={step.request_body}
+                onChange={(v) => updateStep(index, 'request_body', v)}
+                placeholder='{"key": "value"}'
+              />
+            </div>
+          )}
+
+          {/* SQL fields */}
+          {(stepType === 'sql') && (
+            <div>
+              <label className="text-xs font-medium text-fg-mid">SQL Script</label>
+              <textarea
+                value={step.sql_script || ''}
+                onChange={(e) => updateStep(index, 'sql_script', e.target.value || null)}
+                rows={4}
+                className="input-field text-xs font-mono"
+                placeholder="SELECT * FROM ..."
+              />
+            </div>
+          )}
+
+          {/* Assertions (all types) */}
+          <JsonField
+            label="Assertions"
+            value={step.assertions}
+            onChange={(v) => updateStep(index, 'assertions', v)}
+            rows={3}
+            placeholder={'[\n  {"type": "json_path", "path": "$.status", "expected": "ok"},\n  {"type": "not_empty"}\n]'}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function TestCaseEditor() {
   const { id: projectId, tcId } = useParams();
@@ -99,11 +293,25 @@ export default function TestCaseEditor() {
         category,
         status,
         execution_type: executionType,
-        test_steps: testSteps.map((s, i) => ({
-          step_number: i + 1,
-          action: s.action || '',
-          expected_result: s.expected_result || '',
-        })),
+        test_steps: testSteps.map((s, i) => {
+          const step = {
+            step_number: i + 1,
+            action: s.action || '',
+            expected_result: s.expected_result || '',
+          };
+          // Preserve structured executable fields
+          if (s.step_type) step.step_type = s.step_type;
+          if (s.connection_ref) step.connection_ref = s.connection_ref;
+          if (s.tool_name) step.tool_name = s.tool_name;
+          if (s.tool_params) step.tool_params = s.tool_params;
+          if (s.method) step.method = s.method;
+          if (s.endpoint) step.endpoint = s.endpoint;
+          if (s.headers) step.headers = s.headers;
+          if (s.request_body) step.request_body = s.request_body;
+          if (s.sql_script) step.sql_script = s.sql_script;
+          if (s.assertions) step.assertions = s.assertions;
+          return step;
+        }),
       };
       const res = await testCasesAPI.update(projectId, tcId, payload);
       setTc(res.data);
@@ -254,8 +462,10 @@ export default function TestCaseEditor() {
                   <label className="label">Execution Type</label>
                   <select value={executionType} onChange={(e) => setExecutionType(e.target.value)} className="input-field">
                     <option value="api">🌐 API</option>
+                    <option value="mcp">🔌 MCP Tool</option>
                     <option value="ui">🖥️ UI (Playwright)</option>
                     <option value="sql">🗄️ SQL (Database)</option>
+                    <option value="mdm">🏢 MDM</option>
                     <option value="manual">✋ Manual</option>
                   </select>
                 </div>
@@ -355,6 +565,12 @@ export default function TestCaseEditor() {
                           placeholder="What should happen..."
                         />
                       </div>
+                      <StepSpecDetails
+                        step={step}
+                        index={idx}
+                        updateStep={updateStep}
+                        executionType={executionType}
+                      />
                     </div>
                     <button
                       onClick={() => removeStep(idx)}

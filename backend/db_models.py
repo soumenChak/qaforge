@@ -506,6 +506,10 @@ class TestPlan(Base):
         String(20), nullable=False, default="draft",
         comment="draft / active / in_review / completed / failed"
     )
+    execution_config: Mapped[Any] = mapped_column(
+        JSONB, nullable=True, default=None,
+        comment="Execution playbook: environment, prerequisites, connection refs, env vars"
+    )
     created_by: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
     )

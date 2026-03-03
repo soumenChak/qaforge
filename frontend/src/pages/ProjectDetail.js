@@ -89,6 +89,7 @@ export default function ProjectDetail() {
     auth: { login_endpoint: '', request_body: '', token_header: '', test_credentials: { email: '', password: '' }, response_fields: [] },
     api_endpoints: [],
     ui_pages: [],
+    connections: {},
     rbac_model: '',
     notes: '',
     // Domain-specific config
@@ -127,6 +128,12 @@ export default function ProjectDetail() {
   const [uiDiscoveryMsg, setUiDiscoveryMsg] = useState('');
   const [expandedPages, setExpandedPages] = useState(new Set());
 
+  // Connection registry state
+  const [connModalOpen, setConnModalOpen] = useState(false);
+  const [editingConnKey, setEditingConnKey] = useState(null);
+  const EMPTY_CONN = { type: 'mcp', transport: 'sse', server_url: '', base_url: '', description: '', setup_command: '', env_vars: [], auth_type: '' };
+  const [connDraft, setConnDraft] = useState(EMPTY_CONN);
+
   const loadProject = useCallback(async () => {
     try {
       const res = await projectsAPI.getById(id);
@@ -143,6 +150,7 @@ export default function ProjectDetail() {
           merged.mdm_config = { ...prev.mdm_config, ...(res.data.app_profile.mdm_config || {}) };
           merged.data_eng_config = { ...prev.data_eng_config, ...(res.data.app_profile.data_eng_config || {}) };
           merged.ai_config = { ...prev.ai_config, ...(res.data.app_profile.ai_config || {}) };
+          merged.connections = res.data.app_profile.connections || {};
           return merged;
         });
       }
@@ -2211,6 +2219,194 @@ export default function ProjectDetail() {
               </div>
             </div>
           )}
+
+          {/* ── Connections Registry ──────────────────────────────────── */}
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h4 className="text-sm font-semibold text-fg-dark">Connections Registry</h4>
+                <p className="text-xs text-fg-mid mt-0.5">Named connections referenced by test steps via <code className="text-xs bg-gray-100 px-1 rounded">connection_ref</code>. Secrets are never stored — only env var names.</p>
+              </div>
+              <button
+                onClick={() => {
+                  setEditingConnKey(null);
+                  setConnDraft({ ...EMPTY_CONN });
+                  setConnModalOpen(true);
+                }}
+                className="btn btn-secondary text-xs flex items-center gap-1"
+              >+ Add Connection</button>
+            </div>
+
+            {Object.keys(appProfile.connections || {}).length === 0 ? (
+              <p className="text-xs text-fg-mid py-3 text-center">No connections configured yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-gray-200 text-left text-fg-mid">
+                      <th className="py-2 pr-3 font-semibold">Name</th>
+                      <th className="py-2 pr-3 font-semibold">Type</th>
+                      <th className="py-2 pr-3 font-semibold">URL / Command</th>
+                      <th className="py-2 pr-3 font-semibold">Description</th>
+                      <th className="py-2 w-20"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(appProfile.connections).map(([key, conn]) => (
+                      <tr key={key} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="py-2 pr-3 font-mono font-semibold text-indigo-700">{key}</td>
+                        <td className="py-2 pr-3">
+                          <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                            conn.type === 'mcp' ? 'bg-purple-100 text-purple-700' :
+                            conn.type === 'rest_api' ? 'bg-blue-100 text-blue-700' :
+                            conn.type === 'database' ? 'bg-amber-100 text-amber-700' :
+                            'bg-gray-100 text-gray-700'
+                          }`}>{conn.type}</span>
+                        </td>
+                        <td className="py-2 pr-3 font-mono text-fg-mid truncate max-w-[200px]">
+                          {conn.server_url || conn.base_url || conn.setup_command || '—'}
+                        </td>
+                        <td className="py-2 pr-3 text-fg-mid truncate max-w-[200px]">{conn.description || '—'}</td>
+                        <td className="py-2 flex gap-1">
+                          <button
+                            onClick={() => {
+                              setEditingConnKey(key);
+                              setConnDraft({ ...EMPTY_CONN, ...conn, _key: key });
+                              setConnModalOpen(true);
+                            }}
+                            className="text-indigo-600 hover:text-indigo-800 font-medium"
+                          >Edit</button>
+                          <button
+                            onClick={() => {
+                              const conns = { ...appProfile.connections };
+                              delete conns[key];
+                              setAppProfile(p => ({ ...p, connections: conns }));
+                              setAppProfileDirty(true);
+                            }}
+                            className="text-red-500 hover:text-red-700 font-medium ml-1"
+                          >Del</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Connection Editor Modal */}
+            {connModalOpen && (
+              <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setConnModalOpen(false)}>
+                <div className="bg-white rounded-lg shadow-xl p-5 w-full max-w-lg" onClick={e => e.stopPropagation()}>
+                  <h4 className="text-sm font-semibold text-fg-dark mb-3">
+                    {editingConnKey ? `Edit Connection: ${editingConnKey}` : 'Add Connection'}
+                  </h4>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs text-fg-mid mb-1">Connection Name (key)</label>
+                      <input
+                        className="input w-full font-mono text-sm"
+                        placeholder="e.g. reltio_mcp"
+                        value={connDraft._key || ''}
+                        onChange={e => setConnDraft(d => ({ ...d, _key: e.target.value.replace(/\s+/g, '_').toLowerCase() }))}
+                        disabled={!!editingConnKey}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-fg-mid mb-1">Type</label>
+                        <select className="input w-full text-sm" value={connDraft.type}
+                          onChange={e => setConnDraft(d => ({ ...d, type: e.target.value }))}>
+                          <option value="mcp">MCP Server</option>
+                          <option value="rest_api">REST API</option>
+                          <option value="database">Database</option>
+                          <option value="grpc">gRPC</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-fg-mid mb-1">Transport</label>
+                        <select className="input w-full text-sm" value={connDraft.transport || ''}
+                          onChange={e => setConnDraft(d => ({ ...d, transport: e.target.value }))}>
+                          <option value="">—</option>
+                          <option value="sse">SSE</option>
+                          <option value="stdio">stdio</option>
+                          <option value="http">HTTP</option>
+                          <option value="websocket">WebSocket</option>
+                        </select>
+                      </div>
+                    </div>
+                    {(connDraft.type === 'mcp') && (
+                      <div>
+                        <label className="block text-xs text-fg-mid mb-1">Server URL</label>
+                        <input className="input w-full font-mono text-sm" placeholder="http://localhost:8000/sse"
+                          value={connDraft.server_url || ''} onChange={e => setConnDraft(d => ({ ...d, server_url: e.target.value }))} />
+                      </div>
+                    )}
+                    {(connDraft.type === 'rest_api' || connDraft.type === 'grpc') && (
+                      <>
+                        <div>
+                          <label className="block text-xs text-fg-mid mb-1">Base URL</label>
+                          <input className="input w-full font-mono text-sm" placeholder="https://api.example.com/v1"
+                            value={connDraft.base_url || ''} onChange={e => setConnDraft(d => ({ ...d, base_url: e.target.value }))} />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-fg-mid mb-1">Auth Type</label>
+                          <input className="input w-full text-sm" placeholder="e.g. oauth2, bearer, api_key"
+                            value={connDraft.auth_type || ''} onChange={e => setConnDraft(d => ({ ...d, auth_type: e.target.value }))} />
+                        </div>
+                      </>
+                    )}
+                    {connDraft.type === 'database' && (
+                      <div>
+                        <label className="block text-xs text-fg-mid mb-1">Connection String Env Var</label>
+                        <input className="input w-full font-mono text-sm" placeholder="DATABASE_URL"
+                          value={connDraft.connection_string_env || ''} onChange={e => setConnDraft(d => ({ ...d, connection_string_env: e.target.value }))} />
+                      </div>
+                    )}
+                    <div>
+                      <label className="block text-xs text-fg-mid mb-1">Description</label>
+                      <input className="input w-full text-sm" placeholder="What this connection is for"
+                        value={connDraft.description || ''} onChange={e => setConnDraft(d => ({ ...d, description: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-fg-mid mb-1">Setup Command (optional)</label>
+                      <input className="input w-full font-mono text-sm" placeholder="cd /opt/mcp && python main.py"
+                        value={connDraft.setup_command || ''} onChange={e => setConnDraft(d => ({ ...d, setup_command: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-fg-mid mb-1">Required Env Vars (comma-separated names — secrets never stored)</label>
+                      <input className="input w-full font-mono text-sm" placeholder="RELTIO_TENANT, RELTIO_CLIENT_ID, RELTIO_CLIENT_SECRET"
+                        value={(connDraft.env_vars || []).join(', ')}
+                        onChange={e => setConnDraft(d => ({ ...d, env_vars: e.target.value.split(',').map(s => s.trim()).filter(Boolean) }))} />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2 mt-4">
+                    <button className="btn btn-secondary text-sm" onClick={() => setConnModalOpen(false)}>Cancel</button>
+                    <button
+                      className="btn btn-primary text-sm"
+                      disabled={!connDraft._key}
+                      onClick={() => {
+                        const key = connDraft._key;
+                        const { _key, ...connData } = connDraft;
+                        // Remove empty fields
+                        Object.keys(connData).forEach(k => { if (!connData[k] || (Array.isArray(connData[k]) && connData[k].length === 0)) delete connData[k]; });
+                        // Preserve type always
+                        connData.type = connDraft.type;
+                        setAppProfile(p => ({
+                          ...p,
+                          connections: { ...(p.connections || {}), [key]: connData },
+                        }));
+                        setAppProfileDirty(true);
+                        setConnModalOpen(false);
+                      }}
+                    >
+                      {editingConnKey ? 'Update' : 'Add Connection'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* RBAC & Notes */}
           <div className="card p-5">

@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { testCasesAPI, testPlansAPI, executionsAPI } from '../services/api';
+import { testCasesAPI, testPlansAPI, executionsAPI, projectsAPI } from '../services/api';
 import Breadcrumb from '../components/Breadcrumb';
 import ProofViewer from '../components/ProofViewer';
-import { CheckCircleIcon, XCircleIcon, ClockIcon, ChevronDownIcon, ChevronUpIcon, EyeIcon } from '@heroicons/react/24/outline';
+import { CheckCircleIcon, XCircleIcon, ClockIcon, ChevronDownIcon, ChevronUpIcon, EyeIcon, DocumentArrowDownIcon } from '@heroicons/react/24/outline';
 
 const STATUS_CHIP = { draft: 'badge-gray', reviewed: 'bg-blue-100 text-blue-800', approved: 'badge-green', executed: 'bg-orange-100 text-orange-800', passed: 'badge-green', failed: 'badge-red' };
 const CP_STATUS = { pending: 'badge-yellow', approved: 'badge-green', rejected: 'badge-red', needs_rework: 'bg-orange-100 text-orange-800' };
@@ -46,6 +46,9 @@ export default function TestPlanDetail() {
   const [traceLoading, setTraceLoading] = useState(false);
   const [summary, setSummary] = useState(null);
   const [sumLoading, setSumLoading] = useState(false);
+  // Playbook
+  const [projectData, setProjectData] = useState(null);
+  const [playbookTcData, setPlaybookTcData] = useState([]);
 
   // ── Loaders ──
   const load = useCallback(async (fn, setter, loadingSetter) => {
@@ -69,6 +72,12 @@ export default function TestPlanDetail() {
   useEffect(() => { if (activeTab === 'executions') loadExec(); }, [activeTab, loadExec]);
   useEffect(() => { if (activeTab === 'traceability') loadTrace(); }, [activeTab, loadTrace]);
   useEffect(() => { if (activeTab === 'summary') loadSum(); }, [activeTab, loadSum]);
+  useEffect(() => {
+    if (activeTab === 'playbook') {
+      projectsAPI.getById(projectId).then(r => setProjectData(r.data)).catch(() => {});
+      testCasesAPI.list(projectId, { test_plan_id: planId }).then(r => setPlaybookTcData(r.data || [])).catch(() => {});
+    }
+  }, [activeTab, projectId, planId]);
 
   // ── Handlers ──
   const toggleTc = (id) => setSelectedTcIds(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -96,6 +105,7 @@ export default function TestPlanDetail() {
     { key: 'executions', label: `Executions (${executions.length})` },
     { key: 'traceability', label: 'Traceability' },
     { key: 'summary', label: 'Summary' },
+    { key: 'playbook', label: 'Playbook' },
   ];
 
   const covPct = traceability?.coverage_percentage ?? 0;
@@ -316,6 +326,282 @@ export default function TestPlanDetail() {
               </div>
             </div>}
           </div>
+          );
+        })()}
+      </div>}
+
+      {/* ── Playbook ── */}
+      {activeTab === 'playbook' && <div className="animate-fade-in">
+        {(() => {
+          const ec = plan.execution_config || {};
+          const connections = projectData?.app_profile?.connections || {};
+          const usedConns = ec.connection_refs || Object.keys(connections);
+
+          const exportMarkdown = () => {
+            let md = `# Execution Playbook: ${plan.name}\n\n`;
+            md += `**Plan Type:** ${plan.plan_type}  \n`;
+            md += `**Status:** ${plan.status}  \n`;
+            if (ec.environment) md += `**Environment:** ${ec.environment}  \n`;
+            if (ec.estimated_duration_minutes) md += `**Estimated Duration:** ${ec.estimated_duration_minutes} minutes  \n`;
+            md += `\n---\n\n`;
+
+            if (ec.required_env_vars?.length) {
+              md += `## Required Environment Variables\n\n`;
+              ec.required_env_vars.forEach(v => {
+                const name = typeof v === 'string' ? v : v.name;
+                const desc = typeof v === 'string' ? '' : v.description || '';
+                md += `- \`${name}\`${desc ? ` — ${desc}` : ''}\n`;
+              });
+              md += `\n`;
+            }
+
+            if (ec.prerequisites?.length) {
+              md += `## Prerequisites\n\n`;
+              ec.prerequisites.forEach((p, i) => md += `${i + 1}. ${p}\n`);
+              md += `\n`;
+            }
+
+            if (usedConns.length) {
+              md += `## Connections\n\n`;
+              usedConns.forEach(key => {
+                const c = connections[key];
+                if (!c) { md += `- **${key}** — (not configured)\n`; return; }
+                md += `### ${key} (${c.type})\n`;
+                if (c.server_url) md += `- **Server URL:** \`${c.server_url}\`\n`;
+                if (c.base_url) md += `- **Base URL:** \`${c.base_url}\`\n`;
+                if (c.transport) md += `- **Transport:** ${c.transport}\n`;
+                if (c.description) md += `- **Description:** ${c.description}\n`;
+                if (c.setup_command) md += `- **Setup:** \`${c.setup_command}\`\n`;
+                if (c.env_vars?.length) md += `- **Env Vars:** ${c.env_vars.map(v => `\`${v}\``).join(', ')}\n`;
+                md += `\n`;
+              });
+            }
+
+            md += `## Test Steps\n\n`;
+            playbookTcData.forEach((tc, ti) => {
+              md += `### ${ti + 1}. ${tc.test_case_id}: ${tc.title}\n\n`;
+              md += `**Type:** ${tc.execution_type} | **Priority:** ${tc.priority} | **Category:** ${tc.category}\n\n`;
+              (tc.test_steps || []).forEach(step => {
+                md += `**Step ${step.step_number}:** ${step.action}\n`;
+                md += `- **Expected:** ${step.expected_result}\n`;
+                if (step.step_type) md += `- **Step Type:** ${step.step_type}\n`;
+                if (step.connection_ref) md += `- **Connection:** \`${step.connection_ref}\`\n`;
+                if (step.tool_name) md += `- **Tool:** \`${step.tool_name}\`\n`;
+                if (step.tool_params) md += `- **Params:** \`${JSON.stringify(step.tool_params)}\`\n`;
+                if (step.method) md += `- **Method:** ${step.method} ${step.endpoint || ''}\n`;
+                if (step.sql_script) md += `- **SQL:** \`${step.sql_script}\`\n`;
+                if (step.assertions?.length) md += `- **Assertions:** ${JSON.stringify(step.assertions)}\n`;
+                md += `\n`;
+              });
+            });
+
+            if (ec.post_conditions?.length) {
+              md += `## Post-Conditions\n\n`;
+              ec.post_conditions.forEach((p, i) => md += `${i + 1}. ${p}\n`);
+            }
+
+            const blob = new Blob([md], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `playbook-${plan.name.replace(/\s+/g, '-').toLowerCase()}.md`;
+            a.click();
+            URL.revokeObjectURL(url);
+          };
+
+          return (
+            <div className="space-y-6 max-w-4xl">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-fg-dark">Execution Playbook</h3>
+                  <p className="text-sm text-fg-mid mt-0.5">Auto-generated runbook from structured test steps, connections, and execution config.</p>
+                </div>
+                <button onClick={exportMarkdown} className="btn btn-secondary text-sm flex items-center gap-2">
+                  <DocumentArrowDownIcon className="w-4 h-4" /> Export Markdown
+                </button>
+              </div>
+
+              {/* Environment & Config */}
+              {(ec.environment || ec.estimated_duration_minutes || ec.execution_order) && (
+                <div className="card p-5">
+                  <h4 className="text-sm font-semibold text-fg-navy mb-3 uppercase tracking-wider">Environment</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+                    {ec.environment && <div><span className="text-fg-mid">Environment:</span><br /><span className="font-medium">{ec.environment}</span></div>}
+                    {ec.execution_order && <div><span className="text-fg-mid">Execution Order:</span><br /><span className="font-medium capitalize">{ec.execution_order}</span></div>}
+                    {ec.estimated_duration_minutes && <div><span className="text-fg-mid">Est. Duration:</span><br /><span className="font-medium">{ec.estimated_duration_minutes} min</span></div>}
+                  </div>
+                </div>
+              )}
+
+              {/* Required Env Vars */}
+              {ec.required_env_vars?.length > 0 && (
+                <div className="card p-5">
+                  <h4 className="text-sm font-semibold text-fg-navy mb-3 uppercase tracking-wider">Required Environment Variables</h4>
+                  <div className="space-y-2">
+                    {ec.required_env_vars.map((v, i) => {
+                      const name = typeof v === 'string' ? v : v.name;
+                      const desc = typeof v === 'string' ? '' : v.description;
+                      return (
+                        <div key={i} className="flex items-center gap-3 text-sm">
+                          <code className="px-2 py-0.5 bg-gray-100 rounded text-xs font-mono font-semibold text-indigo-700">{name}</code>
+                          {desc && <span className="text-fg-mid">{desc}</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Prerequisites */}
+              {ec.prerequisites?.length > 0 && (
+                <div className="card p-5">
+                  <h4 className="text-sm font-semibold text-fg-navy mb-3 uppercase tracking-wider">Prerequisites</h4>
+                  <ol className="list-decimal list-inside space-y-1.5 text-sm text-fg-dark">
+                    {ec.prerequisites.map((p, i) => <li key={i}>{p}</li>)}
+                  </ol>
+                </div>
+              )}
+
+              {/* Connections */}
+              {usedConns.length > 0 && (
+                <div className="card p-5">
+                  <h4 className="text-sm font-semibold text-fg-navy mb-3 uppercase tracking-wider">Connections</h4>
+                  <div className="space-y-3">
+                    {usedConns.map(key => {
+                      const c = connections[key];
+                      if (!c) return (
+                        <div key={key} className="p-3 bg-yellow-50 rounded-lg border border-yellow-200 text-sm">
+                          <span className="font-mono font-semibold text-yellow-800">{key}</span>
+                          <span className="text-yellow-700 ml-2">Not configured in App Profile</span>
+                        </div>
+                      );
+                      return (
+                        <div key={key} className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <span className="font-mono font-semibold text-indigo-700 text-sm">{key}</span>
+                            <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                              c.type === 'mcp' ? 'bg-purple-100 text-purple-700' :
+                              c.type === 'rest_api' ? 'bg-blue-100 text-blue-700' :
+                              'bg-gray-100 text-gray-700'
+                            }`}>{c.type}</span>
+                            {c.transport && <span className="text-xs text-fg-mid">({c.transport})</span>}
+                          </div>
+                          {c.description && <p className="text-xs text-fg-mid">{c.description}</p>}
+                          {(c.server_url || c.base_url) && (
+                            <code className="text-xs font-mono text-fg-dark mt-1 block">{c.server_url || c.base_url}</code>
+                          )}
+                          {c.setup_command && (
+                            <div className="mt-1.5">
+                              <span className="text-[10px] text-fg-mid uppercase font-semibold">Setup:</span>
+                              <code className="text-xs font-mono block bg-white p-1.5 rounded mt-0.5">{c.setup_command}</code>
+                            </div>
+                          )}
+                          {c.env_vars?.length > 0 && (
+                            <div className="mt-1.5 flex flex-wrap gap-1">
+                              {c.env_vars.map((ev, i) => (
+                                <code key={i} className="text-[10px] bg-white px-1.5 py-0.5 rounded font-mono text-indigo-600">{ev}</code>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Test Steps Runbook */}
+              <div className="card p-5">
+                <h4 className="text-sm font-semibold text-fg-navy mb-3 uppercase tracking-wider">
+                  Test Steps ({playbookTcData.length} test case{playbookTcData.length !== 1 ? 's' : ''})
+                </h4>
+                {playbookTcData.length === 0 ? (
+                  <p className="text-sm text-fg-mid py-4 text-center">No test cases linked to this plan.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {playbookTcData.map((tc, ti) => (
+                      <div key={tc.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                        <div className="px-4 py-3 bg-gray-50 flex items-center gap-3">
+                          <span className="w-7 h-7 rounded-full bg-fg-teal text-white text-xs font-bold flex items-center justify-center">{ti + 1}</span>
+                          <div className="flex-1">
+                            <span className="text-sm font-mono font-semibold text-fg-dark">{tc.test_case_id}</span>
+                            <span className="text-sm text-fg-mid ml-2">{tc.title}</span>
+                          </div>
+                          <span className="badge badge-gray text-xs">{tc.execution_type}</span>
+                          <span className="badge badge-gray text-xs">{tc.priority}</span>
+                        </div>
+                        {(tc.test_steps || []).length > 0 && (
+                          <div className="px-4 py-3 space-y-3">
+                            {tc.test_steps.map((step, si) => (
+                              <div key={si} className="flex gap-3">
+                                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold flex items-center justify-center mt-0.5">
+                                  {step.step_number || si + 1}
+                                </span>
+                                <div className="flex-1 text-sm">
+                                  <p className="text-fg-dark">{step.action}</p>
+                                  <p className="text-fg-mid text-xs mt-0.5">Expected: {step.expected_result}</p>
+                                  {/* Structured spec details */}
+                                  {(step.step_type || step.tool_name || step.method || step.sql_script) && (
+                                    <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px]">
+                                      {step.step_type && <span className="bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded font-semibold uppercase">{step.step_type}</span>}
+                                      {step.connection_ref && <span className="bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-mono">{step.connection_ref}</span>}
+                                      {step.tool_name && <span className="bg-green-50 text-green-700 px-1.5 py-0.5 rounded font-mono">{step.tool_name}</span>}
+                                      {step.method && <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-semibold">{step.method} {step.endpoint || ''}</span>}
+                                    </div>
+                                  )}
+                                  {step.tool_params && (
+                                    <pre className="mt-1 text-[11px] font-mono bg-gray-50 p-2 rounded text-fg-mid overflow-x-auto">
+                                      {JSON.stringify(step.tool_params, null, 2)}
+                                    </pre>
+                                  )}
+                                  {step.sql_script && (
+                                    <pre className="mt-1 text-[11px] font-mono bg-gray-50 p-2 rounded text-fg-mid overflow-x-auto">
+                                      {step.sql_script}
+                                    </pre>
+                                  )}
+                                  {step.assertions?.length > 0 && (
+                                    <div className="mt-1.5">
+                                      <span className="text-[10px] font-semibold text-fg-mid uppercase">Assertions:</span>
+                                      <div className="flex flex-wrap gap-1 mt-0.5">
+                                        {step.assertions.map((a, ai) => (
+                                          <span key={ai} className="text-[10px] bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded font-mono">
+                                            {a.type}{a.path ? `:${a.path}` : ''}{a.expected !== undefined ? `=${a.expected}` : ''}{a.value !== undefined ? `${a.operator || '='}${a.value}` : ''}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Post-conditions */}
+              {ec.post_conditions?.length > 0 && (
+                <div className="card p-5">
+                  <h4 className="text-sm font-semibold text-fg-navy mb-3 uppercase tracking-wider">Post-Conditions</h4>
+                  <ol className="list-decimal list-inside space-y-1.5 text-sm text-fg-dark">
+                    {ec.post_conditions.map((p, i) => <li key={i}>{p}</li>)}
+                  </ol>
+                </div>
+              )}
+
+              {/* Empty state when no execution_config */}
+              {!ec.environment && !ec.required_env_vars?.length && !ec.prerequisites?.length && !ec.post_conditions?.length && Object.keys(connections).length === 0 && (
+                <div className="card p-5 text-center">
+                  <p className="text-fg-mid text-sm">
+                    No execution config set for this plan. Edit the test plan to add environment details, prerequisites, and required env vars.
+                    Add connections to the project's App Profile to see them here.
+                  </p>
+                </div>
+              )}
+            </div>
           );
         })()}
       </div>}

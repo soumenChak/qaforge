@@ -214,18 +214,47 @@ class RequirementExtractRequest(BaseModel):
 class TestStepSchema(BaseModel):
     """A single test step within a test case.
 
-    Supports optional enterprise fields: step_type, sql_script, system,
-    verification_type, etc. Extra fields are preserved via ``extra='allow'``.
+    Contains both human-readable descriptions AND structured executable specs.
+    The structured fields make tests re-runnable without LLM help.
+
+    Supports execution types: mcp, api, sql, ui, manual.
+    Extra fields are preserved via ``extra='allow'``.
     """
 
     model_config = ConfigDict(extra="allow")
 
+    # -- Core (always required) --
     step_number: int
-    action: str
-    expected_result: str
-    step_type: Optional[str] = None
-    sql_script: Optional[str] = None
-    system: Optional[str] = None
+    action: str                     # Human-readable description of what to do
+    expected_result: str            # Human-readable expected outcome
+
+    # -- Execution routing --
+    step_type: Optional[str] = None       # mcp | api | sql | ui | manual (overrides TC-level)
+    connection_ref: Optional[str] = None  # Key into app_profile.connections, e.g. "reltio_mcp"
+
+    # -- MCP tool spec --
+    tool_name: Optional[str] = None           # e.g. "health_check_tool"
+    tool_params: Optional[Dict[str, Any]] = None  # e.g. {"entity_type": "Individual"}
+
+    # -- REST API spec --
+    method: Optional[str] = None          # GET | POST | PUT | DELETE
+    endpoint: Optional[str] = None        # /api/v1/entities (relative to connection base_url)
+    headers: Optional[Dict[str, str]] = None
+    request_body: Optional[Dict[str, Any]] = None
+
+    # -- SQL spec --
+    sql_script: Optional[str] = None      # SELECT ... (pre-existing field)
+    system: Optional[str] = None          # Database system name (pre-existing field)
+
+    # -- Assertions (universal) --
+    assertions: Optional[List[Dict[str, Any]]] = None
+    # Examples:
+    #   {"type": "contains", "value": "healthy"}
+    #   {"type": "json_path", "path": "$.status", "expected": "ok"}
+    #   {"type": "status_code", "expected": 200}
+    #   {"type": "not_empty"}
+    #   {"type": "row_count", "operator": ">=", "value": 1}
+    #   {"type": "response_time_ms", "operator": "<=", "value": 5000}
 
 
 class TestCaseCreate(BaseModel):
@@ -246,7 +275,7 @@ class TestCaseCreate(BaseModel):
         pattern=r"^(functional|integration|regression|smoke|e2e|data_quality|match_rule|migration)$",
     )
     domain_tags: Optional[List[str]] = None
-    execution_type: str = Field(default="api", pattern=r"^(api|ui|sql|manual|mdm)$")
+    execution_type: str = Field(default="api", pattern=r"^(api|ui|sql|manual|mdm|mcp)$")
     source: str = Field(default="manual", pattern=r"^(ai_generated|manual|hybrid)$")
 
 
@@ -265,7 +294,7 @@ class TestCaseUpdate(BaseModel):
         pattern=r"^(functional|integration|regression|smoke|e2e|data_quality|match_rule|migration)$",
     )
     domain_tags: Optional[List[str]] = None
-    execution_type: Optional[str] = Field(None, pattern=r"^(api|ui|sql|manual|mdm)$")
+    execution_type: Optional[str] = Field(None, pattern=r"^(api|ui|sql|manual|mdm|mcp)$")
     test_plan_id: Optional[uuid.UUID] = None
     status: Optional[str] = Field(
         None,
@@ -324,7 +353,7 @@ class TestCaseGenerateRequest(BaseModel):
         None,
         pattern=r"^(functional|integration|regression|smoke|e2e)$",
     )
-    execution_type: Optional[str] = Field(None, pattern=r"^(api|ui|sql|manual|mdm)$")
+    execution_type: Optional[str] = Field(None, pattern=r"^(api|ui|sql|manual|mdm|mcp)$")
 
 
 class TestCaseRateRequest(BaseModel):
@@ -643,7 +672,7 @@ class ChatGenerateRequest(BaseModel):
 
     messages: List[ChatMessage] = Field(..., min_length=1)
     requirement_ids: Optional[List[uuid.UUID]] = None
-    execution_type: Optional[str] = Field(None, pattern=r"^(api|ui|sql|manual|mdm)$")
+    execution_type: Optional[str] = Field(None, pattern=r"^(api|ui|sql|manual|mdm|mcp)$")
 
 
 class ChatGenerateResponse(BaseModel):
@@ -667,6 +696,10 @@ class TestPlanCreate(BaseModel):
         default="custom",
         pattern=r"^(sit|uat|regression|smoke|migration|custom)$",
     )
+    execution_config: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Execution playbook: environment, prerequisites, connection refs, env vars",
+    )
 
 
 class TestPlanUpdate(BaseModel):
@@ -680,6 +713,7 @@ class TestPlanUpdate(BaseModel):
     status: Optional[str] = Field(
         None, pattern=r"^(draft|active|in_review|completed|failed)$"
     )
+    execution_config: Optional[Dict[str, Any]] = None
 
 
 class TestPlanResponse(BaseModel):
@@ -693,6 +727,7 @@ class TestPlanResponse(BaseModel):
     description: Optional[str] = None
     plan_type: str
     status: str
+    execution_config: Optional[Dict[str, Any]] = None
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime
@@ -876,7 +911,7 @@ class AgentTestCaseSubmit(BaseModel):
         pattern=r"^(functional|integration|regression|smoke|e2e|data_quality|match_rule|migration)$",
     )
     domain_tags: Optional[List[str]] = None
-    execution_type: str = Field(default="api", pattern=r"^(api|ui|sql|manual|mdm)$")
+    execution_type: str = Field(default="api", pattern=r"^(api|ui|sql|manual|mdm|mcp)$")
 
 
 class AgentTestCaseBatchSubmit(BaseModel):

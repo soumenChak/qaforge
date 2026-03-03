@@ -87,6 +87,7 @@ def _plan_with_stats(db: Session, plan: TestPlan) -> Dict[str, Any]:
         description=plan.description,
         plan_type=plan.plan_type,
         status=plan.status,
+        execution_config=plan.execution_config,
         created_by=plan.created_by,
         created_at=plan.created_at,
         updated_at=plan.updated_at,
@@ -117,6 +118,7 @@ def create_test_plan(
         name=body.name,
         description=body.description,
         plan_type=body.plan_type,
+        execution_config=body.execution_config,
         created_by=current_user.id,
     )
     db.add(plan)
