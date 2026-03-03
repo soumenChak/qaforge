@@ -14,6 +14,7 @@ import Settings from './pages/Settings';
 import Users from './pages/Users';
 import ReviewQueue from './pages/ReviewQueue';
 import KnowledgeBase from './pages/KnowledgeBase';
+import Guide from './pages/Guide';
 
 /**
  * ProtectedRoute -- Redirects to /login if not authenticated.
@@ -86,6 +87,7 @@ export default function App() {
             <Route path="projects/:id/test-cases/:tcId" element={<TestCaseEditor />} />
             <Route path="reviews" element={<ReviewQueue />} />
             <Route path="knowledge" element={<KnowledgeBase />} />
+            <Route path="guide" element={<Guide />} />
             <Route path="settings" element={<AdminRoute><Settings /></AdminRoute>} />
             <Route
               path="users"
