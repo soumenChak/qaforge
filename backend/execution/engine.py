@@ -184,6 +184,35 @@ Use the execution context for app-specific elements, page structure, and navigat
 If you cannot determine parameters, return: {"template": "unknown", "params": {}, "reason": "explanation"}
 
 IMPORTANT: Return ONLY the JSON, no markdown fences, no extra text.""",
+
+    "mcp": """You are a QA test execution assistant for MCP (Model Context Protocol) servers.
+Given a test case, extract the parameters needed to call an MCP tool via SSE transport.
+
+Use the "mcp_tool" template. Extract the tool name and arguments from the test case steps.
+
+Return ONLY valid JSON with this structure:
+{
+  "template": "mcp_tool",
+  "params": {
+    "tool_name": "<exact MCP tool name from the test steps>",
+    "arguments": {},
+    "expected_fields": ["field1", "field2"],
+    "expected_body_contains": null,
+    "max_response_time_ms": 30000
+  }
+}
+
+Rules:
+- "tool_name" must be the exact MCP tool name (e.g., "health_check_tool", "search_entities_tool")
+- "arguments" should contain any input parameters the tool expects (can be empty {} for no-arg tools)
+- "expected_fields" is a list of field names expected in the JSON response
+- "expected_body_contains" is an optional string to search for in the response (null to skip)
+- "max_response_time_ms" defaults to 30000 (30 seconds)
+
+If you cannot determine parameters, return:
+{"template": "mcp_tool", "params": {"tool_name": "unknown"}, "reason": "explanation"}
+
+IMPORTANT: Return ONLY the JSON, no markdown fences, no extra text.""",
 }
 
 # Legacy fallback for untyped test cases
@@ -283,8 +312,12 @@ def _apply_template_guardrails(
 
     corrected = original_template
 
+    # Rule 0: Execution type override for MCP
+    if execution_type == "mcp" and corrected != "mcp_tool":
+        corrected = "mcp_tool"
+
     # Rule 1: Execution type override for UI
-    if execution_type == "ui" and corrected != "ui_playwright":
+    elif execution_type == "ui" and corrected != "ui_playwright":
         corrected = "ui_playwright"
 
     # Rule 2: Execution type override for SQL

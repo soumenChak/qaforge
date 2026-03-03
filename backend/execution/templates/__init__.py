@@ -13,6 +13,7 @@ Template types:
   - ETL:    etl_pipeline (source-target row count, schema, transformation, dedup validation)
   - LLM:    llm_evaluation (prompt testing, latency, hallucination, guardrails)
   - Agent:  agent_workflow (multi-step AI agent conversation testing)
+  - MCP:    mcp_tool (MCP server tool calling via SSE transport)
 """
 
 from execution.templates.api_smoke import execute as execute_api_smoke  # noqa: F401
@@ -25,6 +26,7 @@ from execution.templates.data_quality import execute as execute_data_quality  # 
 from execution.templates.etl_pipeline import execute as execute_etl_pipeline  # noqa: F401
 from execution.templates.llm_evaluation import execute as execute_llm_evaluation  # noqa: F401
 from execution.templates.agent_workflow import execute as execute_agent_workflow  # noqa: F401
+from execution.templates.mcp_tool import execute as execute_mcp_tool  # noqa: F401
 
 TEMPLATE_REGISTRY = {
     # API templates
@@ -45,4 +47,6 @@ TEMPLATE_REGISTRY = {
     "llm_evaluation": execute_llm_evaluation,
     # AI Agent templates
     "agent_workflow": execute_agent_workflow,
+    # MCP Protocol templates
+    "mcp_tool": execute_mcp_tool,
 }

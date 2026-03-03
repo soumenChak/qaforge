@@ -53,5 +53,8 @@ playwright>=1.40,<2.0
 pytest>=7.4,<9.0
 pytest-asyncio>=0.23,<1.0
 
+# ── MCP Protocol (Tool Calling via SSE) ─────────────────────────────────────
+mcp>=1.0,<2.0
+
 # ── Utilities ────────────────────────────────────────────────────────────────
 python-dotenv>=1.0,<2.0
