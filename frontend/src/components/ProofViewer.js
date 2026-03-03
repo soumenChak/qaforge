@@ -30,6 +30,16 @@ const kvRow = { display: 'flex', gap: 8, padding: '2px 0', fontSize: 13 };
 
 function ApiResponse({ content }) {
   const c = typeof content === 'string' ? JSON.parse(content) : content;
+  // If content doesn't have standard HTTP fields (method/url), render as generic JSON
+  const isStandardHttp = c.method || c.url || c.body;
+  if (!isStandardHttp) {
+    return (
+      <>
+        <span style={label}>Response</span>
+        <pre style={pre}>{JSON.stringify(c, null, 2)}</pre>
+      </>
+    );
+  }
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
