@@ -6,6 +6,7 @@ import {
   PlusIcon,
   XMarkIcon,
   ClipboardDocumentListIcon,
+  TrashIcon,
 } from '@heroicons/react/24/outline';
 
 const TYPE_LABELS = { sit: 'SIT', uat: 'UAT', regression: 'Regression', smoke: 'Smoke', migration: 'Migration', custom: 'Custom' };
@@ -142,6 +143,7 @@ export default function TestPlans() {
                 <th className="px-5 py-3">Pass Rate</th>
                 <th className="px-5 py-3">Progress</th>
                 <th className="px-5 py-3">Created</th>
+                <th className="px-5 py-3 w-16"></th>
               </tr>
             </thead>
             <tbody className="bg-white">
@@ -200,6 +202,21 @@ export default function TestPlans() {
                     </td>
                     <td className="px-5 py-3.5 text-xs text-gray-400">
                       {new Date(plan.created_at).toLocaleDateString()}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!window.confirm(`Delete test plan "${plan.name}"? This cannot be undone.`)) return;
+                          testPlansAPI.delete(projectId, plan.id).then(() => {
+                            setPlans((prev) => prev.filter((p) => p.id !== plan.id));
+                          }).catch(() => alert('Failed to delete test plan.'));
+                        }}
+                        className="text-gray-400 hover:text-red-500 transition-colors p-1"
+                        title={`Delete ${plan.name}`}
+                      >
+                        <TrashIcon className="w-5 h-5" />
+                      </button>
                     </td>
                   </tr>
                 );

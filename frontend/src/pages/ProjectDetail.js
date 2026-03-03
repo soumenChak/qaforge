@@ -449,8 +449,9 @@ export default function ProjectDetail() {
     if (!window.confirm(`Delete test case ${tc.test_case_id}: "${tc.title}"?`)) return;
     try {
       await testCasesAPI.delete(id, tc.id);
-      loadTestCases();
-      loadProject();
+      // Optimistic: remove from local state instead of full reload
+      setTestCases((prev) => prev.filter((t) => t.id !== tc.id));
+      loadProject(); // refresh project-level test_case_count
     } catch (err) {
       alert('Failed to delete test case.');
     }
@@ -462,9 +463,10 @@ export default function ProjectDetail() {
     if (!window.confirm(`Delete ${count} selected test case${count > 1 ? 's' : ''}? This cannot be undone.`)) return;
     try {
       const ids = Array.from(selectedTcIds);
-      await Promise.all(ids.map((tcId) => testCasesAPI.delete(id, tcId)));
+      await testCasesAPI.bulkDelete(id, ids); // single request instead of N
+      // Optimistic: remove from local state
+      setTestCases((prev) => prev.filter((tc) => !selectedTcIds.has(tc.id)));
       setSelectedTcIds(new Set());
-      loadTestCases();
       loadProject();
     } catch (err) {
       alert('Some test cases failed to delete.');

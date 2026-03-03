@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { testCasesAPI, testPlansAPI, executionsAPI, projectsAPI } from '../services/api';
 import Breadcrumb from '../components/Breadcrumb';
 import ProofViewer from '../components/ProofViewer';
-import { CheckCircleIcon, XCircleIcon, ClockIcon, ChevronDownIcon, ChevronUpIcon, EyeIcon, DocumentArrowDownIcon } from '@heroicons/react/24/outline';
+import { CheckCircleIcon, XCircleIcon, ClockIcon, ChevronDownIcon, ChevronUpIcon, EyeIcon, DocumentArrowDownIcon, TrashIcon } from '@heroicons/react/24/outline';
 
 const STATUS_CHIP = { draft: 'badge-gray', reviewed: 'bg-blue-100 text-blue-800', approved: 'badge-green', executed: 'bg-orange-100 text-orange-800', passed: 'badge-green', failed: 'badge-red' };
 const CP_STATUS = { pending: 'badge-yellow', approved: 'badge-green', rejected: 'badge-red', needs_rework: 'bg-orange-100 text-orange-800' };
@@ -101,8 +101,8 @@ export default function TestPlanDetail() {
   if (!plan) return <div className="page-container"><p className="text-fg-mid">Test plan not found.</p><button onClick={() => navigate(-1)} className="btn-secondary mt-4">Go Back</button></div>;
 
   const tabs = [
-    { key: 'test_cases', label: `Test Cases (${testCases.length})` },
-    { key: 'executions', label: `Executions (${executions.length})` },
+    { key: 'test_cases', label: 'Test Cases' },
+    { key: 'executions', label: 'Executions' },
     { key: 'traceability', label: 'Traceability' },
     { key: 'summary', label: 'Summary' },
     { key: 'playbook', label: 'Playbook' },
@@ -117,7 +117,24 @@ export default function TestPlanDetail() {
       {/* Header */}
       <div className="mb-6">
         <Breadcrumb items={[{ label: 'Projects', to: '/projects' }, { label: plan.project_name || 'Project', to: `/projects/${projectId}` }, { label: plan.name || 'Test Plan' }]} />
-        <h1 className="text-2xl font-bold text-fg-navy mt-2">{plan.name}</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold text-fg-navy mt-2">{plan.name}</h1>
+          <button
+            onClick={async () => {
+              if (!window.confirm(`Delete test plan "${plan.name}"? This cannot be undone.`)) return;
+              try {
+                await testPlansAPI.delete(projectId, planId);
+                navigate(`/projects/${projectId}`, { state: { tab: 'test_plans' } });
+              } catch (err) {
+                alert('Failed to delete test plan.');
+              }
+            }}
+            className="btn-secondary text-sm flex items-center gap-1.5 border-red-200 text-red-600 hover:bg-red-50"
+          >
+            <TrashIcon className="w-4 h-4" />
+            Delete Plan
+          </button>
+        </div>
         {plan.description && <p className="text-sm text-fg-mid mt-1">{plan.description}</p>}
         <div className="flex items-center gap-2 mt-2">
           <span className={`badge ${plan.status === 'active' ? 'badge-green' : plan.status === 'completed' ? 'badge-teal' : 'badge-gray'}`}>{plan.status}</span>
