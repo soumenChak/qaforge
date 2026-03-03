@@ -841,6 +841,23 @@ class ValidationCheckpointResponse(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════
 # Agent API — Composite Schemas
 # ═══════════════════════════════════════════════════════════════════════════
+class AgentRequirementSubmit(BaseModel):
+    """A single requirement submitted by an agent."""
+
+    req_id: Optional[str] = None  # Auto-generated if not provided
+    title: str = Field(min_length=1, max_length=500)
+    description: Optional[str] = None
+    priority: str = "medium"  # high | medium | low
+    category: Optional[str] = None
+    source: str = "agent"
+
+
+class AgentRequirementBatchSubmit(BaseModel):
+    """Batch requirement submission from agent."""
+
+    requirements: List[AgentRequirementSubmit]
+
+
 class AgentTestCaseSubmit(BaseModel):
     """Test case submitted by an agent (simplified, no project_id needed)."""
 

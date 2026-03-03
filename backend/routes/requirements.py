@@ -23,7 +23,7 @@ import re
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from db_models import Project, Requirement, User
@@ -73,6 +73,195 @@ def _get_next_req_id(project_id: uuid.UUID, db: Session) -> str:
         Requirement.project_id == project_id
     ).count()
     return f"REQ-{count + 1:03d}"
+
+
+# ---------------------------------------------------------------------------
+# File text extraction helpers
+# ---------------------------------------------------------------------------
+def _extract_text_from_xlsx(content: bytes) -> str:
+    """Extract text from Excel file - all sheets, all cells."""
+    import openpyxl
+    from io import BytesIO
+    wb = openpyxl.load_workbook(BytesIO(content), data_only=True)
+    lines = []
+    for sheet in wb.sheetnames:
+        ws = wb[sheet]
+        lines.append(f"=== Sheet: {sheet} ===")
+        for row in ws.iter_rows(values_only=True):
+            cells = [str(c) if c is not None else "" for c in row]
+            if any(cells):
+                lines.append("\t".join(cells))
+    return "\n".join(lines)
+
+
+def _extract_text_from_pdf(content: bytes) -> str:
+    """Extract text from PDF file."""
+    from PyPDF2 import PdfReader
+    from io import BytesIO
+    reader = PdfReader(BytesIO(content))
+    pages = []
+    for i, page in enumerate(reader.pages):
+        text = page.extract_text() or ""
+        if text.strip():
+            pages.append(f"=== Page {i+1} ===\n{text}")
+    return "\n\n".join(pages)
+
+
+def _extract_text_from_docx(content: bytes) -> str:
+    """Extract text from Word document."""
+    from docx import Document
+    from io import BytesIO
+    doc = Document(BytesIO(content))
+    paragraphs = []
+    for para in doc.paragraphs:
+        if para.text.strip():
+            paragraphs.append(para.text)
+    # Also extract from tables
+    for table in doc.tables:
+        for row in table.rows:
+            cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+            if cells:
+                paragraphs.append("\t".join(cells))
+    return "\n".join(paragraphs)
+
+
+# ---------------------------------------------------------------------------
+# POST /{project_id}/requirements/upload-file
+# ---------------------------------------------------------------------------
+@router.post(
+    "/{project_id}/requirements/upload-file",
+    response_model=list[RequirementResponse],
+    summary="Upload BRD/PRD file and extract requirements",
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_file_and_extract(
+    project_id: uuid.UUID,
+    request: Request,
+    file: UploadFile = File(...),
+    domain: Optional[str] = Form(None),
+    sub_domain: Optional[str] = Form(None),
+    focus_areas: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Upload a BRD/PRD file (.xlsx, .pdf, .docx), extract text,
+    run LLM-powered requirement extraction, and persist results.
+    """
+    project = _get_project_or_404(project_id, db)
+
+    # Read file content
+    content = await file.read()
+
+    # Validate size (max 10MB)
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="File too large (max 10MB)",
+        )
+
+    # Validate extension
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower()
+    if ext not in ("xlsx", "pdf", "docx"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported file type '.{ext}'. Allowed: .xlsx, .pdf, .docx",
+        )
+
+    # Extract text based on file type
+    try:
+        if ext == "xlsx":
+            text = _extract_text_from_xlsx(content)
+        elif ext == "pdf":
+            text = _extract_text_from_pdf(content)
+        else:  # docx
+            text = _extract_text_from_docx(content)
+    except Exception as exc:
+        logger.error("Failed to extract text from %s: %s", file.filename, exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Failed to extract text from file: {str(exc)[:200]}",
+        )
+
+    if len(text.strip()) < 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Extracted text is too short (< 10 chars). The file may be empty or unreadable.",
+        )
+
+    # LLM extraction
+    extracted = _extract_via_llm(
+        document_text=text,
+        document_type="brd",
+        domain=domain or project.domain,
+        sub_domain=sub_domain or project.sub_domain,
+        project_id=project_id,
+        user_id=current_user.id,
+        db=db,
+        focus_areas=focus_areas,
+    )
+
+    # Persist extracted requirements (same logic as extract_requirements)
+    created_reqs = []
+    base_count = db.query(Requirement).filter(
+        Requirement.project_id == project_id
+    ).count()
+
+    for i, item in enumerate(extracted):
+        req_id = f"REQ-{base_count + i + 1:03d}"
+
+        # Check for duplicate req_id — keep incrementing until unique
+        while db.query(Requirement).filter(
+            Requirement.project_id == project_id,
+            Requirement.req_id == req_id,
+        ).first():
+            base_count += 1
+            req_id = f"REQ-{base_count + i + 1:03d}"
+
+        # Build description with source section traceability
+        description = sanitize_string(item.get("description")) or ""
+        source_section = item.get("source_section", "")
+        if source_section:
+            description = f"[Source: {sanitize_string(source_section)}]\n\n{description}"
+
+        req = Requirement(
+            project_id=project_id,
+            req_id=req_id,
+            title=sanitize_string(item.get("title", "Untitled Requirement")) or "Untitled",
+            description=description,
+            priority=item.get("priority", "medium"),
+            category=sanitize_string(item.get("category")),
+            source="brd",
+        )
+        db.add(req)
+        db.flush()
+        created_reqs.append(req)
+
+    audit_log(
+        db,
+        user_id=current_user.id,
+        action="upload_file_extract_requirements",
+        entity_type="requirement",
+        entity_id=str(project_id),
+        details={
+            "filename": file.filename,
+            "file_extension": ext,
+            "file_size_bytes": len(content),
+            "text_length": len(text),
+            "extracted_count": len(created_reqs),
+        },
+        ip_address=get_client_ip(request),
+    )
+
+    logger.info(
+        "Extracted %d requirements from uploaded file '%s' for project %s by %s",
+        len(created_reqs),
+        file.filename,
+        project.name,
+        current_user.email,
+    )
+
+    return [RequirementResponse.model_validate(r) for r in created_reqs]
 
 
 # ---------------------------------------------------------------------------

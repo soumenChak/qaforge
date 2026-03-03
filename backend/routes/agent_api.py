@@ -25,15 +25,17 @@ from db_models import (
     ExecutionResult,
     KnowledgeEntry,
     ProofArtifact,
+    Requirement,
     TestCase,
     TestPlan,
     Project,
     User,
 )
 from db_session import get_db
-from dependencies import get_agent_project
+from dependencies import get_agent_project, sanitize_string
 from models import (
     AgentExecutionBatchSubmit,
+    AgentRequirementBatchSubmit,
     AgentSessionCreate,
     AgentSessionResponse,
     AgentSummaryResponse,
@@ -41,6 +43,7 @@ from models import (
     ExecutionResultResponse,
     ProofArtifactResponse,
     ProofArtifactSubmit,
+    RequirementResponse,
     TestCaseResponse,
     TestPlanCreate,
     TestPlanResponse,
@@ -746,6 +749,177 @@ def get_kb_stats_for_agent(
         "total_kb_entries": total,
         "by_domain": list(stats.values()),
     }
+
+
+# ---------------------------------------------------------------------------
+# Requirements (agent can submit, list, and extract requirements)
+# ---------------------------------------------------------------------------
+@router.post("/requirements", response_model=List[RequirementResponse])
+def agent_submit_requirements(
+    body: AgentRequirementBatchSubmit,
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """
+    Batch submit requirements for the authenticated project.
+
+    Each requirement gets a sanitized title/description and is persisted
+    with source='agent'. req_id is auto-generated if not provided.
+    """
+    created = []
+    base_count = db.query(Requirement).filter(
+        Requirement.project_id == project.id
+    ).count()
+
+    for i, item in enumerate(body.requirements):
+        # Auto-generate req_id if not provided
+        req_id = item.req_id
+        if not req_id:
+            req_id = f"REQ-{base_count + i + 1:03d}"
+
+        # Check for duplicate req_id — keep incrementing until unique
+        attempt = 0
+        original_req_id = req_id
+        while db.query(Requirement).filter(
+            Requirement.project_id == project.id,
+            Requirement.req_id == req_id,
+        ).first():
+            attempt += 1
+            if item.req_id:
+                # User-provided req_id collides — raise conflict
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Requirement '{req_id}' already exists in this project",
+                )
+            base_count += 1
+            req_id = f"REQ-{base_count + i + 1:03d}"
+
+        # Validate priority
+        priority = item.priority if item.priority in ("high", "medium", "low") else "medium"
+
+        req = Requirement(
+            project_id=project.id,
+            req_id=req_id,
+            title=sanitize_string(item.title) or item.title,
+            description=sanitize_string(item.description) if item.description else None,
+            priority=priority,
+            category=sanitize_string(item.category) if item.category else None,
+            source="agent",
+        )
+        db.add(req)
+        db.flush()
+        created.append(req)
+
+    db.commit()
+    for r in created:
+        db.refresh(r)
+
+    logger.info(
+        "Agent submitted %d requirements for project %s",
+        len(created),
+        project.name,
+    )
+    return [RequirementResponse.model_validate(r) for r in created]
+
+
+@router.get("/requirements", response_model=List[RequirementResponse])
+def agent_list_requirements(
+    status: Optional[str] = Query(None),
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """List requirements for the authenticated project, optionally filtered by status."""
+    q = db.query(Requirement).filter(Requirement.project_id == project.id)
+    if status:
+        q = q.filter(Requirement.status == status)
+    reqs = q.order_by(Requirement.created_at.asc()).all()
+    return [RequirementResponse.model_validate(r) for r in reqs]
+
+
+@router.post("/requirements/extract", response_model=List[RequirementResponse])
+def agent_extract_requirements(
+    body: dict,
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """
+    LLM-powered requirement extraction via agent API.
+
+    Body fields:
+      - document_text: str (required) — raw BRD/PRD text
+      - document_type: str (default "brd")
+      - domain: str (optional, defaults to project domain)
+      - sub_domain: str (optional, defaults to project sub_domain)
+      - focus_areas: str (optional)
+    """
+    from routes.requirements import _extract_via_llm
+
+    document_text = body.get("document_text", "")
+    if not document_text or len(document_text.strip()) < 10:
+        raise HTTPException(400, "document_text is required (min 10 chars)")
+
+    document_type = body.get("document_type", "brd")
+    domain = body.get("domain") or project.domain
+    sub_domain = body.get("sub_domain") or project.sub_domain
+    focus_areas = body.get("focus_areas")
+
+    # LLM extraction
+    extracted = _extract_via_llm(
+        document_text=document_text,
+        document_type=document_type,
+        domain=domain,
+        sub_domain=sub_domain,
+        project_id=project.id,
+        user_id=project.created_by,
+        db=db,
+        focus_areas=focus_areas,
+    )
+
+    # Persist extracted requirements
+    created_reqs = []
+    base_count = db.query(Requirement).filter(
+        Requirement.project_id == project.id
+    ).count()
+
+    for i, item in enumerate(extracted):
+        req_id = f"REQ-{base_count + i + 1:03d}"
+
+        # Check for duplicate req_id — keep incrementing until unique
+        while db.query(Requirement).filter(
+            Requirement.project_id == project.id,
+            Requirement.req_id == req_id,
+        ).first():
+            base_count += 1
+            req_id = f"REQ-{base_count + i + 1:03d}"
+
+        # Build description with source section traceability
+        description = sanitize_string(item.get("description")) or ""
+        source_section = item.get("source_section", "")
+        if source_section:
+            description = f"[Source: {sanitize_string(source_section)}]\n\n{description}"
+
+        req = Requirement(
+            project_id=project.id,
+            req_id=req_id,
+            title=sanitize_string(item.get("title", "Untitled Requirement")) or "Untitled",
+            description=description,
+            priority=item.get("priority", "medium"),
+            category=sanitize_string(item.get("category")),
+            source=document_type,
+        )
+        db.add(req)
+        db.flush()
+        created_reqs.append(req)
+
+    db.commit()
+    for r in created_reqs:
+        db.refresh(r)
+
+    logger.info(
+        "Agent extracted %d requirements for project %s (domain=%s, sub=%s)",
+        len(created_reqs), project.name, domain, sub_domain,
+    )
+    return [RequirementResponse.model_validate(r) for r in created_reqs]
 
 
 # ---------------------------------------------------------------------------

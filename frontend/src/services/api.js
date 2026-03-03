@@ -80,6 +80,11 @@ export const requirementsAPI = {
   delete: (projectId, reqId) => api.delete(`/projects/${projectId}/requirements/${reqId}`),
   upload: (projectId, data) => api.post(`/projects/${projectId}/requirements/upload`, data),
   extract: (projectId, data) => api.post(`/projects/${projectId}/requirements/extract`, data),
+  uploadFile: (projectId, formData) =>
+    api.post(`/projects/${projectId}/requirements/upload-file`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000, // 2 min — LLM extraction can be slow for large docs
+    }),
 };
 
 // -- Test Cases --

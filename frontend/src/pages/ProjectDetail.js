@@ -47,6 +47,10 @@ export default function ProjectDetail() {
   const [showUpload, setShowUpload] = useState(false);
   const [uploadText, setUploadText] = useState('');
   const [extracting, setExtracting] = useState(false);
+  const [extractMode, setExtractMode] = useState('file'); // 'file' | 'text'
+  const [extractFile, setExtractFile] = useState(null);
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef(null);
 
   // Test cases state
   const [testCases, setTestCases] = useState([]);
@@ -254,6 +258,49 @@ export default function ProjectDetail() {
       alert(err.response?.data?.detail || 'Extraction failed. Please try again.');
     } finally {
       setExtracting(false);
+    }
+  };
+
+  // File upload extraction (Excel, PDF, Word)
+  const handleFileExtract = async () => {
+    if (!extractFile) return;
+    setExtracting(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', extractFile);
+      if (project?.domain) formData.append('domain', project.domain);
+      if (project?.sub_domain) formData.append('sub_domain', project.sub_domain);
+      const resp = await requirementsAPI.uploadFile(id, formData);
+      const count = resp.data?.length || 0;
+      setShowUpload(false);
+      setExtractFile(null);
+      loadRequirements();
+      loadProject();
+      if (count > 0) {
+        alert(`✅ Successfully extracted ${count} requirements from "${extractFile.name}" using AI.`);
+      }
+    } catch (err) {
+      alert(err.response?.data?.detail || 'File extraction failed. Please try again.');
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  // Drag & drop handlers
+  const handleDragEnter = (e) => { e.preventDefault(); e.stopPropagation(); setDragActive(true); };
+  const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); setDragActive(false); };
+  const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); };
+  const handleDrop = (e) => {
+    e.preventDefault(); e.stopPropagation();
+    setDragActive(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (file) {
+      const ext = file.name.split('.').pop().toLowerCase();
+      if (['xlsx', 'pdf', 'docx'].includes(ext)) {
+        setExtractFile(file);
+      } else {
+        alert('Unsupported file type. Please upload .xlsx, .pdf, or .docx files.');
+      }
     }
   };
 
@@ -713,18 +760,34 @@ export default function ProjectDetail() {
             </div>
           )}
 
-          {/* Upload/Extract panel */}
+          {/* Upload/Extract panel — dual mode: File Upload | Paste Text */}
           {showUpload && (
             <div className="card-static p-5 mb-5 animate-slide-up">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-bold text-fg-navy">Upload BRD / PRD Document</h3>
-                {uploadText.trim() && (
-                  <span className="text-xs text-fg-mid">
-                    {uploadText.length.toLocaleString()} chars
-                    {uploadText.length > 30000 && ' — will be processed in multiple chunks'}
-                  </span>
-                )}
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-fg-navy">Extract Requirements from BRD / PRD</h3>
+                <button onClick={() => { setShowUpload(false); setUploadText(''); setExtractFile(null); }} className="text-fg-mid hover:text-fg-dark">
+                  <XMarkIcon className="w-4 h-4" />
+                </button>
               </div>
+
+              {/* Mode toggle tabs */}
+              <div className="flex gap-1 mb-4 bg-gray-100 rounded-lg p-1 w-fit">
+                <button
+                  onClick={() => setExtractMode('file')}
+                  className={`px-4 py-1.5 rounded-md text-xs font-semibold transition-all ${extractMode === 'file' ? 'bg-white text-fg-navy shadow-sm' : 'text-fg-mid hover:text-fg-dark'}`}
+                >
+                  <ArrowUpTrayIcon className="w-3.5 h-3.5 inline mr-1.5 -mt-0.5" />
+                  Upload File
+                </button>
+                <button
+                  onClick={() => setExtractMode('text')}
+                  className={`px-4 py-1.5 rounded-md text-xs font-semibold transition-all ${extractMode === 'text' ? 'bg-white text-fg-navy shadow-sm' : 'text-fg-mid hover:text-fg-dark'}`}
+                >
+                  <DocumentTextIcon className="w-3.5 h-3.5 inline mr-1.5 -mt-0.5" />
+                  Paste Text
+                </button>
+              </div>
+
               {/* Domain hint */}
               {project?.domain && (
                 <div className="flex items-center gap-2 mb-3 p-2 bg-blue-50 rounded-lg">
@@ -734,40 +797,134 @@ export default function ProjectDetail() {
                   </span>
                 </div>
               )}
-              <textarea
-                value={uploadText}
-                onChange={(e) => setUploadText(e.target.value)}
-                placeholder={project?.domain === 'mdm'
-                  ? 'Paste your BRD/PRD here... The AI will extract MDM requirements including match/merge rules, data quality checks, survivorship logic, integration specs, and stewardship workflows.'
-                  : project?.domain === 'ai'
-                  ? 'Paste your BRD/PRD here... The AI will extract AI/GenAI requirements including model validation, prompt engineering, RAG pipeline, safety guardrails, and evaluation criteria.'
-                  : project?.domain === 'data_eng'
-                  ? 'Paste your BRD/PRD here... The AI will extract Data Engineering requirements including pipeline specs, data quality rules, orchestration, schema management, and SLA definitions.'
-                  : 'Paste your BRD/PRD document text here... The AI will extract testable requirements with priority, category, and acceptance criteria.'}
-                rows={10}
-                className="input-field mb-3 font-mono text-xs"
-              />
-              <div className="flex items-center justify-between">
-                <div className="text-xs text-fg-mid">
-                  💡 Tip: Paste the entire document — longer docs produce better requirements. Headings and sections are preserved for traceability.
-                </div>
-                <div className="flex gap-3">
-                  <button onClick={() => { setShowUpload(false); setUploadText(''); }} className="btn-ghost text-sm">Cancel</button>
-                  <button
-                    onClick={handleExtract}
-                    disabled={extracting || !uploadText.trim()}
-                    className="btn-primary text-sm flex items-center gap-2"
+
+              {/* ── File Upload Mode ── */}
+              {extractMode === 'file' && (
+                <>
+                  <div
+                    onDragEnter={handleDragEnter}
+                    onDragLeave={handleDragLeave}
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop}
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-200
+                      ${dragActive ? 'border-fg-teal bg-teal-50/50 scale-[1.01]' : 'border-gray-300 hover:border-fg-teal hover:bg-gray-50'}
+                      ${extractFile ? 'border-green-400 bg-green-50/30' : ''}`}
                   >
-                    <DocumentMagnifyingGlassIcon className="w-4 h-4" />
-                    {extracting ? (
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".xlsx,.pdf,.docx"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) setExtractFile(f); e.target.value = ''; }}
+                      className="hidden"
+                    />
+                    {extractFile ? (
+                      <div className="flex items-center justify-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
+                          {extractFile.name.endsWith('.xlsx') ? (
+                            <span className="text-green-700 text-xs font-bold">XLS</span>
+                          ) : extractFile.name.endsWith('.pdf') ? (
+                            <span className="text-red-600 text-xs font-bold">PDF</span>
+                          ) : (
+                            <span className="text-blue-600 text-xs font-bold">DOC</span>
+                          )}
+                        </div>
+                        <div className="text-left">
+                          <p className="text-sm font-semibold text-fg-dark">{extractFile.name}</p>
+                          <p className="text-xs text-fg-mid">{(extractFile.size / 1024).toFixed(1)} KB</p>
+                        </div>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setExtractFile(null); }}
+                          className="ml-4 p-1 rounded hover:bg-red-100 text-fg-mid hover:text-red-600"
+                        >
+                          <XMarkIcon className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
                       <>
-                        <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                        Extracting with AI...
+                        <ArrowUpTrayIcon className="w-8 h-8 mx-auto text-gray-400 mb-2" />
+                        <p className="text-sm font-medium text-fg-dark mb-1">Drop your BRD/PRD file here</p>
+                        <p className="text-xs text-fg-mid mb-3">or click to browse</p>
+                        <div className="flex justify-center gap-2">
+                          <span className="text-xxs px-2 py-0.5 rounded bg-green-100 text-green-700 font-medium">.xlsx</span>
+                          <span className="text-xxs px-2 py-0.5 rounded bg-red-100 text-red-700 font-medium">.pdf</span>
+                          <span className="text-xxs px-2 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">.docx</span>
+                        </div>
+                        <p className="text-xxs text-fg-mid mt-2">Max 10 MB</p>
                       </>
-                    ) : `Extract Requirements${uploadText.trim() ? ` (${Math.ceil(uploadText.length / 1000)}K chars)` : ''}`}
-                  </button>
-                </div>
-              </div>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between mt-4">
+                    <div className="text-xs text-fg-mid">
+                      Text is extracted from the file and processed by AI to identify requirements.
+                    </div>
+                    <div className="flex gap-3">
+                      <button onClick={() => { setShowUpload(false); setExtractFile(null); }} className="btn-ghost text-sm">Cancel</button>
+                      <button
+                        onClick={handleFileExtract}
+                        disabled={extracting || !extractFile}
+                        className="btn-primary text-sm flex items-center gap-2"
+                      >
+                        <DocumentMagnifyingGlassIcon className="w-4 h-4" />
+                        {extracting ? (
+                          <>
+                            <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                            Extracting from file...
+                          </>
+                        ) : 'Extract Requirements'}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* ── Paste Text Mode ── */}
+              {extractMode === 'text' && (
+                <>
+                  {uploadText.trim() && (
+                    <div className="text-right mb-1">
+                      <span className="text-xs text-fg-mid">
+                        {uploadText.length.toLocaleString()} chars
+                        {uploadText.length > 30000 && ' — will be processed in multiple chunks'}
+                      </span>
+                    </div>
+                  )}
+                  <textarea
+                    value={uploadText}
+                    onChange={(e) => setUploadText(e.target.value)}
+                    placeholder={project?.domain === 'mdm'
+                      ? 'Paste your BRD/PRD here... The AI will extract MDM requirements including match/merge rules, data quality checks, survivorship logic, integration specs, and stewardship workflows.'
+                      : project?.domain === 'ai'
+                      ? 'Paste your BRD/PRD here... The AI will extract AI/GenAI requirements including model validation, prompt engineering, RAG pipeline, safety guardrails, and evaluation criteria.'
+                      : project?.domain === 'data_eng'
+                      ? 'Paste your BRD/PRD here... The AI will extract Data Engineering requirements including pipeline specs, data quality rules, orchestration, schema management, and SLA definitions.'
+                      : 'Paste your BRD/PRD document text here... The AI will extract testable requirements with priority, category, and acceptance criteria.'}
+                    rows={10}
+                    className="input-field mb-3 font-mono text-xs"
+                  />
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs text-fg-mid">
+                      Tip: Paste the entire document — longer docs produce better requirements.
+                    </div>
+                    <div className="flex gap-3">
+                      <button onClick={() => { setShowUpload(false); setUploadText(''); }} className="btn-ghost text-sm">Cancel</button>
+                      <button
+                        onClick={handleExtract}
+                        disabled={extracting || !uploadText.trim()}
+                        className="btn-primary text-sm flex items-center gap-2"
+                      >
+                        <DocumentMagnifyingGlassIcon className="w-4 h-4" />
+                        {extracting ? (
+                          <>
+                            <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                            Extracting with AI...
+                          </>
+                        ) : `Extract Requirements${uploadText.trim() ? ` (${Math.ceil(uploadText.length / 1000)}K chars)` : ''}`}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
