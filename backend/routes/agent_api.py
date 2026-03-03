@@ -77,6 +77,144 @@ def update_project_metadata(
 
 
 # ---------------------------------------------------------------------------
+# Generate from BRD (enterprise test case generation)
+# ---------------------------------------------------------------------------
+@router.post("/generate-from-brd", response_model=List[TestCaseResponse])
+def generate_from_brd(
+    body: dict,
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """
+    Generate enterprise-grade test cases from BRD text + optional reference TCs.
+
+    Body fields:
+      - brd_text: str (required) — the requirement / BRD document text
+      - domain: str (default "mdm") — mdm, data_engineering, api, ui
+      - sub_domain: str (default "") — reltio, snowflake, databricks, etc.
+      - reference_test_cases: list[dict] (optional) — parsed reference TCs from Excel
+      - count: int (default 10) — number of test cases to generate
+      - test_plan_id: str (optional) — UUID of test plan to bind generated TCs to
+    """
+    import asyncio
+    from pipeline.orchestrator import Orchestrator, GenerateRequest
+
+    brd_text = body.get("brd_text", "")
+    if not brd_text or len(brd_text) < 10:
+        raise HTTPException(400, "brd_text is required (min 10 chars)")
+
+    domain = body.get("domain", "mdm")
+    sub_domain = body.get("sub_domain", "")
+    count = min(body.get("count", 10), 50)
+    ref_tcs = body.get("reference_test_cases", [])
+    test_plan_id_str = body.get("test_plan_id")
+
+    # Build reference TC context text
+    ref_text = ""
+    if ref_tcs:
+        ref_lines = []
+        for tc in ref_tcs[:5]:
+            ref_lines.append(f"--- {tc.get('test_case_id', 'TC-REF')}: {tc.get('title', '')} ---")
+            for step in tc.get("test_steps", [])[:6]:
+                step_info = f"  Step {step.get('step_number', '?')}: {step.get('action', '')}"
+                if step.get("step_type"):
+                    step_info += f" [{step['step_type']}]"
+                if step.get("sql_script"):
+                    step_info += f"\n    SQL: {step['sql_script'][:150]}"
+                step_info += f"\n    Expected: {step.get('expected_result', '')}"
+                ref_lines.append(step_info)
+        ref_text = "\n".join(ref_lines)[:3000]
+
+    # Build generation request
+    gen_request = GenerateRequest(
+        description=brd_text[:6000],
+        domain=domain,
+        sub_domain=sub_domain,
+        count=count,
+        brd_prd_context=brd_text,
+        reference_tc_context=ref_text,
+        example_test_cases=ref_tcs[:3] if ref_tcs else None,
+        skip_review=True,  # Agent-driven, no review loop needed
+        temperature=0.3,
+        max_tokens=8192,
+    )
+
+    # Run the orchestrator
+    orchestrator = Orchestrator()
+    try:
+        loop = asyncio.new_event_loop()
+        result = loop.run_until_complete(orchestrator.run(gen_request))
+        loop.close()
+    except Exception as exc:
+        logger.error("Generation failed: %s", exc, exc_info=True)
+        raise HTTPException(500, f"Generation failed: {str(exc)[:200]}")
+
+    if not result.test_cases:
+        raise HTTPException(422, "No test cases generated. Try a more detailed BRD.")
+
+    # Validate test_plan_id
+    plan_id = None
+    if test_plan_id_str:
+        try:
+            plan_id = uuid.UUID(test_plan_id_str)
+        except ValueError:
+            raise HTTPException(400, f"Invalid test_plan_id: {test_plan_id_str}")
+        plan = db.query(TestPlan).filter(
+            TestPlan.id == plan_id,
+            TestPlan.project_id == project.id,
+        ).first()
+        if not plan:
+            raise HTTPException(404, f"Test plan {plan_id} not found in this project")
+
+    # Save generated TCs to DB
+    saved: List[TestCase] = []
+    for tc_data in result.test_cases:
+        tc_id = tc_data.get("test_case_id", f"TC-GEN-{uuid.uuid4().hex[:6].upper()}")
+
+        # Check for duplicate
+        existing = db.query(TestCase).filter(
+            TestCase.project_id == project.id,
+            TestCase.test_case_id == tc_id,
+        ).first()
+        if existing:
+            tc_id = f"{tc_id}-{uuid.uuid4().hex[:4].upper()}"
+
+        tc = TestCase(
+            id=uuid.uuid4(),
+            project_id=project.id,
+            test_plan_id=plan_id,
+            test_case_id=tc_id,
+            title=tc_data.get("title", "Generated TC")[:500],
+            description=tc_data.get("description", ""),
+            preconditions=tc_data.get("preconditions", ""),
+            test_steps=tc_data.get("test_steps", []),
+            expected_result=tc_data.get("expected_result", ""),
+            test_data=tc_data.get("test_data"),
+            priority=tc_data.get("priority", "P2"),
+            category=tc_data.get("category", "functional"),
+            domain_tags=tc_data.get("domain_tags", []),
+            execution_type=tc_data.get("execution_type", "manual"),
+            source="ai_generated",
+            status="draft",
+            created_by=project.created_by,
+            generated_by_model=result.metadata.get("model") if result.metadata else None,
+            generation_metadata=result.metadata,
+        )
+        db.add(tc)
+        saved.append(tc)
+
+    db.commit()
+    for tc in saved:
+        db.refresh(tc)
+
+    logger.info(
+        "Generated %d test cases from BRD for project %s (domain=%s, sub=%s)",
+        len(saved), project.name, domain, sub_domain,
+    )
+    return saved
+
+
+# ---------------------------------------------------------------------------
 # Sessions
 # ---------------------------------------------------------------------------
 @router.post("/sessions", response_model=AgentSessionResponse)

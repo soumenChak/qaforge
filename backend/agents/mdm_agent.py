@@ -102,6 +102,36 @@ _RELTIO_PATTERNS = """\
 - Data model: entity types, attributes, nested objects
 - Real-time change data capture via webhooks
 - Activity log validation for audit compliance
+
+=== RELTIO ENTITY LOAD TESTING PATTERNS ===
+- Entity load from Snowflake landing tables to Reltio
+- Verify entity count in Reltio matches source count in Snowflake
+- Verify attribute mapping: source column → Reltio attribute (Name, ID, Display Name, etc.)
+- Verify nested attributes are present/absent as per spec (e.g. Image fields excluded)
+- Verify crosswalk URIs generated correctly from source system keys
+- Advanced Search in Reltio UI: filter by entity type + source system
+
+=== RELTIO RELATION LOAD TESTING PATTERNS ===
+- Relation load from landing tables with IS_DELETED flag handling
+- Active relations (IS_DELETED=false): relation should be active in Reltio
+- Inactive relations (IS_DELETED=true): relation should have delete date in crosswalk
+- Relation attributes: verify values transferred (e.g. Premiere Airing Network = Yes/No)
+- Relationship Tab navigation in Reltio UI: filter by relation type
+- Cardinality validation: only one relation per entity should have a particular flag value
+
+=== RELTIO ODL (OPERATIONAL DATA LOAD) TESTING ===
+- Flag value changes: e.g. premiere network switches from one relation to another
+- New relation addition: new record in landing table → new relation in Reltio
+- Relation inactivation: IS_DELETED set to true → relation end-dated in Reltio
+- Relation reactivation: IS_DELETED set back to false → relation reactivated
+- LAST_MODIFIED_DATE tracking for changed records
+- Verify only changed records are processed (delta/incremental load)
+
+=== RELTIO RDM (REFERENCE DATA MANAGEMENT) ===
+- RDM lookup tables loaded from source data
+- Navigate to RDM in Reltio UI: Applications icon → RDM → verify lookup exists
+- Crosswalk value calculation: canonical value → lowercase + remove spaces
+- RDM table count matches source reference data count
 """
 
 _SEMARCHY_PATTERNS = """\
@@ -121,11 +151,72 @@ _SEMARCHY_PATTERNS = """\
 """
 
 
+_MDM_ENTERPRISE_FORMAT = """\
+=== ENTERPRISE MDM TEST CASE FORMAT ===
+
+Generate test cases following this EXACT enterprise format used by MDM consultancies:
+
+STRUCTURE RULES:
+- Each test case MUST have 4-10 DETAILED steps mixing different systems
+- Steps MUST reference SPECIFIC table names, column names, entity types from the requirement
+- Each step MUST have step_type to indicate which system it targets
+- SQL steps MUST include the actual SQL query in the sql_script field
+- Prerequisites MUST list ALL system access needed (e.g. "User should have access to Snowflake", "User should have access to Reltio")
+- test_data MUST include structured metadata: source_table, target_entity_type, column_mappings if applicable
+
+STEP TYPES FOR MDM:
+- "snowflake" — Query Snowflake/source tables. ALWAYS include sql_script with actual SQL.
+- "reltio_ui" — Navigate Reltio UI (login, Advanced Search, entity view, Relationship Tab, RDM).
+    Include specific UI navigation instructions (e.g. "Navigate to Advanced Search, select entity type as Network, apply filter: Source System Name equals XXX")
+- "reltio_api" — Call Reltio API endpoints (search, create, match, merge, config validation)
+- "data_validation" — Compare data between systems (e.g. Snowflake count vs Reltio count, column A → Reltio field Name)
+- "manual" — Manual steps (open spreadsheet, check reference data, visual comparison)
+
+TEST CASE CATEGORIES TO COVER:
+1. Schema/Table Changes — Verify DDL changes in landing tables (columns added/removed/renamed)
+2. Entity Load Validation — Verify all entities loaded from source to Reltio with correct attributes
+3. Relationship Load — Verify relations between entities (active, inactive with delete date)
+4. Data Mapping — Verify specific source→target field mapping (Column A → Name, Column B → ID, etc.)
+5. Count Reconciliation — Source record count in Snowflake matches entity count in Reltio
+6. RDM/Lookup Validation — Verify reference data lookups loaded correctly
+7. ODL/Incremental Changes — Delta load scenarios: flag changes, new relations, inactivation, reactivation
+8. Data Quality — Cleansing, dedup, null handling, crosswalk transformation
+
+EXAMPLE FULL TEST CASE:
+{
+  "test_case_id": "TC_SIT_001",
+  "title": "Verify Network entity load to Reltio",
+  "description": "Verify all Networks from the source spreadsheet are loaded to Reltio with correct attribute mapping",
+  "preconditions": "1. User should have access to Reltio. 2. User should have access to Network spreadsheet (Reference Tab)",
+  "test_steps": [
+    {"step_number": 1, "action": "Login to Reltio MDM with valid credentials", "expected_result": "Login should be successful", "step_type": "reltio_ui", "system": "Reltio"},
+    {"step_number": 2, "action": "Navigate to Advanced Search, select entity type as Network and apply filter: Source System Name equals XXX", "expected_result": "User should be able to fetch the records as per filter", "step_type": "reltio_ui", "system": "Reltio"},
+    {"step_number": 3, "action": "Open the Network spreadsheet and refer columns A, B and C", "expected_result": "User should be able to view the data", "step_type": "manual", "system": "Spreadsheet"},
+    {"step_number": 4, "action": "Ensure data is mapped from Spreadsheet to Reltio: Column A (Airing Network Name) to Name field, Column B (Network ID) to ID field, Column C (Network Display Name) to Display Name field", "expected_result": "Data should be mapped as expected", "step_type": "data_validation", "system": "Cross-system"},
+    {"step_number": 5, "action": "Ensure Image related nested attributes (Images- Asset ID, Asset Type, URL) are not available in Reltio", "expected_result": "Image related nested attributes should not be available in Reltio", "step_type": "reltio_ui", "system": "Reltio"},
+    {"step_number": 6, "action": "Verify the count of records in Spreadsheet matches with the count of Network entities in Reltio", "expected_result": "Counts should be matching", "step_type": "data_validation", "system": "Cross-system"}
+  ],
+  "expected_result": "All Network entities loaded to Reltio with correct attribute mapping and count matching source",
+  "priority": "High",
+  "category": "Functional",
+  "domain_tags": ["MDM", "Reltio", "Entity Load"],
+  "test_data": {"entity_type": "Network", "source": "Network spreadsheet", "column_mapping": {"Column A": "Name", "Column B": "ID", "Column C": "Display Name"}},
+  "execution_type": "mdm"
+}
+"""
+
+
 class MDMAgent(BaseQAAgent):
     """
     MDM Testing Agent -- generates test cases specialised for
     Master Data Management platforms (Reltio, Semarchy, generic MDM).
+
+    Produces enterprise-grade multi-step test cases that mix SQL
+    validation, MDM UI verification, and cross-system data comparison.
     """
+
+    # Enterprise TCs are verbose (4-10 steps each) — need more tokens
+    DEFAULT_MAX_TOKENS: int = 8192
 
     # Sub-domain identifiers
     SUB_DOMAIN_RELTIO = "reltio"
@@ -151,7 +242,8 @@ class MDMAgent(BaseQAAgent):
         Return MDM-specific domain knowledge for prompt injection.
 
         Combines common MDM patterns with sub-domain-specific patterns
-        (Reltio or Semarchy) when applicable.
+        (Reltio or Semarchy) when applicable, plus enterprise format
+        instructions for multi-step cross-system test cases.
         """
         patterns = _MDM_COMMON_PATTERNS
 
@@ -167,6 +259,9 @@ class MDMAgent(BaseQAAgent):
                 "a specific platform (Reltio, Semarchy, Informatica, etc.), tailor "
                 "the test cases to that platform's terminology and patterns."
             )
+
+        # Always include enterprise format instructions
+        patterns += "\n" + _MDM_ENTERPRISE_FORMAT
 
         return patterns
 

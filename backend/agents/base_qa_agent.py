@@ -51,16 +51,27 @@ RULES:
    - test_case_id   (string, e.g. "TC-001")
    - title          (string, concise)
    - description    (string, 1-3 sentences)
-   - preconditions  (string, what must be true before the test)
-   - test_steps     (array of objects, each with: step_number (int), action (string), expected_result (string))
+   - preconditions  (string, what must be true before the test — list all system access needed)
+   - test_steps     (array of step objects — see format below)
    - expected_result (string, overall expected outcome)
    - priority       (string: "High", "Medium", or "Low")
-   - category       (string: e.g. "Functional", "Negative", "Edge Case", "Boundary", "Integration", "Performance")
+   - category       (string: e.g. "Functional", "Negative", "Edge Case", "Boundary", "Integration", "Performance", "Data Quality", "Migration")
    - domain_tags    (array of strings relevant to the domain)
-3. Cover positive, negative, edge-case, and boundary scenarios.
-4. Test steps must be concrete, actionable, and verifiable.
-5. Assign priorities realistically: not everything is High.
-6. Each test case must be independent and self-contained.
+   - test_data      (optional object: structured metadata like table names, entity types, column mappings)
+   - execution_type (optional string: "api", "ui", "sql", "manual", "mdm")
+3. TEST STEP FORMAT — each step object MUST have:
+   - step_number    (int)
+   - action         (string, concrete and actionable)
+   - expected_result (string, verifiable outcome for this specific step)
+   And OPTIONALLY:
+   - step_type      (string: "sql", "snowflake", "databricks", "oracle", "reltio_ui", "reltio_api", "data_validation", "manual")
+   - sql_script     (string: actual SQL query to execute — include when step_type is sql/snowflake/databricks/oracle)
+   - system         (string: which system this step targets, e.g. "Snowflake", "Reltio", "Databricks", "Oracle")
+4. Cover positive, negative, edge-case, and boundary scenarios.
+5. Test steps must be concrete, actionable, and verifiable.
+6. Assign priorities realistically: not everything is High.
+7. Each test case must be independent and self-contained.
+8. When the domain involves multiple systems (e.g. Snowflake + Reltio), create multi-step test cases that validate data flow ACROSS systems.
 """
 
 _USER_PROMPT_TEMPLATE = """\
@@ -308,17 +319,27 @@ class BaseQAAgent(ABC):
 
     @staticmethod
     def _normalise_steps(steps: Any) -> List[Dict[str, Any]]:
-        """Normalise test steps into the canonical format."""
+        """Normalise test steps into the canonical format.
+
+        Preserves extra fields beyond the canonical three (step_number,
+        action, expected_result) so that enterprise test cases can carry
+        rich metadata: step_type, sql_script, system, verification_type, etc.
+        """
         if not isinstance(steps, list):
             return [{"step_number": 1, "action": str(steps), "expected_result": ""}]
         normalised: List[Dict[str, Any]] = []
         for i, step in enumerate(steps):
             if isinstance(step, dict):
-                normalised.append({
+                base = {
                     "step_number": step.get("step_number", i + 1),
                     "action": step.get("action", ""),
                     "expected_result": step.get("expected_result", ""),
-                })
+                }
+                # Preserve extra fields (step_type, sql_script, system, etc.)
+                for k, v in step.items():
+                    if k not in base:
+                        base[k] = v
+                normalised.append(base)
             elif isinstance(step, str):
                 normalised.append({
                     "step_number": i + 1,

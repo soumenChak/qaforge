@@ -15,6 +15,7 @@ import logging
 
 from .base_qa_agent import BaseQAAgent, TEST_CASE_FIELDS
 from .mdm_agent import MDMAgent
+from .de_agent import DEAgent
 from .api_agent import APIAgent
 from .ui_agent import UIAgent
 from .reviewer_agent import ReviewerAgent, ReviewReport
@@ -26,9 +27,12 @@ DOMAIN_AGENTS = {
     "mdm": MDMAgent,
     "api": APIAgent,
     "ui": UIAgent,
-    # Aliases for common domain names used in the frontend
+    "data_engineering": DEAgent,
+    # Aliases
+    "de": DEAgent,
+    "etl": DEAgent,
+    "migration": DEAgent,
     "digital": APIAgent,        # Digital/web apps → API testing by default
-    "data_engineering": APIAgent,  # Data eng APIs
     "cloud_devops": APIAgent,   # Cloud/DevOps APIs
     "integration": APIAgent,    # Integration APIs
 }
@@ -37,6 +41,9 @@ DOMAIN_AGENTS = {
 SUB_DOMAIN_ALIASES = {
     "reltio": ("mdm", "reltio"),
     "semarchy": ("mdm", "semarchy"),
+    "snowflake": ("data_engineering", "snowflake"),
+    "databricks": ("data_engineering", "databricks"),
+    "oracle": ("data_engineering", "oracle"),
     "fastapi": ("api", "fastapi"),
     "react": ("ui", "react"),
     "angular": ("ui", "generic"),
@@ -89,6 +96,7 @@ __all__ = [
     "BaseQAAgent",
     "TEST_CASE_FIELDS",
     "MDMAgent",
+    "DEAgent",
     "APIAgent",
     "UIAgent",
     "ReviewerAgent",

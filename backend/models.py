@@ -208,11 +208,20 @@ class RequirementExtractRequest(BaseModel):
 # Test Cases
 # ═══════════════════════════════════════════════════════════════════════════
 class TestStepSchema(BaseModel):
-    """A single test step within a test case."""
+    """A single test step within a test case.
+
+    Supports optional enterprise fields: step_type, sql_script, system,
+    verification_type, etc. Extra fields are preserved via ``extra='allow'``.
+    """
+
+    model_config = ConfigDict(extra="allow")
 
     step_number: int
     action: str
     expected_result: str
+    step_type: Optional[str] = None
+    sql_script: Optional[str] = None
+    system: Optional[str] = None
 
 
 class TestCaseCreate(BaseModel):
@@ -233,7 +242,7 @@ class TestCaseCreate(BaseModel):
         pattern=r"^(functional|integration|regression|smoke|e2e|data_quality|match_rule|migration)$",
     )
     domain_tags: Optional[List[str]] = None
-    execution_type: str = Field(default="api", pattern=r"^(api|ui|sql|manual)$")
+    execution_type: str = Field(default="api", pattern=r"^(api|ui|sql|manual|mdm)$")
     source: str = Field(default="manual", pattern=r"^(ai_generated|manual|hybrid)$")
 
 
@@ -252,7 +261,7 @@ class TestCaseUpdate(BaseModel):
         pattern=r"^(functional|integration|regression|smoke|e2e|data_quality|match_rule|migration)$",
     )
     domain_tags: Optional[List[str]] = None
-    execution_type: Optional[str] = Field(None, pattern=r"^(api|ui|sql|manual)$")
+    execution_type: Optional[str] = Field(None, pattern=r"^(api|ui|sql|manual|mdm)$")
     test_plan_id: Optional[uuid.UUID] = None
     status: Optional[str] = Field(
         None,
@@ -311,7 +320,7 @@ class TestCaseGenerateRequest(BaseModel):
         None,
         pattern=r"^(functional|integration|regression|smoke|e2e)$",
     )
-    execution_type: Optional[str] = Field(None, pattern=r"^(api|ui|sql|manual)$")
+    execution_type: Optional[str] = Field(None, pattern=r"^(api|ui|sql|manual|mdm)$")
 
 
 class TestCaseRateRequest(BaseModel):
@@ -630,7 +639,7 @@ class ChatGenerateRequest(BaseModel):
 
     messages: List[ChatMessage] = Field(..., min_length=1)
     requirement_ids: Optional[List[uuid.UUID]] = None
-    execution_type: Optional[str] = Field(None, pattern=r"^(api|ui|sql|manual)$")
+    execution_type: Optional[str] = Field(None, pattern=r"^(api|ui|sql|manual|mdm)$")
 
 
 class ChatGenerateResponse(BaseModel):
@@ -846,7 +855,7 @@ class AgentTestCaseSubmit(BaseModel):
         pattern=r"^(functional|integration|regression|smoke|e2e|data_quality|match_rule|migration)$",
     )
     domain_tags: Optional[List[str]] = None
-    execution_type: str = Field(default="api", pattern=r"^(api|ui|sql|manual)$")
+    execution_type: str = Field(default="api", pattern=r"^(api|ui|sql|manual|mdm)$")
 
 
 class AgentTestCaseBatchSubmit(BaseModel):
