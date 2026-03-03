@@ -79,6 +79,7 @@ services:
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-groq}
       LLM_MODEL: ${LLM_MODEL:-}
+      QAFORGE_BOOTSTRAP_TOKEN: ${QAFORGE_BOOTSTRAP_TOKEN:-}
     depends_on:
       db:
         condition: service_healthy
