@@ -237,11 +237,82 @@ POST /api/agent/upload-reference   — Upload KB reference samples
 GET  /api/agent/kb-stats           — Knowledge base coverage
 ```
 
-## Ports (Avoid Conflicts)
+## New Environment Setup
 
-| QAForge | Orbit | AgentForge |
-|---------|-------|------------|
-| 8080 | 80 | 8080 |
-| 5434 | 5432 | 5433 |
-| 6381 | 6379 | 6380 |
-| 8001 | — | — |
+### Prerequisites
+- Docker 24+ and Docker Compose v2
+- Python 3.10+ with `mcp` and `pyyaml` packages (for executor)
+- At least one LLM API key (Anthropic, OpenAI, or Groq)
+- MCP server running (e.g., Reltio MCP on port 8000)
+
+### Step-by-Step
+
+```bash
+# 1. Deploy QAForge (VM or local)
+cp .env.example .env        # Set SECRET_KEY + LLM keys
+docker compose up -d         # Start 5 services (backend, frontend, db, redis, chromadb)
+# Verify: curl -k https://localhost:8080/api/health
+
+# 2. Copy qaforge.py + mcp_executor.py to your project repo
+cp scripts/qaforge.py /path/to/your-project/scripts/
+cp scripts/mcp_executor.py /path/to/your-project/scripts/
+
+# 3. Set environment in your project's .env
+QAFORGE_API_URL=https://<qaforge-host>:8080/api
+QAFORGE_BOOTSTRAP_TOKEN=<get-from-admin>
+
+# 4. Bootstrap project (creates project + saves agent key to .env)
+python scripts/qaforge.py setup \
+  --project "My Project" \
+  --domain mdm --sub-domain reltio \
+  --token $QAFORGE_BOOTSTRAP_TOKEN
+
+# 5. Start MCP server (separate terminal or Docker)
+cd /path/to/reltio-mcp-server
+# If Docker: FASTMCP_HOST=0.0.0.0 docker compose up -d
+# If local: source venv/bin/activate && python main.py
+
+# 6. Discover MCP tools
+python scripts/qaforge.py discover --mcp-url http://localhost:8000/sse --save
+
+# 7. Run sanity test
+python scripts/qaforge.py execute --plan "Smoke Test" --mcp-url http://localhost:8000/sse
+```
+
+### Port Map
+
+| Service | QAForge | Orbit | MCP Server |
+|---------|---------|-------|------------|
+| HTTPS   | 8080    | 80    | —          |
+| Postgres| 5434    | 5432  | —          |
+| Redis   | 6381    | 6379  | —          |
+| ChromaDB| 8001    | —     | —          |
+| MCP SSE | —       | —     | 8000       |
+
+### MCP Server on VM (Different Port)
+If QAForge and MCP server share a VM, the MCP server must use a different port
+since backend services already use 8000 internally:
+```yaml
+# docker-compose.yaml for MCP server
+services:
+  reltio_mcp_server:
+    ports:
+      - 8002:8000    # Map to 8002 externally
+    environment:
+      - FASTMCP_HOST=0.0.0.0  # Required for Docker port mapping
+```
+
+### Environment Variables Reference
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `QAFORGE_API_URL` | Yes | QAForge API base URL (e.g., `https://host:8080/api`) |
+| `QAFORGE_AGENT_KEY` | Yes* | Agent API key (auto-set by `setup` command) |
+| `QAFORGE_BOOTSTRAP_TOKEN` | Once | Bootstrap token for first-time project creation |
+| `QAFORGE_EXECUTOR` | No | Path to `mcp_executor.py` if not alongside `qaforge.py` |
+
+### Python Dependencies for Executor
+```bash
+pip install mcp pyyaml   # Required for discover/execute commands
+# OR use a venv that already has them (e.g., Reltio MCP server venv)
+```
