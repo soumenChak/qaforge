@@ -136,7 +136,7 @@ def generate_from_brd(
         example_test_cases=ref_tcs[:3] if ref_tcs else None,
         skip_review=True,  # Agent-driven, no review loop needed
         temperature=0.3,
-        max_tokens=8192,
+        max_tokens=16384,  # Enterprise TCs (4-10 steps each) need more tokens
     )
 
     # Run the orchestrator
