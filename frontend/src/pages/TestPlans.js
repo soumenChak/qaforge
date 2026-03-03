@@ -81,11 +81,11 @@ export default function TestPlans() {
 
   const resetForm = () => { setNewName(''); setNewDescription(''); setNewType('sit'); setCreateError(''); };
 
-  const getPassRate = (plan) => (plan.total_executed || 0) === 0
-    ? null : Math.round(((plan.passed_count || 0) / plan.total_executed) * 100);
+  const getPassRate = (plan) => (plan.executed_count || 0) === 0
+    ? null : Math.round(((plan.passed_count || 0) / plan.executed_count) * 100);
 
   const getProgress = (plan) => (plan.test_case_count || 0) === 0
-    ? 0 : Math.round(((plan.passed_count || 0) / plan.test_case_count) * 100);
+    ? 0 : Math.min(100, Math.round(((plan.executed_count || 0) / plan.test_case_count) * 100));
 
   if (loading) {
     return (
@@ -180,7 +180,7 @@ export default function TestPlans() {
                         <span className={`text-sm font-semibold ${passRate >= 70 ? 'text-green-600' : passRate >= 40 ? 'text-yellow-600' : 'text-red-600'}`}>
                           {passRate}%
                           <span className="text-xs text-fg-mid font-normal ml-1">
-                            ({plan.passed_count}/{plan.total_executed})
+                            ({plan.passed_count}/{plan.executed_count})
                           </span>
                         </span>
                       ) : (
