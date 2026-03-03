@@ -1241,6 +1241,8 @@ def update_test_case(
         tc.execution_type = body.execution_type
     if body.status is not None:
         tc.status = body.status
+    if body.test_plan_id is not None:
+        tc.test_plan_id = body.test_plan_id
 
     db.flush()
 
@@ -1250,7 +1252,7 @@ def update_test_case(
         action="update_test_case",
         entity_type="test_case",
         entity_id=str(tc.id),
-        details=body.model_dump(exclude_none=True),
+        details=body.model_dump(exclude_none=True, mode="json"),
         ip_address=get_client_ip(request),
     )
 
