@@ -324,6 +324,7 @@ def review_checkpoint(
 def list_executions(
     project_id: uuid.UUID,
     test_plan_id: Optional[uuid.UUID] = Query(None),
+    test_case_id: Optional[uuid.UUID] = Query(None),
     status: Optional[str] = Query(None),
     review_status: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
@@ -337,6 +338,8 @@ def list_executions(
     )
     if test_plan_id:
         q = q.filter(ExecutionResult.test_plan_id == test_plan_id)
+    if test_case_id:
+        q = q.filter(ExecutionResult.test_case_id == test_case_id)
     if status:
         q = q.filter(ExecutionResult.status == status)
     if review_status:

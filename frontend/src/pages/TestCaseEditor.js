@@ -1,14 +1,22 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { testCasesAPI, projectsAPI } from '../services/api';
+import { testCasesAPI, projectsAPI, executionsAPI } from '../services/api';
 import Breadcrumb from '../components/Breadcrumb';
 import RatingWidget from '../components/RatingWidget';
+import ProofViewer from '../components/ProofViewer';
 import {
   TrashIcon,
   PlusIcon,
   ArrowsUpDownIcon,
   XMarkIcon,
+  ChevronDownIcon,
+  ClockIcon,
+  DocumentMagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
+import {
+  CheckCircleIcon,
+  XCircleIcon,
+} from '@heroicons/react/24/solid';
 
 export default function TestCaseEditor() {
   const { id: projectId, tcId } = useParams();
@@ -32,6 +40,12 @@ export default function TestCaseEditor() {
   const [executionType, setExecutionType] = useState('api');
   const [testSteps, setTestSteps] = useState([]);
 
+  // Execution history
+  const [executions, setExecutions] = useState([]);
+  const [executionsLoading, setExecutionsLoading] = useState(true);
+  const [expandedExec, setExpandedExec] = useState(null);
+  const [selectedProof, setSelectedProof] = useState(null);
+
   const loadTestCase = useCallback(async () => {
     try {
       const res = await testCasesAPI.getById(projectId, tcId);
@@ -53,10 +67,23 @@ export default function TestCaseEditor() {
     }
   }, [projectId, tcId]);
 
+  const loadExecutions = useCallback(async () => {
+    try {
+      setExecutionsLoading(true);
+      const res = await executionsAPI.list(projectId, { test_case_id: tcId });
+      setExecutions(res.data || []);
+    } catch {
+      setExecutions([]);
+    } finally {
+      setExecutionsLoading(false);
+    }
+  }, [projectId, tcId]);
+
   useEffect(() => {
     loadTestCase();
+    loadExecutions();
     projectsAPI.getById(projectId).then(res => setProject(res.data)).catch(() => {});
-  }, [loadTestCase, projectId]);
+  }, [loadTestCase, loadExecutions, projectId]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -342,6 +369,118 @@ export default function TestCaseEditor() {
             )}
           </div>
 
+          {/* Execution History */}
+          <div className="card-static p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-fg-navy uppercase tracking-wider flex items-center gap-2">
+                <ClockIcon className="w-4 h-4" />
+                Execution History ({executions.length})
+              </h3>
+            </div>
+
+            {executionsLoading ? (
+              <p className="text-sm text-fg-mid text-center py-4">Loading executions...</p>
+            ) : executions.length === 0 ? (
+              <p className="text-sm text-fg-mid text-center py-4">
+                No executions yet. Run this test via an agent or test plan.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {executions.map((exec) => {
+                  const isPassed = exec.status === 'passed';
+                  const isExpanded = expandedExec === exec.id;
+                  return (
+                    <div key={exec.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                      {/* Execution row header */}
+                      <button
+                        onClick={() => setExpandedExec(isExpanded ? null : exec.id)}
+                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+                      >
+                        {isPassed ? (
+                          <CheckCircleIcon className="w-5 h-5 text-green-500 flex-shrink-0" />
+                        ) : (
+                          <XCircleIcon className="w-5 h-5 text-red-500 flex-shrink-0" />
+                        )}
+                        <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded ${
+                          isPassed ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                        }`}>
+                          {exec.status}
+                        </span>
+                        {exec.duration_ms != null && (
+                          <span className="text-xs text-fg-mid">{exec.duration_ms}ms</span>
+                        )}
+                        <span className="text-xs text-fg-mid ml-auto">
+                          {exec.executed_at ? new Date(exec.executed_at).toLocaleString() : ''}
+                        </span>
+                        {(exec.proof_artifacts || []).length > 0 && (
+                          <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-medium">
+                            {exec.proof_artifacts.length} proof{exec.proof_artifacts.length > 1 ? 's' : ''}
+                          </span>
+                        )}
+                        <ChevronDownIcon className={`w-4 h-4 text-fg-mid transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                      </button>
+
+                      {/* Expanded detail */}
+                      {isExpanded && (
+                        <div className="px-4 pb-4 border-t border-gray-100 bg-gray-50/50">
+                          {exec.actual_result && (
+                            <div className="mt-3">
+                              <span className="text-xs font-semibold text-fg-mid uppercase">Actual Result</span>
+                              <p className="text-sm text-fg-dark mt-1">{exec.actual_result}</p>
+                            </div>
+                          )}
+                          {exec.error_message && (
+                            <div className="mt-3">
+                              <span className="text-xs font-semibold text-red-600 uppercase">Error</span>
+                              <pre className="text-xs text-red-700 bg-red-50 rounded p-2 mt-1 overflow-x-auto whitespace-pre-wrap">
+                                {exec.error_message}
+                              </pre>
+                            </div>
+                          )}
+
+                          {/* Proof artifacts */}
+                          {(exec.proof_artifacts || []).length > 0 && (
+                            <div className="mt-3">
+                              <span className="text-xs font-semibold text-fg-mid uppercase">Proof Artifacts</span>
+                              <div className="flex flex-wrap gap-2 mt-2">
+                                {exec.proof_artifacts.map((proof, pi) => (
+                                  <button
+                                    key={pi}
+                                    onClick={() => setSelectedProof(proof)}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-lg hover:border-fg-teal hover:shadow-sm transition-all text-sm group"
+                                  >
+                                    <DocumentMagnifyingGlassIcon className="w-4 h-4 text-fg-mid group-hover:text-fg-teal" />
+                                    <span className="text-xs font-medium bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded">
+                                      {proof.proof_type}
+                                    </span>
+                                    <span className="text-fg-dark">{proof.title || 'View'}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {exec.review_status && (
+                            <div className="mt-3 flex items-center gap-2">
+                              <span className="text-xs font-semibold text-fg-mid uppercase">Review:</span>
+                              <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                                exec.review_status === 'approved' ? 'bg-green-100 text-green-700' :
+                                exec.review_status === 'rejected' ? 'bg-red-100 text-red-700' :
+                                'bg-yellow-100 text-yellow-700'
+                              }`}>
+                                {exec.review_status}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           {/* Save/Cancel */}
           <div className="flex justify-end gap-3">
             <button
@@ -410,6 +549,13 @@ export default function TestCaseEditor() {
           </div>
         </div>
       </div>
+
+      {/* Proof Viewer Modal */}
+      <ProofViewer
+        proof={selectedProof}
+        visible={!!selectedProof}
+        onClose={() => setSelectedProof(null)}
+      />
     </div>
   );
 }
