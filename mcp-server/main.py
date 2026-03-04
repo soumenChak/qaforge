@@ -7,7 +7,7 @@ from src.server import mcp  # noqa: E402
 
 def run():
     """Run the QAForge MCP server with SSE transport."""
-    mcp.run(transport="sse")
+    mcp.run(transport="sse", host="0.0.0.0", port=8000)
 
 
 if __name__ == "__main__":
