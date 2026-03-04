@@ -15,6 +15,7 @@ import {
   ArrowTopRightOnSquareIcon,
   ChevronRightIcon,
   CpuChipIcon,
+  SignalIcon,
 } from '@heroicons/react/24/outline';
 
 /* ───────────────────────────── constants ───────────────────────────── */
@@ -27,7 +28,8 @@ const ROLE_BADGE = {
 
 const CATEGORY_META = {
   'getting-started': { label: 'Getting Started', icon: RocketLaunchIcon, accent: 'from-fg-teal to-fg-green' },
-  'agents':          { label: 'AI Agent Integration', icon: CpuChipIcon, accent: 'from-violet-400 to-purple-600' },
+  'mcp':             { label: 'MCP & Claude Code Setup', icon: SignalIcon, accent: 'from-cyan-400 to-blue-600' },
+  'agents':          { label: 'AI Agent Integration (CLI)', icon: CpuChipIcon, accent: 'from-violet-400 to-purple-600' },
   'test-cases':      { label: 'Test Case Workflows', icon: BeakerIcon, accent: 'from-blue-400 to-indigo-500' },
   'execution':       { label: 'Test Execution', icon: PlayIcon, accent: 'from-green-400 to-emerald-500' },
   'knowledge':       { label: 'Knowledge Base', icon: BookOpenIcon, accent: 'from-purple-400 to-violet-500' },
@@ -74,6 +76,121 @@ const GUIDE_SCENARIOS = [
     cli: null,
     related: ['connect-agent', 'generate-from-requirements'],
   },
+  /* ── MCP & Claude Code Setup ──────────────────────────────────── */
+  {
+    id: 'mcp-qa-user-setup',
+    title: 'QA User Setup — Claude Code + MCP (No Code Needed)',
+    role: 'everyone',
+    category: 'mcp',
+    description: 'Connect Claude Code to QAForge + Reltio MCP servers and start managing tests using natural language. No codebase, no CLI scripts, no git repo needed.',
+    prerequisites: [
+      'Node.js 18+ installed on your machine',
+      'An Anthropic API key (for Claude Code itself)',
+      'QAForge server URL from your admin (e.g. https://your-server:8080)',
+    ],
+    steps: [
+      '**Install Claude Code** — Anthropic\'s AI coding agent that connects to MCP servers.',
+      '**Add QAForge MCP server** — this gives Claude access to 16 test management tools (list/generate/submit test cases, create plans, submit results, manage KB).',
+      '**Add Reltio MCP server (optional)** — this adds 45 MDM tools (entity search, match, merge, workflows, data model). Only needed if you work with Reltio.',
+      '**Create a workspace and start Claude Code** — no git repo needed, any empty directory works.',
+      '**Verify connection** — type `/mcp` in Claude Code to confirm both servers are connected and tools are listed.',
+      '**Start working** — talk naturally. Say "Show me all test cases" or "Generate 10 security test cases" and Claude uses the right MCP tool automatically.',
+    ],
+    cli: [
+      { label: 'Step 1: Install Claude Code', cmd: 'npm install -g @anthropic-ai/claude-code' },
+      { label: 'Step 2: Add QAForge MCP server', cmd: 'claude mcp add qaforge --transport sse \\\n  --url "https://YOUR_HOST:8080/qaforge-mcp/sse"' },
+      { label: 'Step 3: Add Reltio MCP server (optional)', cmd: 'claude mcp add reltio --transport sse \\\n  --url "https://YOUR_HOST:8080/mcp/sse"' },
+      { label: 'Step 4: Start Claude Code', cmd: 'mkdir -p ~/qa-workspace && cd ~/qa-workspace && claude' },
+    ],
+    tips: [
+      'Replace YOUR_HOST with your actual QAForge server IP or domain (e.g. 13.233.36.18).',
+      'No agent key needed in your terminal — the MCP server has the key configured on the server side.',
+      'Works from any directory — you don\'t need a git repo or any project files.',
+      'MCP servers persist across Claude Code sessions — you only run the setup commands once.',
+    ],
+    warnings: ['If using a self-signed SSL certificate, Claude Code may prompt you to accept it on first connection.'],
+    related: ['mcp-developer-setup', 'mcp-qaforge-tools', 'mcp-reltio-tools'],
+  },
+  {
+    id: 'mcp-developer-setup',
+    title: 'Developer Setup — Claude Code + MCP + Full Codebase',
+    role: 'engineer',
+    category: 'mcp',
+    description: 'Get everything QA users have — plus full Git repo access to modify QAForge code, add features, fix bugs, and deploy.',
+    prerequisites: [
+      'Git access to the QAForge repo (Bitbucket)',
+      'Node.js 18+ and Docker (for local development)',
+      'An Anthropic API key (for Claude Code)',
+    ],
+    steps: [
+      '**Clone the QAForge repo** — this gives Claude Code access to the full codebase via CLAUDE.md.',
+      '**Add both MCP servers** — same commands as the QA User setup. These give Claude Code remote tool access.',
+      '**Start Claude Code from the repo** — Claude reads CLAUDE.md automatically and understands the project architecture.',
+      '**You now have dual capabilities:** Use MCP tools for test management ("list test cases", "generate from BRD") AND edit source code ("fix the bug in agent_api.py", "add a new MCP tool").',
+      '**Deploy changes** — ask Claude to deploy: it pushes to Git, SSHes to the VM, and runs the deploy script.',
+    ],
+    cli: [
+      { label: 'Step 1: Clone the repo', cmd: 'git clone git@bitbucket.org:lifio/qaforge.git\ncd qaforge' },
+      { label: 'Step 2: Add QAForge MCP', cmd: 'claude mcp add qaforge --transport sse \\\n  --url "https://YOUR_HOST:8080/qaforge-mcp/sse"' },
+      { label: 'Step 3: Add Reltio MCP', cmd: 'claude mcp add reltio --transport sse \\\n  --url "https://YOUR_HOST:8080/mcp/sse"' },
+      { label: 'Step 4: Start Claude Code from repo', cmd: 'cd ~/Downloads/qaforge && claude' },
+    ],
+    tips: [
+      'Claude Code reads CLAUDE.md at startup — it knows the full architecture, route modules, agent patterns, and deploy commands.',
+      'Developers can add new MCP tools: create function in mcp-server/src/tools/, register in server.py, rebuild the container.',
+      'Deploy with one command: git push && ssh VM "cd /opt/qaforge && git pull && bash scripts/vm-deploy.sh"',
+    ],
+    related: ['mcp-qa-user-setup', 'mcp-qaforge-tools', 'agent-claude-code'],
+  },
+  {
+    id: 'mcp-qaforge-tools',
+    title: 'QAForge MCP — 16 Available Tools',
+    role: 'everyone',
+    category: 'mcp',
+    description: 'Complete reference of all 16 QAForge MCP tools available through Claude Code. Each tool maps to a QAForge Agent API endpoint.',
+    prerequisites: ['QAForge MCP server connected (see QA User Setup or Developer Setup)'],
+    steps: [
+      '**Project (2 tools):** `get_project` — get project metadata, domain, app profile, description. `update_project` — update description or BRD/PRD context text.',
+      '**Requirements (3 tools):** `list_requirements` — list all project requirements. `extract_requirements` — AI-extract structured requirements from BRD/PRD text. `submit_requirements` — submit manually created requirements.',
+      '**Test Cases (3 tools):** `list_test_cases` — list test cases, filter by status or plan. `generate_test_cases` — AI-generate from requirements + Knowledge Base. `submit_test_cases` — submit structured test cases.',
+      '**Test Plans (3 tools):** `list_test_plans` — list plans with pass/fail stats. `create_test_plan` — create smoke, regression, e2e, or custom plan. `get_plan_test_cases` — get test cases assigned to a plan.',
+      '**Execution (2 tools):** `submit_results` — submit execution results with proof artifacts (API responses, screenshots, logs). `add_proof` — attach additional proof to an existing execution.',
+      '**Knowledge Base (2 tools):** `kb_stats` — KB statistics by domain/sub-domain. `upload_reference` — upload reference test cases for AI generation quality.',
+      '**Summary (1 tool):** `get_summary` — project quality dashboard: total test cases, pass rates, execution stats, coverage percentage.',
+    ],
+    tips: [
+      'All tools are project-scoped — the agent key determines which project you access.',
+      'You don\'t need to remember tool names. Just say "show me test cases" and Claude picks the right tool.',
+      'Example prompts: "Generate 10 security test cases", "Create a smoke test plan", "What\'s the pass rate?", "Upload this BRD and extract requirements".',
+      'SSE endpoint: https://YOUR_HOST:8080/qaforge-mcp/sse',
+    ],
+    related: ['mcp-reltio-tools', 'mcp-qa-user-setup'],
+  },
+  {
+    id: 'mcp-reltio-tools',
+    title: 'Reltio MCP — 45 Available Tools',
+    role: 'everyone',
+    category: 'mcp',
+    description: 'Complete reference of all 45 Reltio MDM tools for entity management, matching, merging, workflows, and tenant configuration.',
+    prerequisites: ['Reltio MCP server connected (see QA User Setup)', 'A configured Reltio tenant with valid credentials on the server'],
+    steps: [
+      '**Entity Management (7 tools):** `search_entities_tool` — search by filter. `get_entity_tool` — get by ID. `get_entity_with_matches_tool` — entity + potential matches. `get_entity_graph_tool` — graph traversal (hops). `get_entity_parents_tool` — find parent paths. `create_entity_tool` — create entities. `update_entity_attributes_tool` — update attributes.',
+      '**Match Management (7 tools):** `find_potential_matches_tool` — by rule/score/confidence. `get_potential_matches_stats_tool` — match counts. `get_entity_match_history_tool` — match history. `merge_entities_tool` — merge two entities. `unmerge_entity_tool` — unmerge contributor. `reject_entity_match_tool` — reject duplicate. `export_merge_tree_tool` — export merge tree.',
+      '**Relationships & Interactions (7 tools):** `get_entity_relations_tool` — connections. `get_relation_details_tool` — relation by ID. `relation_search_tool` — search relationships. `create_relationships_tool` — create relations. `delete_relation_tool` — delete relation. `get_entity_interactions_tool` — interactions. `create_interaction_tool` — create interaction.',
+      '**Tenant Configuration (10 tools):** `get_business_configuration_tool` — full config. `get_tenant_metadata_tool` — metadata. `get_tenant_permissions_metadata_tool` — permissions. `get_data_model_definition_tool` — data model. Plus entity, relation, interaction, graph, grouping, and change request type definitions.',
+      '**User & Activity (4 tools):** `get_users_by_role_and_tenant_tool` — users by role. `get_users_by_group_and_tenant_tool` — users by group. `check_user_activity_tool` — check activity. `get_merge_activities_tool` — merge events.',
+      '**Workflow Management (7 tools):** `get_user_workflow_tasks_tool` — user tasks. `get_task_details_tool` — task details. `retrieve_tasks_tool` — tasks by filter. `get_possible_assignees_tool` — possible assignees. `reassign_workflow_task_tool` — reassign. `start_process_instance_tool` — start workflow. `execute_task_action_tool` — execute action.',
+      '**Reference Data & System (3 tools):** `rdm_lookups_list_tool` — RDM lookups. `health_check_tool` — server health. `capabilities_tool` — list all capabilities.',
+    ],
+    tips: [
+      'Entity URIs from search_entities_tool can be passed to merge, unmerge, and relation tools.',
+      'Use get_data_model_definition_tool to understand the tenant\'s entity types before searching.',
+      'Example prompts: "Search for entities where FirstName starts with John", "Find potential matches for entity X", "Merge these two entities".',
+      'SSE endpoint: https://YOUR_HOST:8080/mcp/sse',
+    ],
+    related: ['mcp-qaforge-tools', 'mcp-qa-user-setup'],
+  },
+
   /* ── AI Agent Integration ──────────────────────────────────────── */
   {
     id: 'connect-agent',
