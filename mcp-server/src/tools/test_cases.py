@@ -27,8 +27,28 @@ async def generate_test_cases_impl(
     Automatically fetches project requirements to use as BRD context
     when no explicit description is provided.
     """
-    # Build brd_text from requirements + description
+    # Build brd_text from frameworks + requirements + description
     brd_parts = []
+
+    # Auto-fetch testing frameworks to use as mandatory test areas
+    try:
+        fw_params = {}
+        if domain:
+            fw_params["domain"] = domain
+        frameworks = await agent_get("/frameworks", params=fw_params or None)
+        if frameworks:
+            fw_lines = []
+            for fw in frameworks:
+                fw_lines.append(f"=== {fw.get('title', 'Framework')} (v{fw.get('version', '?')}) ===")
+                fw_lines.append(fw.get("content", ""))
+                fw_lines.append("")
+            brd_parts.append(
+                "MANDATORY TESTING FRAMEWORK — Generate test cases that cover these areas:\n\n"
+                + "\n".join(fw_lines)
+            )
+            logger.info("Auto-fetched %d framework(s) as testing mandate", len(frameworks))
+    except Exception as exc:
+        logger.warning("Could not fetch frameworks: %s", exc)
 
     # Auto-fetch requirements to use as BRD context
     try:

@@ -723,6 +723,48 @@ def upload_reference_to_kb(
 
 
 # ---------------------------------------------------------------------------
+# Frameworks — list framework_pattern KB entries for agent consumption
+# ---------------------------------------------------------------------------
+@router.get("/frameworks")
+def list_frameworks_for_agent(
+    domain: Optional[str] = Query(None, description="Filter by domain"),
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """
+    List all testing frameworks (entry_type='framework_pattern') from the KB.
+
+    Returns structured framework entries that agents can use to guide test
+    generation and coverage validation.
+    """
+    query = db.query(KnowledgeEntry).filter(
+        KnowledgeEntry.entry_type == "framework_pattern",
+    )
+    if domain:
+        query = query.filter(KnowledgeEntry.domain == domain)
+
+    entries = query.order_by(
+        KnowledgeEntry.domain,
+        KnowledgeEntry.usage_count.desc(),
+    ).all()
+
+    return [
+        {
+            "id": str(e.id),
+            "domain": e.domain,
+            "sub_domain": e.sub_domain,
+            "title": e.title,
+            "content": e.content,
+            "tags": e.tags or [],
+            "version": e.version,
+            "usage_count": e.usage_count or 0,
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+        }
+        for e in entries
+    ]
+
+
+# ---------------------------------------------------------------------------
 # KB Stats for Agent (lightweight, no JWT needed)
 # ---------------------------------------------------------------------------
 @router.get("/kb-stats")

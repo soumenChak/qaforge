@@ -16,6 +16,7 @@ from src.tools.test_cases import list_test_cases_impl, generate_test_cases_impl,
 from src.tools.test_plans import list_test_plans_impl, create_test_plan_impl, get_plan_test_cases_impl
 from src.tools.executions import submit_results_impl, add_proof_impl
 from src.tools.knowledge import kb_stats_impl, upload_reference_impl
+from src.tools.frameworks import get_frameworks_impl, check_framework_coverage_impl
 from src.tools.summary import get_summary_impl
 
 logger = logging.getLogger("qaforge.mcp.server")
@@ -122,16 +123,17 @@ async def generate_test_cases(
     domain: str = "",
     sub_domain: str = "",
 ) -> list:
-    """Generate test cases using AI from project requirements and Knowledge Base.
+    """Generate test cases using AI from frameworks, requirements, and Knowledge Base.
 
-    Automatically fetches project requirements as BRD context. The AI uses these
-    requirements plus reference test cases from the Knowledge Base to generate
-    high-quality, domain-specific test cases.
+    Automatically fetches: (1) testing frameworks for the domain as mandatory test areas,
+    (2) project requirements as BRD context, (3) reference test cases from the KB.
+    The AI generates test cases that satisfy both the framework standards and the
+    project requirements.
 
     Args:
         count: Number of test cases to generate (1-50, default 10)
         description: Additional focus area or context (appended to auto-fetched requirements)
-        domain: Domain filter for KB retrieval (mdm, ai, data_eng, integration, digital)
+        domain: Domain filter for framework + KB retrieval (mdm, ai, data_eng, integration, digital)
         sub_domain: Sub-domain filter (reltio, snowflake, databricks, etc.)
     """
     return await generate_test_cases_impl(
@@ -270,6 +272,42 @@ async def upload_reference(entries: list, domain: str, sub_domain: str) -> dict:
         sub_domain: Sub-domain (reltio, snowflake, databricks, etc.)
     """
     return await upload_reference_impl(entries=entries, domain=domain, sub_domain=sub_domain)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Framework Tools
+# ═══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+async def get_frameworks(domain: str = "") -> list:
+    """Get testing frameworks — domain-specific testing standards, patterns, and quality gates.
+
+    Frameworks define MANDATORY test areas for a domain. Use these to guide test case
+    generation and ensure comprehensive coverage. When building or testing an app,
+    fetch the relevant framework first, then generate test cases that satisfy it.
+
+    Args:
+        domain: Filter by domain (mdm, ai, data_eng, integration, digital). Empty = all.
+    """
+    return await get_frameworks_impl(domain=domain)
+
+
+@mcp.tool()
+async def check_framework_coverage(domain: str = "") -> dict:
+    """Check how well existing test cases cover the testing framework standards.
+
+    Compares test cases against framework sections and returns a gap analysis
+    showing which framework areas are covered vs missing. Use this to identify
+    what additional tests need to be written for full framework compliance.
+
+    Args:
+        domain: Domain to check coverage for (mdm, ai, data_eng, etc.). Empty = all.
+
+    Returns:
+        Coverage report with per-section analysis, coverage percentages,
+        and list of missing items that need test cases.
+    """
+    return await check_framework_coverage_impl(domain=domain)
 
 
 # ═══════════════════════════════════════════════════════════════════
