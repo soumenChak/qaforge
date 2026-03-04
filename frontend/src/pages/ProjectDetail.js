@@ -16,6 +16,7 @@ import {
   XCircleIcon,
   ClockIcon,
   EyeIcon,
+  EyeSlashIcon,
   TrashIcon,
   ArrowPathIcon,
   DocumentTextIcon,
@@ -43,6 +44,7 @@ export default function ProjectDetail() {
   const [requirements, setRequirements] = useState([]);
   const [reqLoading, setReqLoading] = useState(false);
   const [showAddReq, setShowAddReq] = useState(false);
+  const [expandedReqId, setExpandedReqId] = useState(null);
   const [newReq, setNewReq] = useState({ req_id: '', title: '', description: '', priority: 'medium', category: 'functional' });
   const [showUpload, setShowUpload] = useState(false);
   const [uploadText, setUploadText] = useState('');
@@ -112,6 +114,7 @@ export default function ProjectDetail() {
   const [appProfileDirty, setAppProfileDirty] = useState(false);
   const [appProfileSaving, setAppProfileSaving] = useState(false);
   const [appProfileMsg, setAppProfileMsg] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   // BRD/PRD context state
   const [brdPrdText, setBrdPrdText] = useState('');
@@ -1059,8 +1062,13 @@ export default function ProjectDetail() {
             </div>
           ) : (
             <div className="space-y-3">
-              {requirements.map((req) => (
-                <div key={req.id} className="card-static p-4">
+              {requirements.map((req) => {
+                const isExpanded = expandedReqId === req.id;
+                return (
+                <div key={req.id}
+                  className="card-static p-4 cursor-pointer hover:shadow-md transition-all duration-200"
+                  onClick={() => setExpandedReqId(isExpanded ? null : req.id)}
+                >
                   <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
@@ -1069,14 +1077,35 @@ export default function ProjectDetail() {
                           {req.priority}
                         </span>
                         {req.category && <span className="badge badge-gray text-xs">{req.category}</span>}
+                        {isExpanded
+                          ? <ChevronUpIcon className="w-3.5 h-3.5 text-fg-mid" />
+                          : <ChevronDownIcon className="w-3.5 h-3.5 text-fg-mid" />}
                       </div>
                       <p className="text-sm font-medium text-fg-dark">{req.title}</p>
                       {req.description && (
-                        <p className="text-xs text-fg-mid mt-1 line-clamp-2">{req.description}</p>
+                        <p className={`text-xs text-fg-mid mt-1 ${isExpanded ? '' : 'line-clamp-2'}`}>{req.description}</p>
+                      )}
+                      {isExpanded && (
+                        <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-4 text-xs text-fg-mid">
+                          <span className="flex items-center gap-1">
+                            <span className="font-medium">Source:</span> {req.source || 'manual'}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <span className="font-medium">Status:</span>
+                            <span className={`badge text-xs ${req.status === 'approved' ? 'badge-green' : req.status === 'draft' ? 'badge-gray' : 'badge-yellow'}`}>
+                              {req.status}
+                            </span>
+                          </span>
+                          {req.created_at && (
+                            <span className="flex items-center gap-1">
+                              <span className="font-medium">Created:</span> {new Date(req.created_at).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
                     <button
-                      onClick={() => handleDeleteReq(req.id, req.req_id)}
+                      onClick={(e) => { e.stopPropagation(); handleDeleteReq(req.id, req.req_id); }}
                       className="text-gray-300 hover:text-red-500 ml-3 flex-shrink-0"
                       title="Delete requirement"
                     >
@@ -1084,7 +1113,8 @@ export default function ProjectDetail() {
                     </button>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -1982,11 +2012,17 @@ export default function ProjectDetail() {
               </div>
               <div>
                 <label className="block text-xs text-fg-mid mb-1">Test Password</label>
-                <input type="password" className="input w-full" placeholder="test123"
-                  value={appProfile.auth?.test_credentials?.password || ''} onChange={e => {
-                    setAppProfile(p => ({...p, auth: {...p.auth, test_credentials: {...(p.auth?.test_credentials || {}), password: e.target.value}}}));
-                    setAppProfileDirty(true);
-                  }} />
+                <div className="relative">
+                  <input type={showPassword ? 'text' : 'password'} className="input w-full pr-10" placeholder="••••••••"
+                    value={appProfile.auth?.test_credentials?.password || ''} onChange={e => {
+                      setAppProfile(p => ({...p, auth: {...p.auth, test_credentials: {...(p.auth?.test_credentials || {}), password: e.target.value}}}));
+                      setAppProfileDirty(true);
+                    }} />
+                  <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-fg-mid hover:text-fg-dark"
+                    onClick={() => setShowPassword(v => !v)} title={showPassword ? 'Hide password' : 'Show password'}>
+                    {showPassword ? <EyeSlashIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
