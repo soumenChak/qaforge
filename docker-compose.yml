@@ -109,11 +109,12 @@ services:
       QAFORGE_API_URL: http://backend:8000
       QAFORGE_AGENT_KEY: ${QAFORGE_MCP_AGENT_KEY:-}
       FASTMCP_HOST: 0.0.0.0
+      FASTMCP_MOUNT_PATH: /qaforge-mcp
     depends_on:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/sse\")' || exit 0"]
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/qaforge-mcp/sse\")' || exit 0"]
       interval: 30s
       timeout: 10s
       retries: 3

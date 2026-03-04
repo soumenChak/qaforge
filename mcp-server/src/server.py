@@ -8,6 +8,7 @@ Supports dynamic project switching via the `connect` tool — users can
 switch between projects without restarting the MCP server.
 """
 import logging
+import os
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
@@ -26,7 +27,8 @@ from src.tools.summary import get_summary_impl
 logger = logging.getLogger("qaforge.mcp.server")
 
 # ── Initialize MCP Server ──
-mcp = FastMCP(QAFORGE_SERVER_NAME, host="0.0.0.0", port=8000)
+_mount_path = os.getenv("FASTMCP_MOUNT_PATH", "/")
+mcp = FastMCP(QAFORGE_SERVER_NAME, host="0.0.0.0", port=8000, mount_path=_mount_path)
 
 
 # ═══════════════════════════════════════════════════════════════════
