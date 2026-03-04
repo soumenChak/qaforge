@@ -484,6 +484,22 @@ export default function ProjectDetail() {
 
   // AI Test Case Generation
   const handleGenerateTestCases = async () => {
+    // App profile validation: warn if no base URL configured
+    const profile = project?.app_profile || {};
+    if (!profile.api_base_url && !profile.app_url) {
+      const proceed = window.confirm(
+        'No App Profile URL configured for this project.\n\n' +
+        'Without a Reltio URL and credentials, generated test cases may reference incorrect endpoints.\n\n' +
+        'Go to the App Profile tab to configure it first?\n\n' +
+        'Click OK to go to App Profile, or Cancel to generate anyway.'
+      );
+      if (proceed) {
+        setShowGenerateModal(false);
+        setActiveTab('app_profile');
+        return;
+      }
+    }
+
     setGenerating(true);
     try {
       const payload = {
@@ -497,6 +513,10 @@ export default function ProjectDetail() {
       }
       if (project?.brd_prd_text) {
         payload.brd_prd_text = project.brd_prd_text;
+      }
+      // Pass existing titles to prevent duplicates
+      if (testCases.length > 0) {
+        payload.additional_context = `IMPORTANT: The following test cases already exist. Do NOT generate duplicates or near-duplicates of these:\n${testCases.map(tc => `- ${tc.test_case_id}: ${tc.title}`).join('\n')}\n\nGenerate ONLY new, unique test cases that cover different scenarios.`;
       }
       const res = await testCasesAPI.generate(id, payload);
       const count = res.data?.length || 0;
@@ -1186,6 +1206,19 @@ export default function ProjectDetail() {
                 Generate Test Cases with AI
               </h3>
 
+              {/* App Profile Warning */}
+              {!(project?.app_profile?.api_base_url || project?.app_profile?.app_url) && (
+                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 flex items-start gap-2">
+                  <span className="text-amber-500 mt-0.5">⚠️</span>
+                  <div>
+                    <strong>App Profile not configured.</strong> For accurate test cases, add your Reltio URL and credentials in the{' '}
+                    <button onClick={() => { setShowGenerateModal(false); setActiveTab('app_profile'); }} className="underline font-medium text-amber-900 hover:text-amber-700">
+                      App Profile
+                    </button> tab first.
+                  </div>
+                </div>
+              )}
+
               {/* Description / Focus */}
               <div className="mb-4">
                 <label className="label">Description / Focus *</label>
@@ -1255,9 +1288,6 @@ export default function ProjectDetail() {
                   onChange={(e) => setGenerateForm(f => ({ ...f, count: parseInt(e.target.value) }))}
                   className="w-full accent-purple-600"
                 />
-                <div className="flex justify-between text-xs text-fg-mid">
-                  <span>1</span><span>10</span><span>25</span><span>50</span>
-                </div>
               </div>
 
               {/* Actions */}
