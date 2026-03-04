@@ -50,6 +50,8 @@ export default function ProjectDetail() {
   const [showAddReq, setShowAddReq] = useState(false);
   const [expandedReqId, setExpandedReqId] = useState(null);
   const [newReq, setNewReq] = useState({ req_id: '', title: '', description: '', priority: 'medium', category: 'functional' });
+  const [editingReqId, setEditingReqId] = useState(null);
+  const [editReq, setEditReq] = useState({ title: '', description: '', priority: 'medium', category: '', status: 'active' });
   const [showUpload, setShowUpload] = useState(false);
   const [uploadText, setUploadText] = useState('');
   const [extracting, setExtracting] = useState(false);
@@ -376,6 +378,32 @@ export default function ProjectDetail() {
       loadProject();
     } catch (err) {
       alert('Failed to delete requirement.');
+    }
+  };
+
+  const startEditReq = (req) => {
+    setEditingReqId(req.id);
+    setEditReq({
+      title: req.title || '',
+      description: req.description || '',
+      priority: req.priority || 'medium',
+      category: req.category || '',
+      status: req.status || 'active',
+    });
+    setExpandedReqId(req.id);
+  };
+
+  const handleUpdateReq = async (e) => {
+    e.preventDefault();
+    if (!editReq.title.trim()) return;
+    try {
+      await requirementsAPI.update(id, editingReqId, editReq);
+      setEditingReqId(null);
+      loadRequirements();
+      loadProject();
+    } catch (err) {
+      const d = err.response?.data?.detail;
+      alert(typeof d === 'string' ? d : (err.message || 'Failed to update requirement.'));
     }
   };
 
@@ -1068,54 +1096,134 @@ export default function ProjectDetail() {
             <div className="space-y-3">
               {requirements.map((req) => {
                 const isExpanded = expandedReqId === req.id;
+                const isEditing = editingReqId === req.id;
                 return (
                 <div key={req.id}
-                  className="card-static p-4 cursor-pointer hover:shadow-md transition-all duration-200"
-                  onClick={() => setExpandedReqId(isExpanded ? null : req.id)}
+                  className={`card-static p-4 transition-all duration-200 ${isEditing ? 'ring-2 ring-fg-teal/30' : 'cursor-pointer hover:shadow-md'}`}
+                  onClick={() => { if (!isEditing) setExpandedReqId(isExpanded ? null : req.id); }}
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
+                  {isEditing ? (
+                    /* ── Inline Edit Form ── */
+                    <form onSubmit={handleUpdateReq} onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-2 mb-3">
                         <span className="text-xs font-mono font-bold text-fg-tealDark">{req.req_id}</span>
-                        <span className={`badge text-xs ${PRIORITY_COLORS[req.priority] || 'badge-gray'}`}>
-                          {req.priority}
-                        </span>
-                        {req.category && <span className="badge badge-gray text-xs">{req.category}</span>}
-                        {isExpanded
-                          ? <ChevronUpIcon className="w-3.5 h-3.5 text-fg-mid" />
-                          : <ChevronDownIcon className="w-3.5 h-3.5 text-fg-mid" />}
+                        <span className="text-xs text-fg-mid">— Editing</span>
                       </div>
-                      <p className="text-sm font-medium text-fg-dark">{req.title}</p>
-                      {req.description && (
-                        <p className={`text-xs text-fg-mid mt-1 ${isExpanded ? '' : 'line-clamp-2'}`}>{req.description}</p>
-                      )}
-                      {isExpanded && (
-                        <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-4 text-xs text-fg-mid">
-                          <span className="flex items-center gap-1">
-                            <span className="font-medium">Source:</span> {req.source || 'manual'}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <span className="font-medium">Status:</span>
-                            <span className={`badge text-xs ${req.status === 'approved' ? 'badge-green' : req.status === 'draft' ? 'badge-gray' : 'badge-yellow'}`}>
-                              {req.status}
-                            </span>
-                          </span>
-                          {req.created_at && (
-                            <span className="flex items-center gap-1">
-                              <span className="font-medium">Created:</span> {new Date(req.created_at).toLocaleDateString()}
-                            </span>
-                          )}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="sm:col-span-2">
+                          <label className="label">Title</label>
+                          <input
+                            value={editReq.title}
+                            onChange={(e) => setEditReq({ ...editReq, title: e.target.value })}
+                            className="input-field"
+                            autoFocus
+                          />
                         </div>
-                      )}
+                        <div className="sm:col-span-2">
+                          <label className="label">Description</label>
+                          <textarea
+                            value={editReq.description}
+                            onChange={(e) => setEditReq({ ...editReq, description: e.target.value })}
+                            rows={3}
+                            className="input-field"
+                          />
+                        </div>
+                        <div>
+                          <label className="label">Priority</label>
+                          <select
+                            value={editReq.priority}
+                            onChange={(e) => setEditReq({ ...editReq, priority: e.target.value })}
+                            className="input-field"
+                          >
+                            <option value="high">High</option>
+                            <option value="medium">Medium</option>
+                            <option value="low">Low</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="label">Category</label>
+                          <input
+                            value={editReq.category}
+                            onChange={(e) => setEditReq({ ...editReq, category: e.target.value })}
+                            placeholder="functional"
+                            className="input-field"
+                          />
+                        </div>
+                        <div>
+                          <label className="label">Status</label>
+                          <select
+                            value={editReq.status}
+                            onChange={(e) => setEditReq({ ...editReq, status: e.target.value })}
+                            className="input-field"
+                          >
+                            <option value="active">Active</option>
+                            <option value="tested">Tested</option>
+                            <option value="deferred">Deferred</option>
+                          </select>
+                        </div>
+                        <div className="flex items-end">
+                          <div className="flex gap-2">
+                            <button type="button" onClick={() => setEditingReqId(null)} className="btn-ghost text-sm">Cancel</button>
+                            <button type="submit" className="btn-primary text-sm">Save</button>
+                          </div>
+                        </div>
+                      </div>
+                    </form>
+                  ) : (
+                    /* ── Read-only Display ── */
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-mono font-bold text-fg-tealDark">{req.req_id}</span>
+                          <span className={`badge text-xs ${PRIORITY_COLORS[req.priority] || 'badge-gray'}`}>
+                            {req.priority}
+                          </span>
+                          {req.category && <span className="badge badge-gray text-xs">{req.category}</span>}
+                          {isExpanded
+                            ? <ChevronUpIcon className="w-3.5 h-3.5 text-fg-mid" />
+                            : <ChevronDownIcon className="w-3.5 h-3.5 text-fg-mid" />}
+                        </div>
+                        <p className="text-sm font-medium text-fg-dark">{req.title}</p>
+                        {req.description && (
+                          <p className={`text-xs text-fg-mid mt-1 ${isExpanded ? '' : 'line-clamp-2'}`}>{req.description}</p>
+                        )}
+                        {isExpanded && (
+                          <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-4 text-xs text-fg-mid">
+                            <span className="flex items-center gap-1">
+                              <span className="font-medium">Source:</span> {req.source || 'manual'}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="font-medium">Status:</span>
+                              <span className={`badge text-xs ${req.status === 'approved' ? 'badge-green' : req.status === 'draft' ? 'badge-gray' : 'badge-yellow'}`}>
+                                {req.status}
+                              </span>
+                            </span>
+                            {req.created_at && (
+                              <span className="flex items-center gap-1">
+                                <span className="font-medium">Created:</span> {new Date(req.created_at).toLocaleDateString()}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 ml-3 flex-shrink-0">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); startEditReq(req); }}
+                          className="text-gray-300 hover:text-fg-teal p-1 rounded hover:bg-teal-50 transition-colors"
+                          title="Edit requirement"
+                        >
+                          <PencilSquareIcon className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteReq(req.id, req.req_id); }}
+                          className="text-gray-300 hover:text-red-500 p-1 rounded hover:bg-red-50 transition-colors"
+                          title="Delete requirement"
+                        >
+                          <XMarkIcon className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDeleteReq(req.id, req.req_id); }}
-                      className="text-gray-300 hover:text-red-500 ml-3 flex-shrink-0"
-                      title="Delete requirement"
-                    >
-                      <XMarkIcon className="w-4 h-4" />
-                    </button>
-                  </div>
+                  )}
                 </div>
                 );
               })}
