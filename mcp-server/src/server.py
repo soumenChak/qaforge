@@ -1,0 +1,285 @@
+"""
+QAForge MCP Server — Tool Registration
+
+Exposes QAForge operations as MCP tools that Claude Code can call remotely.
+Each tool maps to a QAForge Agent API endpoint.
+"""
+import logging
+from typing import Optional
+
+from mcp.server.fastmcp import FastMCP
+
+from src.config import QAFORGE_SERVER_NAME
+from src.tools.project import get_project_info, update_project_info
+from src.tools.requirements import list_requirements_impl, extract_requirements_impl, submit_requirements_impl
+from src.tools.test_cases import list_test_cases_impl, generate_test_cases_impl, submit_test_cases_impl
+from src.tools.test_plans import list_test_plans_impl, create_test_plan_impl, get_plan_test_cases_impl
+from src.tools.executions import submit_results_impl, add_proof_impl
+from src.tools.knowledge import kb_stats_impl, upload_reference_impl
+from src.tools.summary import get_summary_impl
+
+logger = logging.getLogger("qaforge.mcp.server")
+
+# ── Initialize MCP Server ──
+mcp = FastMCP(QAFORGE_SERVER_NAME)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Project Tools
+# ═══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+async def get_project() -> dict:
+    """Get project metadata including name, domain, sub-domain, app profile (URLs, tech stack, auth config), and description.
+
+    Use this to understand the project context before performing other operations.
+    """
+    return await get_project_info()
+
+
+@mcp.tool()
+async def update_project(
+    description: str = "",
+    brd_prd_text: str = "",
+) -> dict:
+    """Update project description or BRD/PRD context text.
+
+    Args:
+        description: New project description
+        brd_prd_text: BRD/PRD document text for requirement extraction context
+    """
+    return await update_project_info(
+        description=description or None,
+        brd_prd_text=brd_prd_text or None,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Requirements Tools
+# ═══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+async def list_requirements() -> list:
+    """List all requirements in the project.
+
+    Returns requirements with: id, req_id, title, description, priority (high/medium/low),
+    category, source, status, created_at.
+    """
+    return await list_requirements_impl()
+
+
+@mcp.tool()
+async def extract_requirements(text: str, source: str = "brd") -> list:
+    """Extract structured requirements from BRD/PRD document text using AI.
+
+    The AI analyzes the text and creates individual requirements with titles,
+    descriptions, priorities, and categories.
+
+    Args:
+        text: The BRD/PRD document text to extract requirements from
+        source: Source type - 'brd' or 'prd'
+    """
+    return await extract_requirements_impl(text=text, source=source)
+
+
+@mcp.tool()
+async def submit_requirements(requirements: list) -> list:
+    """Submit manually created requirements to the project.
+
+    Args:
+        requirements: List of requirement objects, each with:
+            - req_id: Unique ID like 'REQ-001'
+            - title: Short requirement title
+            - description: Detailed requirement text
+            - priority: 'high', 'medium', or 'low'
+            - category: e.g. 'functional', 'security', 'performance'
+    """
+    return await submit_requirements_impl(requirements=requirements)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Test Case Tools
+# ═══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+async def list_test_cases(status: str = "", test_plan_id: str = "") -> list:
+    """List test cases in the project, optionally filtered.
+
+    Returns test cases with: id, test_case_id, title, description, category,
+    priority, execution_type, status, test_steps, expected_result, tags.
+
+    Args:
+        status: Filter by status - 'draft', 'approved', 'active', or '' for all
+        test_plan_id: Filter to test cases in a specific test plan (UUID)
+    """
+    return await list_test_cases_impl(status=status, test_plan_id=test_plan_id)
+
+
+@mcp.tool()
+async def generate_test_cases(
+    count: int = 10,
+    description: str = "",
+    domain: str = "",
+    sub_domain: str = "",
+) -> list:
+    """Generate test cases using AI from project requirements and Knowledge Base.
+
+    The AI uses project requirements, BRD/PRD context, and reference test cases
+    from the Knowledge Base to generate high-quality, domain-specific test cases.
+
+    Args:
+        count: Number of test cases to generate (1-50, default 10)
+        description: Focus area or additional context for generation
+        domain: Domain filter for KB retrieval (mdm, ai, data_eng, integration, digital)
+        sub_domain: Sub-domain filter (reltio, snowflake, databricks, etc.)
+    """
+    return await generate_test_cases_impl(
+        count=count, description=description,
+        domain=domain, sub_domain=sub_domain,
+    )
+
+
+@mcp.tool()
+async def submit_test_cases(test_cases: list) -> list:
+    """Submit manually created test cases to the project.
+
+    Args:
+        test_cases: List of test case objects, each with:
+            - test_case_id: Unique ID like 'TC-001'
+            - title: Test case title
+            - description: What this test validates
+            - category: 'functional', 'integration', 'smoke', 'e2e', 'regression', etc.
+            - priority: 'P1' (critical), 'P2' (high), 'P3' (medium), 'P4' (low)
+            - execution_type: 'api', 'ui', 'sql', 'mcp', 'manual'
+            - expected_result: What should happen when the test passes
+            - preconditions: Setup required before running
+            - test_steps: List of step objects with action/expected_result
+            - tags: List of keyword tags
+    """
+    return await submit_test_cases_impl(test_cases=test_cases)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Test Plan Tools
+# ═══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+async def list_test_plans() -> list:
+    """List all test plans with execution statistics.
+
+    Returns plans with: id, name, description, plan_type, status,
+    test_case_count, executed_count, passed_count, failed_count.
+    """
+    return await list_test_plans_impl()
+
+
+@mcp.tool()
+async def create_test_plan(
+    name: str,
+    description: str = "",
+    plan_type: str = "smoke",
+    test_case_ids: list = [],
+) -> dict:
+    """Create a new test plan to organize test cases for execution.
+
+    Args:
+        name: Plan name (e.g. 'Sprint 5 Smoke Test')
+        description: What this plan covers
+        plan_type: 'smoke', 'regression', 'e2e', 'integration', or 'functional'
+        test_case_ids: List of test case UUIDs to include in the plan
+    """
+    return await create_test_plan_impl(
+        name=name, description=description,
+        plan_type=plan_type, test_case_ids=test_case_ids or None,
+    )
+
+
+@mcp.tool()
+async def get_plan_test_cases(plan_id: str) -> list:
+    """Get all test cases assigned to a specific test plan.
+
+    Args:
+        plan_id: UUID of the test plan
+    """
+    return await get_plan_test_cases_impl(plan_id=plan_id)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Execution Tools
+# ═══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+async def submit_results(results: list) -> list:
+    """Submit test execution results with optional proof artifacts.
+
+    Args:
+        results: List of execution result objects, each with:
+            - test_case_id: UUID of the test case
+            - status: 'passed', 'failed', 'skipped', or 'error'
+            - actual_result: What actually happened
+            - duration_ms: Execution duration in milliseconds
+            - proof_artifacts: Optional list of proof objects:
+                - proof_type: 'api_response', 'test_output', 'screenshot', 'log'
+                - title: Proof title
+                - content: Proof content (JSON for api_response, string for others)
+    """
+    return await submit_results_impl(results=results)
+
+
+@mcp.tool()
+async def add_proof(execution_id: str, proof_type: str, title: str, content: str) -> dict:
+    """Add a proof artifact to an existing execution result.
+
+    Args:
+        execution_id: UUID of the execution result
+        proof_type: Type of proof - 'api_response', 'test_output', 'screenshot', 'log', 'query_result'
+        title: Short title describing the proof
+        content: The proof content (JSON string for structured data, plain text for logs)
+    """
+    return await add_proof_impl(
+        execution_id=execution_id,
+        proof={"proof_type": proof_type, "title": title, "content": content},
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Knowledge Base Tools
+# ═══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+async def kb_stats(domain: str = "") -> dict:
+    """Get Knowledge Base statistics — total entries, breakdown by domain/sub-domain.
+
+    Args:
+        domain: Optional domain filter (mdm, ai, data_eng, integration, digital)
+    """
+    return await kb_stats_impl(domain=domain)
+
+
+@mcp.tool()
+async def upload_reference(entries: list, domain: str, sub_domain: str) -> dict:
+    """Upload reference test cases to the Knowledge Base for future AI generation.
+
+    Reference entries improve the quality of AI-generated test cases by providing
+    domain-specific patterns and examples.
+
+    Args:
+        entries: List of reference entries, each with: {title, content, tags?}
+        domain: Domain classification (mdm, ai, data_eng, integration, digital)
+        sub_domain: Sub-domain (reltio, snowflake, databricks, etc.)
+    """
+    return await upload_reference_impl(entries=entries, domain=domain, sub_domain=sub_domain)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Summary Tools
+# ═══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+async def get_summary() -> dict:
+    """Get project quality summary — test case counts, pass rates, execution stats, coverage.
+
+    Returns: total_test_cases, by_status, by_priority, total_executions,
+    pass_rate, recent_executions, coverage_percent.
+    """
+    return await get_summary_impl()

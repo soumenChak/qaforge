@@ -94,6 +94,31 @@ services:
       retries: 5
       start_period: 30s
 
+  qaforge_mcp:
+    build:
+      context: ./mcp-server
+      dockerfile: Dockerfile
+    container_name: qaforge_mcp
+    restart: unless-stopped
+    expose:
+      - "8000"
+    ports:
+      - "${MCP_PORT:-8090}:8000"
+    environment:
+      QAFORGE_SERVER_NAME: QAForge
+      QAFORGE_API_URL: http://backend:8000
+      QAFORGE_AGENT_KEY: ${QAFORGE_MCP_AGENT_KEY:-}
+      FASTMCP_HOST: 0.0.0.0
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/sse\")' || exit 0"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
   frontend:
     build:
       context: ./frontend
