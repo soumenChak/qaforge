@@ -27,8 +27,12 @@ from src.tools.summary import get_summary_impl
 logger = logging.getLogger("qaforge.mcp.server")
 
 # ── Initialize MCP Server ──
-_mount_path = os.getenv("FASTMCP_MOUNT_PATH", "/")
-mcp = FastMCP(QAFORGE_SERVER_NAME, host="0.0.0.0", port=8000, mount_path=_mount_path)
+# When behind a reverse proxy (e.g. nginx at /qaforge-mcp/), set FASTMCP_MOUNT_PATH
+# so SSE advertises the correct message endpoint URL for clients.
+_mount = os.getenv("FASTMCP_MOUNT_PATH", "").rstrip("/")
+_sse = f"{_mount}/sse" if _mount else "/sse"
+_msg = f"{_mount}/messages/" if _mount else "/messages/"
+mcp = FastMCP(QAFORGE_SERVER_NAME, host="0.0.0.0", port=8000, sse_path=_sse, message_path=_msg)
 
 
 # ═══════════════════════════════════════════════════════════════════
