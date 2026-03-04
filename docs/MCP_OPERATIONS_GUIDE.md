@@ -196,7 +196,8 @@ curl -k https://localhost:8080/api/health
 
 # QAForge MCP SSE endpoint
 curl -sk -N --max-time 3 https://localhost:8080/qaforge-mcp/sse
-# Should return: event: endpoint\ndata: /messages/?session_id=...
+# Should return: event: endpoint\ndata: /qaforge-mcp/messages/?session_id=...
+# IMPORTANT: Path MUST include /qaforge-mcp/ prefix (not just /messages/)
 
 # Login test
 curl -sk -X POST https://localhost:8080/api/auth/login \
@@ -279,6 +280,9 @@ The server reads these environment variables (set in `docker-compose.yml`):
 | `QAFORGE_SERVER_NAME` | `QAForge` | MCP server display name |
 | `QAFORGE_API_URL` | `http://backend:8000` | Backend API URL (Docker internal) |
 | `QAFORGE_AGENT_KEY` | *(empty)* | Agent API key for the target project |
+| `FASTMCP_HOST` | `0.0.0.0` | Bind address (must be 0.0.0.0 for Docker) |
+| `FASTMCP_PORT` | `8000` | Bind port |
+| `FASTMCP_MOUNT_PATH` | `/qaforge-mcp` | Nginx reverse proxy prefix — controls SSE/message paths. If changed, update nginx `location` block too |
 
 ---
 
@@ -327,8 +331,26 @@ docker logs reltio_mcp_server --tail 5
 
 # Test SSE endpoint
 curl -sk -N --max-time 3 https://localhost:8080/mcp/sse
-# Should return: event: endpoint\ndata: /messages/?session_id=...
+# Should return: event: endpoint\ndata: /mcp/messages/?session_id=...
+# NOTE: Path includes /mcp/ prefix (rewritten by nginx sub_filter)
 ```
+
+### Reltio MCP Proxy — How It Works
+
+Reltio MCP uses an older mcp library (1.10.x) that doesn't support `sse_path`/`message_path` parameters. Nginx uses `sub_filter` to rewrite the SSE response body so clients POST to the correct path:
+
+```
+FastMCP advertises:  /messages/?session_id=abc
+nginx sub_filter:    /messages/ → /mcp/messages/
+Client sees:         /mcp/messages/?session_id=abc  ✓
+```
+
+This is configured in `frontend/nginx.conf` under the `/mcp/` location block. If this rewrite stops working, MCP clients will POST to `/messages/` and get **405 Not Allowed**.
+
+> **After every restart or recreate** of the Reltio MCP container, you must re-connect it to the QAForge Docker network:
+> ```bash
+> docker network connect qaforge_default reltio_mcp_server
+> ```
 
 ### 6.5 Reltio MCP — 45 Available Tools
 
@@ -407,8 +429,8 @@ npm install -g @anthropic-ai/claude-code
 ### Step 2: Add QAForge MCP Server
 
 ```bash
-claude mcp add qaforge --transport sse \
-  --url "https://13.233.36.18:8080/qaforge-mcp/sse"
+claude mcp add qaforge "https://13.233.36.18:8080/qaforge-mcp/sse" \
+  --transport sse
 ```
 
 This gives Claude Code access to 16 QAForge tools: test case management, AI generation, execution results, KB, and summaries.
@@ -416,8 +438,8 @@ This gives Claude Code access to 16 QAForge tools: test case management, AI gene
 ### Step 3: Add Reltio MCP Server (Optional)
 
 ```bash
-claude mcp add reltio --transport sse \
-  --url "https://13.233.36.18:8080/mcp/sse"
+claude mcp add reltio "https://13.233.36.18:8080/mcp/sse" \
+  --transport sse
 ```
 
 This adds 45 Reltio MDM tools: entity search, match, merge, data model, workflows.
@@ -470,12 +492,12 @@ cd qaforge
 
 ```bash
 # QAForge MCP (test management via MCP)
-claude mcp add qaforge --transport sse \
-  --url "https://13.233.36.18:8080/qaforge-mcp/sse"
+claude mcp add qaforge "https://13.233.36.18:8080/qaforge-mcp/sse" \
+  --transport sse
 
 # Reltio MCP (MDM operations via MCP)
-claude mcp add reltio --transport sse \
-  --url "https://13.233.36.18:8080/mcp/sse"
+claude mcp add reltio "https://13.233.36.18:8080/mcp/sse" \
+  --transport sse
 ```
 
 ### Step 3: Start Claude Code from the Repo
@@ -760,8 +782,8 @@ print(f'Secret length: {len(RELTIO_CLIENT_SECRET)}')
 **Fix:**
 ```bash
 claude mcp remove qaforge
-claude mcp add qaforge --transport sse \
-  --url "https://13.233.36.18:8080/qaforge-mcp/sse"
+claude mcp add qaforge "https://13.233.36.18:8080/qaforge-mcp/sse" \
+  --transport sse
 # Restart Claude Code
 ```
 

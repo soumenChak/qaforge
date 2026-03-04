@@ -60,7 +60,10 @@ docker compose ps
 
 # 7. Verify QAForge MCP Server
 curl -sk -N --max-time 3 https://localhost:8080/qaforge-mcp/sse
-# Should return: event: endpoint\ndata: /messages/?session_id=...
+# Should return: event: endpoint\ndata: /qaforge-mcp/messages/?session_id=...
+# NOTE: The path MUST include /qaforge-mcp/ prefix — this confirms
+# FASTMCP_MOUNT_PATH is set correctly. If it shows /messages/ without
+# the prefix, MCP clients will POST to a non-existent route (405 error).
 ```
 
 ### VM Deployment (Production)
@@ -250,6 +253,28 @@ docker compose ps
 # qaforge_frontend   healthy
 ```
 
+### MCP Server Health Checks
+
+```bash
+# QAForge MCP — SSE endpoint (via nginx)
+curl -sk -N --max-time 3 https://localhost:8080/qaforge-mcp/sse
+# ✓ Expected: event: endpoint\ndata: /qaforge-mcp/messages/?session_id=...
+# ✗ If data shows /messages/ without prefix: FASTMCP_MOUNT_PATH not set
+
+# Reltio MCP — SSE endpoint (via nginx)
+curl -sk -N --max-time 3 https://localhost:8080/mcp/sse
+# ✓ Expected: event: endpoint\ndata: /mcp/messages/?session_id=...
+# ✗ If data shows /messages/ without prefix: nginx sub_filter not working
+
+# QAForge MCP — direct port (bypasses nginx)
+curl -s -N --max-time 3 http://localhost:8090/qaforge-mcp/sse
+# Same expected output (used for debugging nginx issues)
+```
+
+> **IMPORTANT:** The advertised message path MUST include the nginx prefix (`/qaforge-mcp/` or `/mcp/`).
+> Without it, MCP clients POST to the wrong URL and get 405 Not Allowed.
+> See [MCP Proxy Routing](#mcp-proxy-routing-architecture) below for details.
+
 ### Service-Specific Checks
 
 ```bash
@@ -414,6 +439,52 @@ git checkout <previous-commit>
 docker compose build --parallel
 docker compose up -d
 ```
+
+---
+
+## MCP Proxy Routing Architecture
+
+Both MCP servers (QAForge and Reltio) are proxied through nginx at paths `/qaforge-mcp/` and `/mcp/`. The proxy must ensure that the SSE endpoint advertises the **correct prefixed** message path so MCP clients POST to a valid nginx route.
+
+### QAForge MCP (mcp ≥ 1.26.0) — Native Path Support
+
+Uses FastMCP's `sse_path` and `message_path` parameters:
+
+```
+FASTMCP_MOUNT_PATH=/qaforge-mcp  (set in docker-compose.yml)
+↓
+server.py reads env → sse_path="/qaforge-mcp/sse", message_path="/qaforge-mcp/messages/"
+↓
+nginx: proxy_pass http://qaforge_mcp:8000  (NO trailing slash → path preserved)
+↓
+Client: GET /qaforge-mcp/sse → SSE: data: /qaforge-mcp/messages/?session_id=abc
+Client: POST /qaforge-mcp/messages/?session_id=abc → ✓ Routes correctly
+```
+
+### Reltio MCP (mcp 1.10.x) — nginx sub_filter Rewrite
+
+Older mcp library doesn't support `sse_path`/`message_path`. nginx rewrites the SSE response body:
+
+```
+nginx: proxy_pass http://reltio_mcp_server:8000/  (WITH trailing slash → strips /mcp/ prefix)
+nginx: sub_filter '/messages/' '/mcp/messages/'    (rewrites SSE response)
+↓
+Client: GET /mcp/sse → SSE: data: /mcp/messages/?session_id=abc  (rewritten by sub_filter)
+Client: POST /mcp/messages/ → nginx strips /mcp/ → POST /messages/ on container → ✓
+```
+
+### Key Configuration Points
+
+| Component | QAForge MCP | Reltio MCP |
+|-----------|-------------|------------|
+| **mcp lib version** | ≥ 1.26.0 | 1.10.x |
+| **Path strategy** | Native `sse_path`/`message_path` | nginx `sub_filter` |
+| **nginx proxy_pass** | `http://qaforge_mcp:8000` (no trailing `/`) | `http://reltio_mcp_server:8000/` (with trailing `/`) |
+| **Env var** | `FASTMCP_MOUNT_PATH=/qaforge-mcp` | Not needed |
+| **Verify** | `data:` line shows `/qaforge-mcp/messages/` | `data:` line shows `/mcp/messages/` |
+
+> **If deploying to a different path:** Change `FASTMCP_MOUNT_PATH` and the nginx `location` block.
+> For Reltio, also update the `sub_filter` replacement string.
 
 ---
 

@@ -4,7 +4,7 @@
 - **Stack:** FastAPI + React + PostgreSQL + Redis + ChromaDB + MCP Servers (Docker Compose)
 - **Backend:** `backend/main.py` entry point, 11 route modules in `backend/routes/`
 - **Frontend:** React 18 + Tailwind CSS in `frontend/src/`
-- **MCP Server:** `mcp-server/` — FastMCP SSE, 16 QAForge tools for remote Claude Code access
+- **MCP Server:** `mcp-server/` — FastMCP SSE, 20 QAForge tools for remote Claude Code/Desktop access
 - **Production:** `https://13.233.36.18:8080` (VM)
 - **Company:** FreshGravity
 
@@ -122,13 +122,13 @@ docker compose exec backend sh -c "cd /app && alembic revision --autogenerate -m
 
 ### QAForge MCP Server (`mcp-server/`)
 
-Exposes QAForge operations as 16 MCP tools over SSE transport, so any remote Claude Code can manage tests without codebase access.
+Exposes QAForge operations as 20 MCP tools over SSE transport (includes `connect`/`connection_status` for project switching), so any remote Claude Code/Desktop can manage tests without codebase access.
 
 **How it works:** MCP Server → httpx calls → QAForge Agent API (`/api/agent/*`) → same auth (X-Agent-Key)
 
 **Key files:**
-- `mcp-server/src/server.py` — FastMCP instance + all `@mcp.tool()` decorators
-- `mcp-server/src/api_client.py` — httpx wrapper with agent key header
+- `mcp-server/src/server.py` — FastMCP instance + all `@mcp.tool()` decorators (20 tools, includes `connect`/`connection_status`)
+- `mcp-server/src/api_client.py` — httpx wrapper with dynamic agent key (`set_agent_key()`/`get_active_key()` for session overrides)
 - `mcp-server/src/tools/` — 7 modules (project, requirements, test_cases, test_plans, executions, knowledge, summary)
 
 **Adding a new MCP tool:**
@@ -136,9 +136,29 @@ Exposes QAForge operations as 16 MCP tools over SSE transport, so any remote Cla
 2. Register it in `src/server.py` with `@mcp.tool()` decorator and a rich docstring
 3. Rebuild: `docker compose build qaforge_mcp && docker compose up -d qaforge_mcp`
 
-**Two user personas:**
-- **QA Users:** Connect Claude Code via `claude mcp add qaforge --transport sse --url "https://host:8080/qaforge-mcp/sse"` — no code access needed
-- **Developers:** Full codebase access + MCP tools + can modify QAForge itself
+**Three setup paths:**
+- **QA Users (Claude Code CLI):** `claude mcp add qaforge "https://host:8080/qaforge-mcp/sse" --transport sse` — URL is positional, NOT `--url`
+- **QA Users (Claude Desktop):** Edit `~/Library/Application Support/Claude/claude_desktop_config.json` — add `mcpServers` block
+- **Developers:** Full codebase access + MCP tools + `.mcp.json` in project root or `claude mcp add` globally
+
+### MCP Client Configuration Formats
+
+**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+```json
+{ "mcpServers": { "qaforge": { "url": "https://host:8080/qaforge-mcp/sse" } } }
+```
+
+**Claude Code `.mcp.json`** (project root — loads when `claude` runs from that dir):
+```json
+{ "mcpServers": { "qaforge": { "type": "sse", "url": "https://host:8080/qaforge-mcp/sse" } } }
+```
+
+**Claude Code CLI** (user-level, persists across sessions):
+```bash
+claude mcp add qaforge "https://host:8080/qaforge-mcp/sse" --transport sse
+```
+
+> **IMPORTANT:** Claude Desktop format uses just `"url"`. `.mcp.json` format requires `"type": "sse"` + `"url"`. They are different formats.
 
 **SSE endpoints:**
 - QAForge MCP: `https://13.233.36.18:8080/qaforge-mcp/sse` (20 tools)
@@ -157,7 +177,9 @@ curl -k https://localhost:8080/api/agent/summary -H "X-Agent-Key: qf_..."
 
 # MCP SSE test
 curl -sk -N --max-time 5 https://localhost:8080/qaforge-mcp/sse
-# Should return: event: endpoint\ndata: /messages/?session_id=...
+# Should return: event: endpoint\ndata: /qaforge-mcp/messages/?session_id=...
+# IMPORTANT: Path MUST have /qaforge-mcp/ prefix. If it shows /messages/
+# without prefix, FASTMCP_MOUNT_PATH is not set → MCP clients get 405
 ```
 
 ### Deploy
@@ -181,6 +203,7 @@ docker compose build qaforge_mcp && docker compose up -d qaforge_mcp
 | `routes/test_plans.py` | ~900 | Plans, checkpoints, traceability |
 | `models.py` | ~900 | All Pydantic schemas |
 | `db_models.py` | ~750 | All SQLAlchemy models |
+| `frontend/src/pages/Guide.js` | ~1,400 | 40 scenarios across 9 categories (getting-started, mcp, agents, test-cases, execution, frameworks, knowledge, admin, cli) |
 
 ## LLM-Driven Testing Workflow
 
@@ -340,12 +363,12 @@ python scripts/qaforge.py execute --plan "Smoke Test" --mcp-url http://localhost
 
 ### Nginx Proxy Routes
 
-| Path | Proxied To | Purpose |
-|------|-----------|---------|
-| `/qaforge-mcp/*` | `http://qaforge_mcp:8000/` | QAForge MCP Server (SSE) |
-| `/mcp/*` | `http://reltio_mcp_server:8000/` | Reltio MCP Server (SSE) |
-| `/api/*` | `http://backend:8000/api/` | QAForge Backend API |
-| `/*` | Static files | React SPA |
+| Path | Proxied To | Strategy | Purpose |
+|------|-----------|----------|---------|
+| `/qaforge-mcp/*` | `http://qaforge_mcp:8000` (no trailing `/`) | Path preserved — FastMCP uses `sse_path`/`message_path` from `FASTMCP_MOUNT_PATH` | QAForge MCP Server (SSE) |
+| `/mcp/*` | `http://reltio_mcp_server:8000/` (trailing `/`) | Prefix stripped + `sub_filter` rewrites `/messages/` → `/mcp/messages/` | Reltio MCP Server (SSE) |
+| `/api/*` | `http://backend:8000/api/` | Prefix preserved | QAForge Backend API |
+| `/*` | Static files | — | React SPA |
 
 ### Environment Variables Reference
 
