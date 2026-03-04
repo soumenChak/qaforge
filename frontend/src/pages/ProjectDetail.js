@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { projectsAPI, requirementsAPI, testCasesAPI, testPlansAPI, agentKeyAPI } from '../services/api';
 import TestCaseTable from '../components/TestCaseTable';
 import { DOMAIN_COLORS, DOMAIN_NAMES } from '../constants/domains';
@@ -35,9 +35,13 @@ const PRIORITY_COLORS = {
 export default function ProjectDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const validTabs = ['requirements', 'test_cases', 'test_plans', 'app_profile'];
+  const initialTab = validTabs.includes(searchParams.get('tab')) ? searchParams.get('tab') : 'requirements';
 
   const [project, setProject] = useState(null);
-  const [activeTab, setActiveTab] = useState('requirements');
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [loading, setLoading] = useState(true);
 
   // Requirements state
@@ -785,7 +789,7 @@ export default function ProjectDetail() {
         ].map((tab) => (
           <button
             key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
+            onClick={() => { setActiveTab(tab.key); setSearchParams({ tab: tab.key }, { replace: true }); }}
             className={`px-5 py-3 text-sm font-medium border-b-2 transition-colors -mb-px
               ${activeTab === tab.key
                 ? 'border-fg-teal text-fg-tealDark'

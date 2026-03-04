@@ -104,7 +104,7 @@ export default function TestPlans() {
     <div className="page-container">
       <Breadcrumb items={[
         { label: 'Projects', to: '/projects' },
-        { label: project?.name || 'Project', to: `/projects/${projectId}` },
+        { label: project?.name || 'Project', to: `/projects/${projectId}?tab=test_plans` },
         { label: 'Test Plans' },
       ]} />
 

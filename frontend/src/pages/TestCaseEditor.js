@@ -394,7 +394,7 @@ export default function TestCaseEditor() {
       {/* Breadcrumb */}
       <Breadcrumb items={[
         { label: 'Projects', to: '/projects' },
-        { label: project?.name || 'Project', to: `/projects/${projectId}` },
+        { label: project?.name || 'Project', to: `/projects/${projectId}?tab=test_cases` },
         { label: tc.test_case_id },
       ]} />
 

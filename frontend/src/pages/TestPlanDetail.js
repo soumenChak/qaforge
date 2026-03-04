@@ -72,13 +72,13 @@ export default function TestPlanDetail() {
   const loadSum = useCallback(() => load(() => testPlansAPI.getSummary(projectId, planId), setSummary, setSumLoading), [projectId, planId, load]);
 
   useEffect(() => { loadPlan(); }, [loadPlan]);
+  useEffect(() => { projectsAPI.getById(projectId).then(r => setProjectData(r.data)).catch(() => {}); }, [projectId]);
   useEffect(() => { if (activeTab === 'test_cases') loadTC(); }, [activeTab, loadTC]);
   useEffect(() => { if (activeTab === 'executions') loadExec(); }, [activeTab, loadExec]);
   useEffect(() => { if (activeTab === 'traceability') loadTrace(); }, [activeTab, loadTrace]);
   useEffect(() => { if (activeTab === 'summary') loadSum(); }, [activeTab, loadSum]);
   useEffect(() => {
     if (activeTab === 'playbook') {
-      projectsAPI.getById(projectId).then(r => setProjectData(r.data)).catch(() => {});
       testCasesAPI.list(projectId, { test_plan_id: planId }).then(r => setPlaybookTcData(r.data || [])).catch(() => {});
     }
   }, [activeTab, projectId, planId]);
@@ -154,7 +154,7 @@ export default function TestPlanDetail() {
     <div className="page-container">
       {/* Header */}
       <div className="mb-6">
-        <Breadcrumb items={[{ label: 'Projects', to: '/projects' }, { label: plan.project_name || 'Project', to: `/projects/${projectId}` }, { label: plan.name || 'Test Plan' }]} />
+        <Breadcrumb items={[{ label: 'Projects', to: '/projects' }, { label: projectData?.name || 'Project', to: `/projects/${projectId}?tab=test_plans` }, { label: plan.name || 'Test Plan' }]} />
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-fg-navy mt-2">{plan.name}</h1>
           <div className="flex items-center gap-2">
