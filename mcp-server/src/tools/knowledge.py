@@ -16,7 +16,7 @@ async def upload_reference_impl(entries: list, domain: str, sub_domain: str) -> 
     Each entry: {title, content, tags?}
     """
     return await agent_post("/upload-reference", json={
-        "entries": entries,
+        "reference_test_cases": entries,
         "domain": domain,
         "sub_domain": sub_domain,
     })

@@ -9,7 +9,10 @@ async def list_requirements_impl() -> list:
 
 async def extract_requirements_impl(text: str, source: str = "brd") -> list:
     """Extract requirements from BRD/PRD text using AI."""
-    return await agent_post("/requirements/extract", json={"text": text, "source": source})
+    return await agent_post("/requirements/extract", json={
+        "document_text": text,
+        "document_type": source,
+    })
 
 
 async def submit_requirements_impl(requirements: list) -> list:
