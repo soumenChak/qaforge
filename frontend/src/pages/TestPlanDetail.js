@@ -311,7 +311,7 @@ export default function TestPlanDetail() {
               const testResults = run.results?.test_results || [];
               const passRate = summary.pass_rate ?? 0;
               const barColor = passRate === 100 ? 'bg-green-500' : passRate >= 50 ? 'bg-yellow-500' : 'bg-red-500';
-              const isExpanded = expandedExecId === run.id;
+              const isExpanded = expandedExecId === run.id || (typeof expandedExecId === 'string' && expandedExecId.startsWith(run.id + '-'));
               return (
                 <div key={run.id} className="card-static border border-gray-200 rounded-lg overflow-hidden">
                   {/* Run header */}
