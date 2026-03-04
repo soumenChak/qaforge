@@ -3,6 +3,9 @@ QAForge MCP Server — Tool Registration
 
 Exposes QAForge operations as MCP tools that Claude Code can call remotely.
 Each tool maps to a QAForge Agent API endpoint.
+
+Supports dynamic project switching via the `connect` tool — users can
+switch between projects without restarting the MCP server.
 """
 import logging
 from typing import Optional
@@ -10,6 +13,7 @@ from typing import Optional
 from mcp.server.fastmcp import FastMCP
 
 from src.config import QAFORGE_SERVER_NAME
+from src.api_client import set_agent_key, get_active_key, is_override_active
 from src.tools.project import get_project_info, update_project_info
 from src.tools.requirements import list_requirements_impl, extract_requirements_impl, submit_requirements_impl
 from src.tools.test_cases import list_test_cases_impl, generate_test_cases_impl, submit_test_cases_impl
@@ -23,6 +27,82 @@ logger = logging.getLogger("qaforge.mcp.server")
 
 # ── Initialize MCP Server ──
 mcp = FastMCP(QAFORGE_SERVER_NAME, host="0.0.0.0", port=8000)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Connection Tools — Switch between QAForge projects dynamically
+# ═══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+async def connect(agent_key: str) -> dict:
+    """Connect to a QAForge project using its agent API key.
+
+    Use this to switch between projects without restarting the MCP server.
+    Each project has its own agent key (generated in Project Settings).
+    After connecting, all subsequent tool calls operate on the new project.
+
+    Args:
+        agent_key: The project's agent API key (starts with 'qf_')
+    """
+    if not agent_key or not agent_key.strip():
+        return {"status": "error", "message": "Agent key cannot be empty."}
+
+    key = agent_key.strip()
+    set_agent_key(key)
+
+    # Validate by fetching project info
+    try:
+        project = await get_project_info()
+        logger.info("Connected to project: %s (domain: %s)", project.get("name"), project.get("domain"))
+        return {
+            "status": "connected",
+            "project": project.get("name"),
+            "domain": project.get("domain"),
+            "sub_domain": project.get("sub_domain"),
+            "key_prefix": key[:10] + "...",
+            "message": f"Successfully connected to '{project.get('name')}'. All tools now operate on this project.",
+        }
+    except Exception as e:
+        # Revert on failure — clear the bad key
+        set_agent_key(None)
+        logger.warning("Connection failed: %s", e)
+        return {
+            "status": "error",
+            "message": f"Invalid agent key — could not connect to any project. Error: {str(e)}",
+        }
+
+
+@mcp.tool()
+async def connection_status() -> dict:
+    """Check current connection status — which project is connected and how.
+
+    Shows whether using a session override key (set via `connect`) or the
+    default server-configured key, along with the connected project info.
+    """
+    key = get_active_key()
+    if not key:
+        return {
+            "status": "not_connected",
+            "message": "No agent key configured. Use `connect(agent_key)` to connect to a project.",
+        }
+
+    try:
+        project = await get_project_info()
+        return {
+            "status": "connected",
+            "project": project.get("name"),
+            "domain": project.get("domain"),
+            "sub_domain": project.get("sub_domain"),
+            "key_source": "session_override" if is_override_active() else "server_default",
+            "key_prefix": key[:10] + "...",
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "key_source": "session_override" if is_override_active() else "server_default",
+            "key_prefix": key[:10] + "..." if key else "none",
+            "message": f"Key is set but connection failed: {str(e)}",
+        }
 
 
 # ═══════════════════════════════════════════════════════════════════

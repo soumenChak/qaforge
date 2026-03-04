@@ -1865,6 +1865,13 @@ export default function ProjectDetail() {
                   <button onClick={() => { navigator.clipboard.writeText(agentKeyVisible); }} className="btn-secondary text-sm">
                     Copy to Clipboard
                   </button>
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 mt-2">
+                    <p className="text-xs font-semibold text-purple-800 mb-1">Using Claude Code MCP?</p>
+                    <p className="text-xs text-purple-700 mb-1">Tell Claude to switch to this project:</p>
+                    <code className="block text-xs bg-white rounded px-2 py-1.5 border border-purple-200 font-mono text-purple-800 break-all">
+                      connect to this project with key {agentKeyVisible}
+                    </code>
+                  </div>
                 </div>
               ) : (
                 <div className="flex items-center gap-3">

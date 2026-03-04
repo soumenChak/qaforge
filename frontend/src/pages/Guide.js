@@ -91,7 +91,7 @@ const GUIDE_SCENARIOS = [
     ],
     steps: [
       '**Install Claude Code** — Anthropic\'s AI coding agent that connects to MCP servers.',
-      '**Add QAForge MCP server** — this gives Claude access to 18 test management tools (list/generate/submit test cases, create plans, submit results, manage KB, testing frameworks).',
+      '**Add QAForge MCP server** — this gives Claude access to 20 test management tools (connect to projects, list/generate/submit test cases, create plans, submit results, manage KB, testing frameworks).',
       '**Add Reltio MCP server (optional)** — this adds 45 MDM tools (entity search, match, merge, workflows, data model). Only needed if you work with Reltio.',
       '**Create a workspace and start Claude Code** — no git repo needed, any empty directory works.',
       '**Verify connection** — type `/mcp` in Claude Code to confirm both servers are connected and tools are listed.',
@@ -145,12 +145,13 @@ const GUIDE_SCENARIOS = [
   },
   {
     id: 'mcp-qaforge-tools',
-    title: 'QAForge MCP — 18 Available Tools',
+    title: 'QAForge MCP — 20 Available Tools',
     role: 'everyone',
     category: 'mcp',
-    description: 'Complete reference of all 18 QAForge MCP tools available through Claude Code. Each tool maps to a QAForge Agent API endpoint.',
+    description: 'Complete reference of all 20 QAForge MCP tools available through Claude Code. Each tool maps to a QAForge Agent API endpoint.',
     prerequisites: ['QAForge MCP server connected (see QA User Setup or Developer Setup)'],
     steps: [
+      '**Connection (2 tools):** `connect` — switch to a different QAForge project by providing its agent key. `connection_status` — check which project is currently connected and whether using a session override or server default.',
       '**Project (2 tools):** `get_project` — get project metadata, domain, app profile, description. `update_project` — update description or BRD/PRD context text.',
       '**Requirements (3 tools):** `list_requirements` — list all project requirements. `extract_requirements` — AI-extract structured requirements from BRD/PRD text. `submit_requirements` — submit manually created requirements.',
       '**Test Cases (3 tools):** `list_test_cases` — list test cases, filter by status or plan. `generate_test_cases` — AI-generate from frameworks + requirements + KB (auto-fetches domain frameworks as mandatory test areas). `submit_test_cases` — submit structured test cases.',
@@ -162,12 +163,13 @@ const GUIDE_SCENARIOS = [
     ],
     tips: [
       'All tools are project-scoped — the agent key determines which project you access.',
+      'Use `connect(agent_key)` to switch between projects without restarting the MCP server.',
       'You don\'t need to remember tool names. Just say "show me test cases" and Claude picks the right tool.',
       'Example prompts: "Generate 10 security test cases", "Create a smoke test plan", "What\'s the pass rate?", "Check framework coverage for MDM".',
       '`generate_test_cases` now auto-fetches testing frameworks as mandatory test areas — ensuring AI-generated tests satisfy domain standards.',
       'SSE endpoint: https://YOUR_HOST:8080/qaforge-mcp/sse',
     ],
-    related: ['mcp-reltio-tools', 'mcp-qa-user-setup'],
+    related: ['mcp-connect-project', 'mcp-reltio-tools', 'mcp-qa-user-setup'],
   },
   {
     id: 'mcp-reltio-tools',
@@ -192,6 +194,29 @@ const GUIDE_SCENARIOS = [
       'SSE endpoint: https://YOUR_HOST:8080/mcp/sse',
     ],
     related: ['mcp-qaforge-tools', 'mcp-qa-user-setup'],
+  },
+  {
+    id: 'mcp-connect-project',
+    title: 'Switch Projects — Connect to a Different QAForge Project',
+    role: 'everyone',
+    category: 'mcp',
+    description: 'Switch between QAForge projects within the same Claude Code session using the `connect` tool. No server restart or env changes needed.',
+    prerequisites: ['QAForge MCP server connected (see QA User Setup)', 'Agent key for the target project (from Project Settings or admin)'],
+    steps: [
+      '**Get the agent key** for the project you want to switch to. Find it in the project detail page under the Test Plans tab > "Agent API Key" section, or ask your admin.',
+      '**Tell Claude to connect** — just say: "connect to project X with key qf_xxx..." Claude will call the `connect` tool automatically.',
+      '**Verify the switch** — say "which project am I connected to?" or "connection status". Claude will confirm the project name, domain, and key source.',
+      '**Start working** — all subsequent MCP tool calls (list test cases, generate, submit results, etc.) now operate on the new project.',
+      '**Switch again anytime** — just provide a different agent key. The previous project data is untouched; you are just changing which project the tools target.',
+    ],
+    tips: [
+      'Each project has its own agent key — generated in Project Settings or during project creation.',
+      'The `connect` tool validates the key before switching. If the key is invalid, nothing changes.',
+      'Use `connection_status` to see whether you are using a session override or the server default key.',
+      'The server-configured default key (from QAFORGE_AGENT_KEY env) still works as a fallback when no override is set.',
+    ],
+    warnings: ['Agent keys are project-scoped. Make sure you have the right key for the project you want to access.'],
+    related: ['mcp-qaforge-tools', 'create-project', 'mcp-qa-user-setup'],
   },
 
   /* ── AI Agent Integration ──────────────────────────────────────── */

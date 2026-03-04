@@ -532,6 +532,13 @@ export default function Projects() {
                       python scripts/qaforge.py setup --project "{newName}" --token "bootstrap-token"
                     </code>
                   </div>
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                    <p className="text-xs font-semibold text-purple-800 mb-1">Using Claude Code MCP? Switch to this project:</p>
+                    <p className="text-xs text-purple-700 mb-2">Tell Claude:</p>
+                    <code className="block text-xs bg-white rounded px-3 py-2 border border-purple-200 font-mono text-purple-800 break-all">
+                      connect to this project with key {generatedKey}
+                    </code>
+                  </div>
                   <p className="text-xs text-red-500">
                     This key is shown only once. Copy it now!
                   </p>
