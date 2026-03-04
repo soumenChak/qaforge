@@ -8,6 +8,8 @@ export const DOMAIN_COLORS = {
   mdm: 'bg-purple-100 text-purple-700',
   ai: 'bg-blue-100 text-blue-700',
   data_eng: 'bg-orange-100 text-orange-700',
+  integration: 'bg-cyan-100 text-cyan-700',
+  digital: 'bg-emerald-100 text-emerald-700',
 };
 
 export const DOMAIN_NAMES = {
@@ -15,4 +17,6 @@ export const DOMAIN_NAMES = {
   mdm: 'MDM',
   ai: 'AI / GenAI',
   data_eng: 'Data Engineering',
+  integration: 'Integration',
+  digital: 'Digital / App',
 };

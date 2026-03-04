@@ -233,6 +233,37 @@ export default function KnowledgeBase() {
         </div>
       )}
 
+      {/* Stats section — always at top */}
+      {stats && stats.total_entries > 0 && (
+        <div className="card-static overflow-hidden mb-6">
+          <div className="h-1 bg-gradient-to-r from-fg-teal to-fg-green" />
+          <div className="p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-fg-navy uppercase tracking-wider">
+                Statistics
+              </h3>
+              <div className="text-2xl font-black text-fg-navy">
+                {stats.total_entries || 0}
+                <span className="text-sm font-normal text-fg-mid ml-2">total entries</span>
+              </div>
+            </div>
+
+            {stats.entries_by_type && Object.keys(stats.entries_by_type).length > 0 && (
+              <div className="flex flex-wrap gap-3">
+                {Object.entries(stats.entries_by_type).map(([type, count]) => (
+                  <div key={type} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                    <span className={`badge text-xs ${TYPE_COLORS[type] || 'badge-gray'}`}>
+                      {type.replace(/_/g, ' ')}
+                    </span>
+                    <span className="text-sm font-semibold text-fg-dark">{count}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Empty state with seed prompt */}
       {stats && stats.total_entries === 0 && !searched && (
         <div className="card-static p-8 text-center mb-6 animate-fade-in">
@@ -253,7 +284,7 @@ export default function KnowledgeBase() {
         </div>
       )}
 
-      {/* Search */}
+      {/* Semantic Search */}
       <div className="card-static p-5 mb-6">
         <form onSubmit={handleSearch} className="flex flex-wrap gap-3">
           <div className="flex-1 min-w-[200px] relative">
@@ -261,7 +292,7 @@ export default function KnowledgeBase() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search knowledge base..."
+              placeholder="Search knowledge base (semantic)..."
               className="input-field pl-9"
             />
           </div>
@@ -275,7 +306,8 @@ export default function KnowledgeBase() {
             <option value="mdm">MDM</option>
             <option value="ai">AI / GenAI</option>
             <option value="data_eng">Data Engineering</option>
-            <option value="app">App Framework</option>
+            <option value="integration">Integration</option>
+            <option value="digital">Digital / App</option>
           </select>
           <button type="submit" disabled={searching || !query.trim()} className="btn-primary">
             {searching ? 'Searching...' : 'Search'}
@@ -344,7 +376,8 @@ export default function KnowledgeBase() {
                 { key: 'mdm', label: 'MDM' },
                 { key: 'ai', label: 'AI / GenAI' },
                 { key: 'data_eng', label: 'Data Eng' },
-                { key: 'app', label: 'App' },
+                { key: 'integration', label: 'Integration' },
+                { key: 'digital', label: 'Digital' },
               ].map((tab) => (
                 <button
                   key={tab.key}
@@ -460,7 +493,8 @@ export default function KnowledgeBase() {
                                 <option value="mdm">MDM</option>
                                 <option value="ai">AI / GenAI</option>
                                 <option value="data_eng">Data Engineering</option>
-                                <option value="app">App Framework</option>
+                                <option value="integration">Integration</option>
+                                <option value="digital">Digital / App</option>
                               </select>
                             </div>
                             <div>
@@ -531,36 +565,6 @@ export default function KnowledgeBase() {
         </div>
       )}
 
-      {/* Stats section */}
-      {stats && stats.total_entries > 0 && (
-        <div className="card-static overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-fg-teal to-fg-green" />
-          <div className="p-5">
-            <h3 className="text-sm font-bold text-fg-navy uppercase tracking-wider mb-4">
-              Statistics
-            </h3>
-            <div className="text-3xl font-black text-fg-navy mb-4">
-              {stats.total_entries || 0}
-              <span className="text-sm font-normal text-fg-mid ml-2">total entries</span>
-            </div>
-
-            {stats.entries_by_type && Object.keys(stats.entries_by_type).length > 0 && (
-              <div className="space-y-2">
-                <h4 className="text-xs font-semibold text-fg-mid uppercase">By Type</h4>
-                {Object.entries(stats.entries_by_type).map(([type, count]) => (
-                  <div key={type} className="flex items-center justify-between">
-                    <span className={`badge text-xs ${TYPE_COLORS[type] || 'badge-gray'}`}>
-                      {type.replace(/_/g, ' ')}
-                    </span>
-                    <span className="text-sm font-medium text-fg-dark">{count}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Delete confirmation */}
       <ConfirmModal
         isOpen={!!deleteTarget}
@@ -625,7 +629,8 @@ export default function KnowledgeBase() {
                       <option value="mdm">MDM</option>
                       <option value="ai">AI / GenAI</option>
                       <option value="data_eng">Data Engineering</option>
-                      <option value="app">App Framework</option>
+                      <option value="integration">Integration</option>
+                      <option value="digital">Digital / App</option>
                     </select>
                   </div>
                   <div>
