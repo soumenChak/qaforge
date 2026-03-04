@@ -43,7 +43,8 @@ export default function Frameworks() {
       const params = { entry_type: 'framework_pattern' };
       if (domainFilter !== 'all') params.domain = domainFilter;
       const resp = await knowledgeAPI.list(params);
-      setEntries(resp.data || []);
+      const data = resp.data;
+      setEntries(data && data.items ? data.items : (Array.isArray(data) ? data : []));
     } catch {
       setEntries([]);
     } finally {
