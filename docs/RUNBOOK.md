@@ -26,7 +26,7 @@
 - **Docker** 24+ and **Docker Compose** v2
 - **2 GB RAM** minimum (4 GB recommended)
 - **10 GB disk** (database + vector DB grow with usage)
-- **Ports available:** 8080 (frontend), 5434 (postgres), 6381 (redis), 8001 (chromadb)
+- **Ports available:** 8080 (frontend+proxy), 8090 (QAForge MCP), 5434 (postgres), 6381 (redis), 8001 (chromadb)
 - At least one LLM API key (Anthropic, OpenAI, or Groq) — or Ollama for local AI
 
 ---
@@ -51,12 +51,16 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
 # 4. Launch
 docker compose up -d
 
-# 5. Verify all 5 containers are healthy
+# 5. Verify all 6 containers are healthy (backend, frontend, mcp, db, redis, chromadb)
 docker compose ps
 
 # 6. Login
 # Open https://localhost:8080
 # Credentials: admin@freshgravity.com / admin123
+
+# 7. Verify QAForge MCP Server
+curl -sk -N --max-time 3 https://localhost:8080/qaforge-mcp/sse
+# Should return: event: endpoint\ndata: /messages/?session_id=...
 ```
 
 ### VM Deployment (Production)
@@ -69,12 +73,23 @@ bash scripts/vm-deploy.sh
 
 The `vm-deploy.sh` script:
 1. Checks prerequisites (.env, Docker)
-2. Builds all containers in parallel
+2. Builds all containers in parallel (including QAForge MCP server)
 3. Starts services
 4. Waits for PostgreSQL readiness
 5. Runs Alembic migrations
-6. Validates all 5 health checks
+6. Validates all 6 health checks
 7. Reports final status
+
+### Post-Deploy: Configure MCP Agent Key
+
+After first deploy, create a project in the UI, generate an agent key, then:
+
+```bash
+echo 'QAFORGE_MCP_AGENT_KEY=qf_YOUR_KEY_HERE' >> /opt/qaforge/.env
+docker compose restart qaforge_mcp
+```
+
+See [MCP Operations Guide](MCP_OPERATIONS_GUIDE.md) for full MCP setup including Claude Code connection.
 
 ---
 

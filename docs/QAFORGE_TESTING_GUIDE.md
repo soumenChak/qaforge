@@ -93,7 +93,44 @@ QAForge is an **Enterprise Test Documentation Platform**. When you vibe code wit
 
 ## 3. Prerequisites
 
-### What You Need
+### Two Ways to Use QAForge
+
+| Method | Best For | What You Need |
+|--------|----------|---------------|
+| **Claude Code + MCP** (Recommended) | QA users, no codebase needed | Node.js 18+, Anthropic API key |
+| **CLI Script (`qaforge.py`)** | Developers with codebase access | Python 3.8+, `requests` package |
+
+### Option A: Claude Code + MCP (QA Users — No Code Needed)
+
+This is the **recommended** approach for QA users. You talk naturally to Claude, and it uses QAForge MCP tools behind the scenes.
+
+```bash
+# 1. Install Claude Code
+npm install -g @anthropic-ai/claude-code
+
+# 2. Add QAForge MCP server
+claude mcp add qaforge --transport sse \
+  --url "https://13.233.36.18:8080/qaforge-mcp/sse"
+
+# 3. (Optional) Add Reltio MCP server for MDM testing
+claude mcp add reltio --transport sse \
+  --url "https://13.233.36.18:8080/mcp/sse"
+
+# 4. Start Claude Code from any directory
+mkdir -p ~/qa-workspace && cd ~/qa-workspace
+claude
+```
+
+Then just talk:
+- *"Show me all test cases"*
+- *"Generate 10 security test cases from the requirements"*
+- *"Create a smoke test plan and add all P1 test cases"*
+- *"What's our current test coverage?"*
+- *"Search Reltio for entities where FirstName starts with John"*
+
+See [MCP Operations Guide](MCP_OPERATIONS_GUIDE.md) for full setup details.
+
+### Option B: CLI Script (Developers with Codebase)
 
 | Requirement | Details |
 |-------------|---------|

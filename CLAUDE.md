@@ -1,9 +1,10 @@
 # QAForge — Development Guide
 
 ## Project
-- **Stack:** FastAPI + React + PostgreSQL + Redis + ChromaDB (Docker Compose)
+- **Stack:** FastAPI + React + PostgreSQL + Redis + ChromaDB + MCP Servers (Docker Compose)
 - **Backend:** `backend/main.py` entry point, 11 route modules in `backend/routes/`
 - **Frontend:** React 18 + Tailwind CSS in `frontend/src/`
+- **MCP Server:** `mcp-server/` — FastMCP SSE, 17 QAForge tools for remote Claude Code access
 - **Production:** `https://13.233.36.18:8080` (VM)
 - **Company:** FreshGravity
 
@@ -11,7 +12,7 @@
 
 ```bash
 cp .env.example .env        # Configure SECRET_KEY + LLM keys
-docker compose up -d         # Start all 5 services
+docker compose up -d         # Start all 6 services (+ QAForge MCP server)
 # Open https://localhost:8080 — admin@freshgravity.com / admin123
 ```
 
@@ -51,14 +52,29 @@ qaforge/
       engine.py          # Test execution orchestrator
       templates/         # 10 execution templates (api_smoke, api_crud, db_query, etc.)
     alembic/             # Database migrations
+  mcp-server/              # QAForge MCP Server (remote tool access for Claude Code)
+    main.py                # Entry point: mcp.run(transport="sse")
+    Dockerfile             # Python 3.11-slim container
+    src/
+      server.py            # FastMCP instance + 17 @mcp.tool() registrations
+      api_client.py        # httpx async client → QAForge Agent API
+      config.py            # QAFORGE_API_URL, QAFORGE_AGENT_KEY env vars
+      tools/               # 7 tool modules:
+        project.py         #   get_project, update_project
+        requirements.py    #   list/extract/submit requirements
+        test_cases.py      #   list/generate/submit test cases
+        test_plans.py      #   list/create plans, get plan test cases
+        executions.py      #   submit results, add proof
+        knowledge.py       #   kb_stats, upload_reference
+        summary.py         #   get_summary
   frontend/
     src/
       pages/             # 11 React pages
       components/        # 10 reusable components
       services/api.js    # Modular API client
       contexts/          # AuthContext
-    nginx.conf           # HTTPS + reverse proxy config
-  docker-compose.yml     # 5-service stack
+    nginx.conf           # HTTPS + reverse proxy (+ /qaforge-mcp/ + /mcp/)
+  docker-compose.yml     # 6-service stack (backend, frontend, db, redis, chromadb, qaforge_mcp)
   certs/                 # SSL certificates (cert.pem, key.pem)
   scripts/
     vm-deploy.sh         # Production deployment script
@@ -104,6 +120,30 @@ docker compose exec backend sh -c "cd /app && alembic revision --autogenerate -m
 - Engine extracts parameters via LLM, matches to template, executes
 - Each template returns: `{status, actual_result, duration_ms, error_message, proof_artifacts}`
 
+### QAForge MCP Server (`mcp-server/`)
+
+Exposes QAForge operations as 17 MCP tools over SSE transport, so any remote Claude Code can manage tests without codebase access.
+
+**How it works:** MCP Server → httpx calls → QAForge Agent API (`/api/agent/*`) → same auth (X-Agent-Key)
+
+**Key files:**
+- `mcp-server/src/server.py` — FastMCP instance + all `@mcp.tool()` decorators
+- `mcp-server/src/api_client.py` — httpx wrapper with agent key header
+- `mcp-server/src/tools/` — 7 modules (project, requirements, test_cases, test_plans, executions, knowledge, summary)
+
+**Adding a new MCP tool:**
+1. Add the implementation function in the appropriate `src/tools/*.py` module
+2. Register it in `src/server.py` with `@mcp.tool()` decorator and a rich docstring
+3. Rebuild: `docker compose build qaforge_mcp && docker compose up -d qaforge_mcp`
+
+**Two user personas:**
+- **QA Users:** Connect Claude Code via `claude mcp add qaforge --transport sse --url "https://host:8080/qaforge-mcp/sse"` — no code access needed
+- **Developers:** Full codebase access + MCP tools + can modify QAForge itself
+
+**SSE endpoints:**
+- QAForge MCP: `https://13.233.36.18:8080/qaforge-mcp/sse` (17 tools)
+- Reltio MCP: `https://13.233.36.18:8080/mcp/sse` (45 tools)
+
 ### Testing
 ```bash
 # Backend tests (if any)
@@ -114,6 +154,10 @@ curl -k https://localhost:8080/api/health
 
 # Agent API test
 curl -k https://localhost:8080/api/agent/summary -H "X-Agent-Key: qf_..."
+
+# MCP SSE test
+curl -sk -N --max-time 5 https://localhost:8080/qaforge-mcp/sse
+# Should return: event: endpoint\ndata: /messages/?session_id=...
 ```
 
 ### Deploy
@@ -123,6 +167,9 @@ git push && ssh VM 'cd /opt/qaforge && git pull && bash scripts/vm-deploy.sh'
 
 # Local rebuild
 docker compose build --parallel && docker compose up -d
+
+# MCP server only
+docker compose build qaforge_mcp && docker compose up -d qaforge_mcp
 ```
 
 ## Key Files by Size (Most Complex)
@@ -281,26 +328,24 @@ python scripts/qaforge.py execute --plan "Smoke Test" --mcp-url http://localhost
 
 ### Port Map
 
-| Service | QAForge | Orbit | MCP Server |
-|---------|---------|-------|------------|
-| HTTPS   | 8080    | 80    | —          |
-| Postgres| 5434    | 5432  | —          |
-| Redis   | 6381    | 6379  | —          |
-| ChromaDB| 8001    | —     | —          |
-| MCP SSE | —       | —     | 8000       |
+| Service | Port | Container | Access |
+|---------|------|-----------|--------|
+| QAForge HTTPS (Nginx) | 8080 | `qaforge_frontend` | Public — UI, API, MCP proxy |
+| QAForge Backend | 8000 | `qaforge_backend` | Internal only (behind Nginx) |
+| QAForge MCP Server | 8090 | `qaforge_mcp` | Direct: `http://host:8090/sse`, via Nginx: `/qaforge-mcp/sse` |
+| Reltio MCP Server | 8002 | `reltio_mcp_server` | Direct: `http://host:8002/sse`, via Nginx: `/mcp/sse` |
+| PostgreSQL | 5434 | `qaforge_db` | Direct DB access |
+| Redis | 6381 | `qaforge_redis` | Direct cache access |
+| ChromaDB | 8001 | `qaforge_chromadb` | Vector DB |
 
-### MCP Server on VM (Different Port)
-If QAForge and MCP server share a VM, the MCP server must use a different port
-since backend services already use 8000 internally:
-```yaml
-# docker-compose.yaml for MCP server
-services:
-  reltio_mcp_server:
-    ports:
-      - 8002:8000    # Map to 8002 externally
-    environment:
-      - FASTMCP_HOST=0.0.0.0  # Required for Docker port mapping
-```
+### Nginx Proxy Routes
+
+| Path | Proxied To | Purpose |
+|------|-----------|---------|
+| `/qaforge-mcp/*` | `http://qaforge_mcp:8000/` | QAForge MCP Server (SSE) |
+| `/mcp/*` | `http://reltio_mcp_server:8000/` | Reltio MCP Server (SSE) |
+| `/api/*` | `http://backend:8000/api/` | QAForge Backend API |
+| `/*` | Static files | React SPA |
 
 ### Environment Variables Reference
 

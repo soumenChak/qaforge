@@ -25,27 +25,35 @@ QAForge solves this by being the **documentation layer** — agents test, QAForg
 ## Architecture
 
 ```
-                          +------------------+
-                          |   QAForge UI     |
-                          |   (React/nginx)  |
-                          |   Port 8080      |
-                          +--------+---------+
-                                   |
-                          +--------+---------+
-                          |  QAForge Backend |
-                          |  (FastAPI/Python) |
-                          |  Port 8000       |
-                          +--+-----+-----+--+
-                             |     |     |
-                    +--------+  +--+--+  +--------+
-                    |           |     |           |
-              +-----+----+ +---+---+ +----+----+ +--------+
-              | PostgreSQL | | Redis | | ChromaDB | | LLM    |
-              | Port 5434  | | 6381  | | 8001     | | APIs   |
-              +------------+ +-------+ +----------+ +--------+
+  ┌──────────────────────┐              ┌──────────────────────┐
+  │   QA User            │              │   Developer          │
+  │   (Claude Code)      │              │   (Claude Code)      │
+  └──────────┬───────────┘              └──────────┬───────────┘
+             │ SSE                                  │ SSE + Git
+             │                                      │
+  ┌──────────▼──────────────────────────────────────▼──────────┐
+  │                    Nginx (HTTPS :8080)                      │
+  │   /qaforge-mcp/* → QAForge MCP Server                      │
+  │   /mcp/*         → Reltio MCP Server                       │
+  │   /api/*         → QAForge Backend                         │
+  │   /*             → React SPA                               │
+  └────┬─────────────────┬─────────────────┬───────────────────┘
+       │                 │                 │
+  ┌────▼────┐     ┌──────▼──────┐   ┌─────▼─────┐
+  │ QAForge │     │ QAForge MCP │   │ Reltio MCP│
+  │ Backend │◄────│ Server      │   │ Server    │
+  │ FastAPI │     │ 17 tools    │   │ 45 tools  │
+  └──┬──┬──┬┘     └─────────────┘   └─────┬─────┘
+     │  │  │                               │
+  ┌──▼┐┌▼─┐┌▼──────┐┌────────┐     ┌──────▼──────┐
+  │ PG ││Rs││Chroma ││ LLM   │     │ Reltio API  │
+  │5434││63││ 8001  ││ APIs  │     │ (cloud)     │
+  └────┘└──┘└───────┘└───────┘     └─────────────┘
 ```
 
 ## Quick Start
+
+### Deploy QAForge (Admin / Developer)
 
 ```bash
 # 1. Clone and configure
@@ -54,7 +62,7 @@ cd qaforge
 cp .env.example .env
 # Edit .env: set SECRET_KEY and at least one LLM API key
 
-# 2. Launch
+# 2. Launch all services (backend, frontend, MCP server, DB, Redis, ChromaDB)
 docker compose up -d
 
 # 3. Login
@@ -64,6 +72,32 @@ docker compose up -d
 # 4. Create a project and generate an agent key
 # Projects > New Project > Agent API Key > Generate
 ```
+
+### Connect as QA User (Claude Code + MCP — No Codebase Needed)
+
+QA users don't need the QAForge source code. They connect Claude Code to remote MCP servers:
+
+```bash
+# 1. Install Claude Code
+npm install -g @anthropic-ai/claude-code
+
+# 2. Add QAForge MCP server (test management, generation, execution)
+claude mcp add qaforge --transport sse \
+  --url "https://YOUR_HOST:8080/qaforge-mcp/sse"
+
+# 3. Add Reltio MCP server (entity search, match, merge — optional)
+claude mcp add reltio --transport sse \
+  --url "https://YOUR_HOST:8080/mcp/sse"
+
+# 4. Start Claude Code from any directory
+cd ~/qa-workspace && claude
+```
+
+Then just talk naturally:
+- *"Show me all test cases for the project"*
+- *"Generate 10 security test cases from the requirements"*
+- *"Execute the smoke test plan and show me results"*
+- *"What's the current test coverage?"*
 
 ## Integrate with Any Project
 
@@ -88,6 +122,8 @@ Then during vibe coding, just say: *"use QAForge to document testing"*
 |-----------|-----------|---------|
 | Backend | FastAPI (Python 3.11) | REST API + WebSocket |
 | Frontend | React 18 + Tailwind CSS | Web UI |
+| QAForge MCP | FastMCP (SSE) | 17 MCP tools for Claude Code |
+| Reltio MCP | FastMCP (SSE) | 45 MCP tools for MDM operations |
 | Database | PostgreSQL 16 | Primary data store |
 | Cache | Redis 7 | Rate limiting, sessions |
 | Vector DB | ChromaDB 0.4 | Semantic search embeddings |
@@ -99,6 +135,7 @@ Then during vibe coding, just say: *"use QAForge to document testing"*
 | Document | Description |
 |----------|-------------|
 | [Testing Guide](docs/QAFORGE_TESTING_GUIDE.md) | **Start here** — Complete guide to using QAForge while vibe coding |
+| [MCP Operations Guide](docs/MCP_OPERATIONS_GUIDE.md) | QAForge MCP + Reltio MCP setup, Claude Code connection, ops |
 | [Architecture](docs/ARCHITECTURE.md) | System design, data model, security |
 | [Agent Integration](docs/AGENT_INTEGRATION.md) | How to integrate any AI agent with QAForge |
 | [Runbook](docs/RUNBOOK.md) | Deploy, monitor, troubleshoot |
@@ -122,11 +159,17 @@ qaforge/
     agents/              # Domain-specific AI agents
     core/                # LLM provider abstraction
     execution/           # Test execution engine + templates
+  mcp-server/            # QAForge MCP Server (SSE transport)
+    main.py              # Entry point: mcp.run(transport="sse")
+    src/server.py        # FastMCP instance + 17 tool registrations
+    src/api_client.py    # httpx wrapper for QAForge Agent API
+    src/tools/           # 7 tool modules (project, requirements, test_cases, etc.)
+    Dockerfile           # Python 3.11-slim container
   frontend/
     src/pages/           # 11 React pages
     src/components/      # 10 reusable components
     src/services/api.js  # API client modules
-  docker-compose.yml
+  docker-compose.yml     # 6-service stack + MCP server
   docs/
 ```
 
