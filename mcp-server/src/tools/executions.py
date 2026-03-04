@@ -8,7 +8,7 @@ async def submit_results_impl(results: list) -> list:
     Each result: {test_case_id, status (passed/failed/skipped/error),
                   actual_result, duration_ms, proof_artifacts?}
     """
-    return await agent_post("/executions", json={"results": results})
+    return await agent_post("/executions", json={"executions": results})
 
 
 async def add_proof_impl(execution_id: str, proof: dict) -> dict:
