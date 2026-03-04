@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { knowledgeAPI } from '../services/api';
+import { frameworksAPI, knowledgeAPI } from '../services/api';
 import {
   BeakerIcon,
   PlusIcon,
@@ -40,11 +40,10 @@ export default function Frameworks() {
   const loadFrameworks = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { entry_type: 'framework_pattern' };
+      const params = {};
       if (domainFilter !== 'all') params.domain = domainFilter;
-      const resp = await knowledgeAPI.list(params);
-      const data = resp.data;
-      setEntries(data && data.items ? data.items : (Array.isArray(data) ? data : []));
+      const resp = await frameworksAPI.list(params);
+      setEntries(Array.isArray(resp.data) ? resp.data : []);
     } catch {
       setEntries([]);
     } finally {

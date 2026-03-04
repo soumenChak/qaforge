@@ -238,6 +238,7 @@ def _register_routes() -> None:
         "test_plans": "/api/projects",
         "reviews": "/api/reviews",
         "execution_runs": "/api/projects",
+        "frameworks": "/api/frameworks",
     }
 
     for importer, module_name, is_pkg in pkgutil.iter_modules(package_path):

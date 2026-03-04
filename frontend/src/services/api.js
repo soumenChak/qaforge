@@ -145,6 +145,12 @@ export const knowledgeAPI = {
   seed: () => api.post('/knowledge/seed'),
 };
 
+// -- Frameworks (dedicated, separate from KB) --
+export const frameworksAPI = {
+  list: (params = {}) => api.get('/frameworks/', { params }),
+  stats: () => api.get('/frameworks/stats'),
+};
+
 // -- Reviews --
 export const reviewsAPI = {
   getPending: () => api.get('/reviews/pending'),
