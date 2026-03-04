@@ -67,7 +67,18 @@ export default function TestPlanDetail() {
   }, [projectId, planId]);
 
   const loadTC = useCallback(() => load(() => testCasesAPI.list(projectId, { test_plan_id: planId }), setTestCases, setTcLoading), [projectId, planId, load]);
-  const loadExec = useCallback(() => load(() => executionRunsAPI.list(projectId, { test_plan_id: planId }), setExecutions, setExecLoading), [projectId, planId, load]);
+  const [individualExecs, setIndividualExecs] = useState([]);
+  const loadExec = useCallback(async () => {
+    setExecLoading(true);
+    try {
+      const runsRes = await executionRunsAPI.list(projectId, { test_plan_id: planId });
+      setExecutions(runsRes.data || []);
+      // Also load individual execution results as fallback
+      const resultsRes = await executionsAPI.list(projectId, { test_plan_id: planId });
+      setIndividualExecs(resultsRes.data || []);
+    } catch (e) { console.error(e); }
+    finally { setExecLoading(false); }
+  }, [projectId, planId]);
   const loadTrace = useCallback(() => load(() => testPlansAPI.getTraceability(projectId, planId), setTraceability, setTraceLoading), [projectId, planId, load]);
   const loadSum = useCallback(() => load(() => testPlansAPI.getSummary(projectId, planId), setSummary, setSumLoading), [projectId, planId, load]);
 
@@ -304,7 +315,72 @@ export default function TestPlanDetail() {
 
       {/* ── Executions ── */}
       {activeTab === 'executions' && <div className="animate-fade-in">
-        {execLoading ? <Spinner /> : !executions.length ? <p className="text-fg-mid text-sm py-8 text-center">No executions recorded yet.</p> : (
+        {execLoading ? <Spinner /> : !executions.length && !individualExecs.length ? <p className="text-fg-mid text-sm py-8 text-center">No executions recorded yet.</p> : (<>
+          {/* Individual execution results (when no execution runs exist) */}
+          {!executions.length && individualExecs.length > 0 && (
+            <div className="space-y-4">
+              <div className="card p-5 mb-2">
+                <div className="flex items-center gap-4">
+                  <div>
+                    <p className="text-xs font-semibold text-fg-mid uppercase tracking-wider">Execution Results</p>
+                    <p className="text-2xl font-bold text-fg-navy mt-1">{individualExecs.length} results</p>
+                  </div>
+                  <div className="flex items-center gap-3 ml-auto">
+                    {(() => { const p = individualExecs.filter(e => e.status === 'passed').length; const f = individualExecs.filter(e => e.status === 'failed').length; const rate = individualExecs.length ? Math.round(p / individualExecs.length * 100) : 0; return (<>
+                      <span className="text-sm font-semibold text-green-600">{p} passed</span>
+                      {f > 0 && <span className="text-sm font-semibold text-red-600">{f} failed</span>}
+                      <div className="w-32 h-2 bg-gray-200 rounded-full overflow-hidden"><div className={`h-full rounded-full ${rate === 100 ? 'bg-green-500' : rate >= 50 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${rate}%` }} /></div>
+                      <span className="text-xs font-mono text-fg-mid">{rate}%</span>
+                    </>); })()}
+                  </div>
+                </div>
+              </div>
+              <div className="overflow-x-auto rounded-lg border border-gray-200"><table className="min-w-full divide-y divide-gray-200">
+                <thead><tr className="bg-gray-50">
+                  <th className="px-4 py-3 text-xs font-semibold text-fg-mid text-left">Test Case</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-fg-mid text-left">Status</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-fg-mid text-left">Actual Result</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-fg-mid text-left">Duration</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-fg-mid text-left">Executed</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-fg-mid text-left">Proof</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-fg-mid text-left">Review</th>
+                </tr></thead>
+                <tbody className="divide-y divide-gray-100 bg-white">
+                  {individualExecs.map(ex => (
+                    <tr key={ex.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3"><span className="text-sm font-medium text-fg-dark">{ex.test_case_display_id || '-'}</span>{ex.test_case_title && <p className="text-xs text-fg-mid mt-0.5 truncate max-w-xs">{ex.test_case_title}</p>}</td>
+                      <td className="px-4 py-3"><Chip status={ex.status} /></td>
+                      <td className="px-4 py-3 text-xs text-fg-mid max-w-xs truncate">{ex.actual_result || '-'}</td>
+                      <td className="px-4 py-3 text-xs text-fg-mid">{ex.duration_ms != null ? `${ex.duration_ms}ms` : '-'}</td>
+                      <td className="px-4 py-3 text-xs text-fg-mid">{ex.executed_at ? new Date(ex.executed_at).toLocaleString() : '-'}</td>
+                      <td className="px-4 py-3">{ex.proof_artifacts?.length ? (
+                        <button onClick={() => setSelectedProof(ex.proof_artifacts[0])} className="badge badge-teal text-xs cursor-pointer">{ex.proof_artifacts.length} proof{ex.proof_artifacts.length > 1 ? 's' : ''}</button>
+                      ) : <span className="text-xs text-fg-mid">-</span>}</td>
+                      <td className="px-4 py-3">
+                        {reviewingExecId === ex.id ? (
+                          <div className="flex flex-col gap-1" onClick={e => e.stopPropagation()}>
+                            <input type="text" placeholder="Comment" value={reviewComment} onChange={e => setReviewComment(e.target.value)} className="input-field text-xs" />
+                            <div className="flex gap-1">
+                              <button onClick={() => execReview(ex.id, 'approved')} className="btn-primary text-xs px-2 py-1">Approve</button>
+                              <button onClick={() => execReview(ex.id, 'rejected')} className="btn-danger text-xs px-2 py-1">Reject</button>
+                              <button onClick={() => { setReviewingExecId(null); setReviewComment(''); }} className="btn-ghost text-xs px-2 py-1">Cancel</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <Chip status={ex.review_status || 'pending'} />
+                            <button onClick={() => setReviewingExecId(ex.id)} className="btn-secondary text-xs px-2 py-1">Review</button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table></div>
+            </div>
+          )}
+          {/* Execution runs (from Execute Plan button) */}
+          {executions.length > 0 && (
           <div className="space-y-4">
             {executions.map(run => {
               const summary = run.results?.summary || {};
@@ -406,7 +482,8 @@ export default function TestPlanDetail() {
               );
             })}
           </div>
-        )}
+          )}
+        </>)}
       </div>}
 
       {/* ── Traceability ── */}

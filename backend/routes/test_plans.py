@@ -347,7 +347,15 @@ def list_executions(
     if review_status:
         q = q.filter(ExecutionResult.review_status == review_status)
 
-    return q.order_by(ExecutionResult.executed_at.desc()).limit(200).all()
+    results = q.order_by(ExecutionResult.executed_at.desc()).limit(200).all()
+
+    # Enrich with test case display ID and title
+    for r in results:
+        if r.test_case:
+            r.test_case_display_id = r.test_case.test_case_id  # e.g. "TC-001"
+            r.test_case_title = r.test_case.title
+
+    return results
 
 
 @router.get("/{project_id}/executions/{execution_id}", response_model=ExecutionResultResponse)
@@ -513,14 +521,25 @@ def get_traceability_matrix(
         if tcs:
             covered += 1
 
+        # Aggregate execution status: pick worst status (failed > skipped > passed)
+        agg_exec = None
+        if tc_entries:
+            statuses = [e["execution_status"] for e in tc_entries if e.get("execution_status")]
+            if statuses:
+                if "failed" in statuses:
+                    agg_exec = "failed"
+                elif "skipped" in statuses:
+                    agg_exec = "skipped"
+                else:
+                    agg_exec = "passed"
+
         matrix.append({
-            "requirement": {
-                "req_id": req.req_id,
-                "title": req.title,
-                "priority": req.priority,
-            },
+            "requirement_id": req.req_id,
+            "requirement_title": req.title,
+            "priority": req.priority,
             "test_cases": tc_entries,
             "covered": len(tcs) > 0,
+            "execution_status": agg_exec,
         })
 
     total_reqs = len(requirements)

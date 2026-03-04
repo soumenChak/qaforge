@@ -805,6 +805,8 @@ class ExecutionResultResponse(BaseModel):
 
     id: uuid.UUID
     test_case_id: uuid.UUID
+    test_case_display_id: Optional[str] = None
+    test_case_title: Optional[str] = None
     test_plan_id: Optional[uuid.UUID] = None
     status: str
     actual_result: Optional[str] = None
