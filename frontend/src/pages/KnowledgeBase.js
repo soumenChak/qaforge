@@ -46,11 +46,14 @@ export default function KnowledgeBase() {
   const [seeding, setSeeding] = useState(false);
   const [seedResult, setSeedResult] = useState(null);
 
-  // Browse state
+  // Browse state + pagination
   const [entries, setEntries] = useState([]);
   const [entriesLoading, setEntriesLoading] = useState(false);
   const [browseDomain, setBrowseDomain] = useState('');
   const [expandedId, setExpandedId] = useState(null);
+  const PAGE_SIZE = 20;
+  const [page, setPage] = useState(0);
+  const [totalEntries, setTotalEntries] = useState(0);
 
   // Edit/delete state
   const [editingEntry, setEditingEntry] = useState(null);
@@ -67,13 +70,21 @@ export default function KnowledgeBase() {
     }
   }, []);
 
-  const loadEntries = useCallback(async (domain) => {
+  const loadEntries = useCallback(async (domain, pageNum) => {
     setEntriesLoading(true);
     try {
-      const params = { limit: 100 };
+      const params = { limit: PAGE_SIZE, offset: pageNum * PAGE_SIZE };
       if (domain) params.domain = domain;
       const res = await knowledgeAPI.list(params);
-      setEntries(res.data || []);
+      const data = res.data;
+      // Support new paginated response {items, total} and legacy array
+      if (data && data.items) {
+        setEntries(data.items);
+        setTotalEntries(data.total || 0);
+      } else {
+        setEntries(Array.isArray(data) ? data : []);
+        setTotalEntries(Array.isArray(data) ? data.length : 0);
+      }
     } catch (err) {
       console.error('Failed to load entries:', err);
     } finally {
@@ -82,7 +93,7 @@ export default function KnowledgeBase() {
   }, []);
 
   useEffect(() => { loadStats(); }, [loadStats]);
-  useEffect(() => { loadEntries(browseDomain); }, [loadEntries, browseDomain]);
+  useEffect(() => { loadEntries(browseDomain, page); }, [loadEntries, browseDomain, page]);
 
   const handleSearch = async (e) => {
     e?.preventDefault();
@@ -118,7 +129,8 @@ export default function KnowledgeBase() {
       setShowAdd(false);
       setNewEntry({ title: '', content: '', domain: 'mdm', sub_domain: '', entry_type: 'pattern', tags: [] });
       loadStats();
-      loadEntries(browseDomain);
+      setPage(0);
+      loadEntries(browseDomain, 0);
     } catch (err) {
       setAddError(err.response?.data?.detail || 'Failed to add entry.');
     } finally {
@@ -145,7 +157,8 @@ export default function KnowledgeBase() {
       const res = await knowledgeAPI.seed();
       setSeedResult(res.data);
       loadStats();
-      loadEntries(browseDomain);
+      setPage(0);
+      loadEntries(browseDomain, 0);
     } catch (err) {
       setSeedResult({ error: err.response?.data?.detail || 'Seeding failed.' });
     } finally {
@@ -173,7 +186,7 @@ export default function KnowledgeBase() {
         tags: editData.tags.length > 0 ? editData.tags : null,
       });
       setEditingEntry(null);
-      loadEntries(browseDomain);
+      loadEntries(browseDomain, page);
       loadStats();
     } catch (err) {
       { const d = err.response?.data?.detail; alert(typeof d === 'string' ? d : (err.message || 'Failed to update entry.')); }
@@ -186,7 +199,7 @@ export default function KnowledgeBase() {
     try {
       await knowledgeAPI.delete(entryId);
       setDeleteTarget(null);
-      loadEntries(browseDomain);
+      loadEntries(browseDomain, page);
       loadStats();
     } catch (err) {
       { const d = err.response?.data?.detail; alert(typeof d === 'string' ? d : (err.message || 'Failed to delete entry.')); }
@@ -367,7 +380,7 @@ export default function KnowledgeBase() {
           {/* Domain filter tabs */}
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-bold text-fg-navy uppercase tracking-wider">
-              All Entries ({entries.length})
+              All Entries ({totalEntries})
             </h3>
             <div className="flex gap-1">
               {[
@@ -381,7 +394,7 @@ export default function KnowledgeBase() {
               ].map((tab) => (
                 <button
                   key={tab.key}
-                  onClick={() => setBrowseDomain(tab.key)}
+                  onClick={() => { setBrowseDomain(tab.key); setPage(0); }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                     browseDomain === tab.key
                       ? 'bg-fg-teal text-white'
@@ -560,6 +573,52 @@ export default function KnowledgeBase() {
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {/* Pagination controls */}
+          {totalEntries > PAGE_SIZE && (
+            <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
+              <span className="text-xs text-fg-mid">
+                Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, totalEntries)} of {totalEntries}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { setPage((p) => Math.max(0, p - 1)); setExpandedId(null); }}
+                  disabled={page === 0}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    page === 0
+                      ? 'bg-gray-50 text-gray-300 cursor-not-allowed'
+                      : 'bg-gray-100 text-fg-mid hover:bg-gray-200'
+                  }`}
+                >
+                  Previous
+                </button>
+                {Array.from({ length: Math.ceil(totalEntries / PAGE_SIZE) }, (_, i) => i).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => { setPage(p); setExpandedId(null); }}
+                    className={`w-8 h-8 rounded-lg text-xs font-medium transition-colors ${
+                      page === p
+                        ? 'bg-fg-teal text-white'
+                        : 'bg-gray-100 text-fg-mid hover:bg-gray-200'
+                    }`}
+                  >
+                    {p + 1}
+                  </button>
+                ))}
+                <button
+                  onClick={() => { setPage((p) => Math.min(Math.ceil(totalEntries / PAGE_SIZE) - 1, p + 1)); setExpandedId(null); }}
+                  disabled={page >= Math.ceil(totalEntries / PAGE_SIZE) - 1}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    page >= Math.ceil(totalEntries / PAGE_SIZE) - 1
+                      ? 'bg-gray-50 text-gray-300 cursor-not-allowed'
+                      : 'bg-gray-100 text-fg-mid hover:bg-gray-200'
+                  }`}
+                >
+                  Next
+                </button>
+              </div>
             </div>
           )}
         </div>

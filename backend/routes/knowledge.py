@@ -83,18 +83,17 @@ def search_knowledge(
 # ---------------------------------------------------------------------------
 @router.get(
     "/entries",
-    response_model=list[KnowledgeEntryResponse],
     summary="List all knowledge entries",
 )
 def list_knowledge_entries(
     domain: Optional[str] = Query(None, description="Filter by domain"),
     entry_type: Optional[str] = Query(None, description="Filter by entry_type"),
-    limit: int = Query(50, ge=1, le=200, description="Max results"),
+    limit: int = Query(20, ge=1, le=200, description="Max results per page"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
-    """List all knowledge entries with optional domain/type filters."""
+) -> Dict[str, Any]:
+    """List all knowledge entries with optional domain/type filters and pagination."""
     query = db.query(KnowledgeEntry)
 
     if domain:
@@ -102,13 +101,20 @@ def list_knowledge_entries(
     if entry_type:
         query = query.filter(KnowledgeEntry.entry_type == entry_type)
 
+    total = query.count()
+
     entries = (
         query.order_by(KnowledgeEntry.domain, KnowledgeEntry.entry_type, KnowledgeEntry.title)
         .offset(offset)
         .limit(limit)
         .all()
     )
-    return [KnowledgeEntryResponse.model_validate(e) for e in entries]
+    return {
+        "items": [KnowledgeEntryResponse.model_validate(e) for e in entries],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 # ---------------------------------------------------------------------------
