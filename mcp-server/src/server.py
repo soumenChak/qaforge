@@ -21,7 +21,7 @@ from src.tools.summary import get_summary_impl
 logger = logging.getLogger("qaforge.mcp.server")
 
 # ── Initialize MCP Server ──
-mcp = FastMCP(QAFORGE_SERVER_NAME)
+mcp = FastMCP(QAFORGE_SERVER_NAME, host="0.0.0.0", port=8000)
 
 
 # ═══════════════════════════════════════════════════════════════════
