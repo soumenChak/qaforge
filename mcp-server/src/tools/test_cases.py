@@ -1,5 +1,9 @@
 """QAForge MCP Tools — Test Case Management"""
+import logging
+
 from src.api_client import agent_get, agent_post
+
+logger = logging.getLogger("qaforge.mcp.tools.test_cases")
 
 
 async def list_test_cases_impl(status: str = "", test_plan_id: str = "") -> list:
@@ -18,10 +22,35 @@ async def generate_test_cases_impl(
     domain: str = "",
     sub_domain: str = "",
 ) -> list:
-    """Generate test cases from requirements using AI + Knowledge Base."""
-    payload = {"count": count}
+    """Generate test cases from requirements using AI + Knowledge Base.
+
+    Automatically fetches project requirements to use as BRD context
+    when no explicit description is provided.
+    """
+    # Build brd_text from requirements + description
+    brd_parts = []
+
+    # Auto-fetch requirements to use as BRD context
+    try:
+        reqs = await agent_get("/requirements")
+        if reqs:
+            req_lines = []
+            for r in reqs:
+                line = f"- [{r.get('priority', 'medium').upper()}] {r.get('req_id', '')}: {r.get('title', '')}"
+                if r.get("description"):
+                    line += f"\n  {r['description']}"
+                req_lines.append(line)
+            brd_parts.append("PROJECT REQUIREMENTS:\n" + "\n".join(req_lines))
+            logger.info("Auto-fetched %d requirements as BRD context", len(reqs))
+    except Exception as exc:
+        logger.warning("Could not fetch requirements for BRD context: %s", exc)
+
     if description:
-        payload["description"] = description
+        brd_parts.append(description)
+
+    brd_text = "\n\n".join(brd_parts) if brd_parts else "Generate general test cases for the project"
+
+    payload = {"brd_text": brd_text, "count": count}
     if domain:
         payload["domain"] = domain
     if sub_domain:

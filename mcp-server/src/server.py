@@ -124,12 +124,13 @@ async def generate_test_cases(
 ) -> list:
     """Generate test cases using AI from project requirements and Knowledge Base.
 
-    The AI uses project requirements, BRD/PRD context, and reference test cases
-    from the Knowledge Base to generate high-quality, domain-specific test cases.
+    Automatically fetches project requirements as BRD context. The AI uses these
+    requirements plus reference test cases from the Knowledge Base to generate
+    high-quality, domain-specific test cases.
 
     Args:
         count: Number of test cases to generate (1-50, default 10)
-        description: Focus area or additional context for generation
+        description: Additional focus area or context (appended to auto-fetched requirements)
         domain: Domain filter for KB retrieval (mdm, ai, data_eng, integration, digital)
         sub_domain: Sub-domain filter (reltio, snowflake, databricks, etc.)
     """
