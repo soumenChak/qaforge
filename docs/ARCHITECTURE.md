@@ -26,7 +26,7 @@
   │ QAForge  │ │ Reltio   │ │  FastAPI Backend     │
   │ MCP Srv  │ │ MCP Srv  │ │  Port 8000 (internal)│
   │ FastMCP  │ │ FastMCP  │ │                      │
-  │ 17 tools │ │ 45 tools │ │ JWT + Agent Key Auth │
+  │ 16 tools │ │ 45 tools │ │ JWT + Agent Key Auth │
   │ :8090    │ │ :8002    │ │ 11 Route Modules     │
   │──────────│ │──────────│ │ Domain Agents (4)    │
   │ Calls    │ │ Calls    │ │ Execution Engine     │
@@ -49,7 +49,7 @@
 |-----------|-------|:---:|:---:|---------|
 | `qaforge_frontend` | React 18 + nginx | 443 | `${FRONTEND_PORT:-8080}` | SPA + HTTPS reverse proxy |
 | `qaforge_backend` | FastAPI (Python 3.11) | 8000 | *internal only* | REST API + execution engine |
-| `qaforge_mcp` | FastMCP (Python 3.11) | 8000 | `${MCP_PORT:-8090}` | QAForge MCP Server (17 tools, SSE) |
+| `qaforge_mcp` | FastMCP (Python 3.11) | 8000 | `${MCP_PORT:-8090}` | QAForge MCP Server (16 tools, SSE) |
 | `qaforge_db` | PostgreSQL 16 Alpine | 5432 | `${DB_PORT:-5434}` | Primary data store |
 | `qaforge_redis` | Redis 7 Alpine | 6379 | `${REDIS_PORT:-6381}` | Rate limiting, caching |
 | `qaforge_chromadb` | ChromaDB 0.4.24 | 8000 | `${CHROMADB_PORT:-8001}` | Vector embeddings (RAG) |

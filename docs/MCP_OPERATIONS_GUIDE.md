@@ -37,7 +37,7 @@
   ┌─────────▼────────────────────────────────────▼─────────┐
   │                  Nginx (HTTPS :8080)                     │
   │                                                          │
-  │   /qaforge-mcp/*  →  QAForge MCP Server (17 tools)      │
+  │   /qaforge-mcp/*  →  QAForge MCP Server (16 tools)      │
   │   /mcp/*          →  Reltio MCP Server  (45 tools)      │
   │   /api/*          →  QAForge Backend    (REST API)      │
   │   /*              →  React SPA          (Web UI)        │
@@ -47,7 +47,7 @@
   │ QAForge MCP  │ │ QAForge     │  │ Reltio MCP  │
   │ Server       │ │ Backend     │  │ Server      │
   │ (FastMCP)    │ │ (FastAPI)   │  │ (FastMCP)   │
-  │ 17 tools     │ │ 11 routes   │  │ 45 tools    │
+  │ 16 tools     │ │ 11 routes   │  │ 45 tools    │
   │ Port 8000    │ │ Port 8000   │  │ Port 8000   │
   │ ─────────────│ │             │  │ ────────────│
   │ Calls Agent  │─►             │  │ Calls Reltio│
@@ -69,7 +69,7 @@
 |-----------|-------|:---:|:---:|---------|
 | `qaforge_frontend` | qaforge-frontend (nginx) | 443 | **8080** | HTTPS proxy + React SPA |
 | `qaforge_backend` | qaforge-backend (FastAPI) | 8000 | *internal* | REST API + execution engine |
-| `qaforge_mcp` | qaforge-qaforge_mcp (FastMCP) | 8000 | **8090** | QAForge MCP Server (17 tools, SSE) |
+| `qaforge_mcp` | qaforge-qaforge_mcp (FastMCP) | 8000 | **8090** | QAForge MCP Server (16 tools, SSE) |
 | `qaforge_db` | postgres:16-alpine | 5432 | 5434 | Primary data store |
 | `qaforge_redis` | redis:7-alpine | 6379 | 6381 | Rate limiting, caching |
 | `qaforge_chromadb` | chromadb/chroma:0.4.24 | 8000 | 8001 | Vector embeddings (RAG KB) |
@@ -237,12 +237,12 @@ The QAForge MCP Server (`mcp-server/`) exposes QAForge operations as MCP tools o
 ```
 Claude Code ──SSE──> QAForge MCP Server ──httpx──> QAForge Backend API
                      (mcp-server/)                  (/api/agent/*)
-                     FastMCP + 17 tools             X-Agent-Key auth
+                     FastMCP + 16 tools             X-Agent-Key auth
 ```
 
 The MCP server is a thin wrapper — each tool calls the corresponding Agent API endpoint.
 
-### 17 Available Tools
+### 16 Available Tools
 
 | # | Tool | Description | Agent API Endpoint |
 |---|------|-------------|-------------------|
@@ -269,7 +269,6 @@ The MCP server is a thin wrapper — each tool calls the corresponding Agent API
 | 15 | `upload_reference` | Upload reference samples to KB | `POST /agent/upload-reference` |
 | | **Summary** | | |
 | 16 | `get_summary` | Project quality summary and stats | `GET /agent/summary` |
-| 17 | `get_coverage` | Coverage analysis | `GET /agent/coverage` |
 
 ### MCP Server Configuration
 
@@ -331,6 +330,63 @@ curl -sk -N --max-time 3 https://localhost:8080/mcp/sse
 # Should return: event: endpoint\ndata: /messages/?session_id=...
 ```
 
+### 6.5 Reltio MCP — 45 Available Tools
+
+| # | Tool | Description |
+|---|------|-------------|
+| | **Entity Management (7)** | |
+| 1 | `search_entities_tool` | Search entities by filter criteria |
+| 2 | `get_entity_tool` | Get entity details by ID |
+| 3 | `get_entity_with_matches_tool` | Get entity + potential matches |
+| 4 | `get_entity_graph_tool` | Get entity graph (hops) with traversal options |
+| 5 | `get_entity_parents_tool` | Find parent paths for an entity |
+| 6 | `create_entity_tool` | Create one or more entities |
+| 7 | `update_entity_attributes_tool` | Update entity attributes |
+| | **Match Management (7)** | |
+| 8 | `find_potential_matches_tool` | Find potential matches by rule/score/confidence |
+| 9 | `get_potential_matches_stats_tool` | Match counts (total, entity-level, rule-level) |
+| 10 | `get_entity_match_history_tool` | Entity match history |
+| 11 | `merge_entities_tool` | Merge two entities |
+| 12 | `unmerge_entity_tool` | Unmerge a contributor entity |
+| 13 | `reject_entity_match_tool` | Reject a potential duplicate |
+| 14 | `export_merge_tree_tool` | Export merge tree for all entities |
+| | **Relationships & Interactions (7)** | |
+| 15 | `get_entity_relations_tool` | Get entity connections/relations |
+| 16 | `get_relation_details_tool` | Get relation details by ID |
+| 17 | `relation_search_tool` | Search relationships |
+| 18 | `create_relationships_tool` | Create relationships between entities |
+| 19 | `delete_relation_tool` | Delete a relation |
+| 20 | `get_entity_interactions_tool` | Get entity interactions |
+| 21 | `create_interaction_tool` | Create interactions |
+| | **Tenant Configuration (10)** | |
+| 22 | `get_business_configuration_tool` | Full business configuration |
+| 23 | `get_tenant_metadata_tool` | Tenant metadata |
+| 24 | `get_tenant_permissions_metadata_tool` | Permissions & security metadata |
+| 25 | `get_data_model_definition_tool` | Complete data model definition |
+| 26 | `get_entity_type_definition_tool` | Entity type definition |
+| 27 | `get_relation_type_definition_tool` | Relation type definition |
+| 28 | `get_interaction_type_definition_tool` | Interaction type definition |
+| 29 | `get_graph_type_definition_tool` | Graph type definition |
+| 30 | `get_grouping_type_definition_tool` | Grouping type definition |
+| 31 | `get_change_request_type_definition_tool` | Change request type definition |
+| | **User & Activity (4)** | |
+| 32 | `get_users_by_role_and_tenant_tool` | Users by role & tenant |
+| 33 | `get_users_by_group_and_tenant_tool` | Users by group & tenant |
+| 34 | `check_user_activity_tool` | Check user activity within N days |
+| 35 | `get_merge_activities_tool` | Merge activity events |
+| | **Workflow Management (7)** | |
+| 36 | `get_user_workflow_tasks_tool` | User's workflow tasks |
+| 37 | `get_task_details_tool` | Task details by ID |
+| 38 | `retrieve_tasks_tool` | Retrieve tasks by filter |
+| 39 | `get_possible_assignees_tool` | Possible task assignees |
+| 40 | `reassign_workflow_task_tool` | Reassign a task to another user |
+| 41 | `start_process_instance_tool` | Start a workflow process instance |
+| 42 | `execute_task_action_tool` | Execute action on a workflow task |
+| | **Reference Data & System (3)** | |
+| 43 | `rdm_lookups_list_tool` | List RDM lookups by type |
+| 44 | `health_check_tool` | Server health check |
+| 45 | `capabilities_tool` | List all server capabilities |
+
 ---
 
 ## 7. Claude Code — QA User Setup (Step-by-Step)
@@ -355,7 +411,7 @@ claude mcp add qaforge --transport sse \
   --url "https://13.233.36.18:8080/qaforge-mcp/sse"
 ```
 
-This gives Claude Code access to 17 QAForge tools: test case management, AI generation, execution results, KB, and summaries.
+This gives Claude Code access to 16 QAForge tools: test case management, AI generation, execution results, KB, and summaries.
 
 ### Step 3: Add Reltio MCP Server (Optional)
 
@@ -745,9 +801,9 @@ docker compose restart qaforge_mcp
 
 | Endpoint | URL | Tools |
 |----------|-----|-------|
-| QAForge MCP (via Nginx) | `https://13.233.36.18:8080/qaforge-mcp/sse` | 17 |
+| QAForge MCP (via Nginx) | `https://13.233.36.18:8080/qaforge-mcp/sse` | 16 |
 | Reltio MCP (via Nginx) | `https://13.233.36.18:8080/mcp/sse` | 45 |
-| QAForge MCP (direct) | `http://13.233.36.18:8090/sse` | 17 |
+| QAForge MCP (direct) | `http://13.233.36.18:8090/sse` | 16 |
 | Reltio MCP (direct) | `http://13.233.36.18:8002/sse` | 45 |
 
 ### API Endpoints (Quick Reference)

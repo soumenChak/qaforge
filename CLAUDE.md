@@ -4,7 +4,7 @@
 - **Stack:** FastAPI + React + PostgreSQL + Redis + ChromaDB + MCP Servers (Docker Compose)
 - **Backend:** `backend/main.py` entry point, 11 route modules in `backend/routes/`
 - **Frontend:** React 18 + Tailwind CSS in `frontend/src/`
-- **MCP Server:** `mcp-server/` — FastMCP SSE, 17 QAForge tools for remote Claude Code access
+- **MCP Server:** `mcp-server/` — FastMCP SSE, 16 QAForge tools for remote Claude Code access
 - **Production:** `https://13.233.36.18:8080` (VM)
 - **Company:** FreshGravity
 
@@ -56,7 +56,7 @@ qaforge/
     main.py                # Entry point: mcp.run(transport="sse")
     Dockerfile             # Python 3.11-slim container
     src/
-      server.py            # FastMCP instance + 17 @mcp.tool() registrations
+      server.py            # FastMCP instance + 16 @mcp.tool() registrations
       api_client.py        # httpx async client → QAForge Agent API
       config.py            # QAFORGE_API_URL, QAFORGE_AGENT_KEY env vars
       tools/               # 7 tool modules:
@@ -122,7 +122,7 @@ docker compose exec backend sh -c "cd /app && alembic revision --autogenerate -m
 
 ### QAForge MCP Server (`mcp-server/`)
 
-Exposes QAForge operations as 17 MCP tools over SSE transport, so any remote Claude Code can manage tests without codebase access.
+Exposes QAForge operations as 16 MCP tools over SSE transport, so any remote Claude Code can manage tests without codebase access.
 
 **How it works:** MCP Server → httpx calls → QAForge Agent API (`/api/agent/*`) → same auth (X-Agent-Key)
 
@@ -141,7 +141,7 @@ Exposes QAForge operations as 17 MCP tools over SSE transport, so any remote Cla
 - **Developers:** Full codebase access + MCP tools + can modify QAForge itself
 
 **SSE endpoints:**
-- QAForge MCP: `https://13.233.36.18:8080/qaforge-mcp/sse` (17 tools)
+- QAForge MCP: `https://13.233.36.18:8080/qaforge-mcp/sse` (16 tools)
 - Reltio MCP: `https://13.233.36.18:8080/mcp/sse` (45 tools)
 
 ### Testing
