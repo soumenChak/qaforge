@@ -990,14 +990,29 @@ def create_test_plan(
         created_by=project.created_by,
     )
     db.add(plan)
+    db.flush()
+
+    # Bind test cases to this plan
+    bound = 0
+    if body.test_case_ids:
+        for tc_id in body.test_case_ids:
+            tc = db.query(TestCase).filter(
+                TestCase.id == tc_id,
+                TestCase.project_id == project.id,
+            ).first()
+            if tc:
+                tc.test_plan_id = plan.id
+                bound += 1
+
     db.commit()
     db.refresh(plan)
 
     logger.info(
-        "Agent created test plan '%s' (%s) for project %s",
+        "Agent created test plan '%s' (%s) for project %s — bound %d test cases",
         body.name,
         plan.id,
         project.name,
+        bound,
     )
     return plan
 

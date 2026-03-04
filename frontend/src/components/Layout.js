@@ -7,6 +7,7 @@ import {
   FolderIcon,
   ClipboardDocumentCheckIcon,
   BookOpenIcon,
+  BeakerIcon,
   QuestionMarkCircleIcon,
   CogIcon,
   UsersIcon,
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
   { path: '/projects', label: 'Projects', icon: FolderIcon },
   { path: '/reviews', label: 'Review Queue', icon: ClipboardDocumentCheckIcon },
   { path: '/knowledge', label: 'Knowledge Base', icon: BookOpenIcon },
+  { path: '/frameworks', label: 'Frameworks', icon: BeakerIcon },
   { path: '/guide', label: 'Guide', icon: QuestionMarkCircleIcon },
 ];
 

@@ -440,6 +440,7 @@ class KnowledgeEntryResponse(BaseModel):
     tags: Optional[List[str]] = None
     source_project_id: Optional[uuid.UUID] = None
     usage_count: int
+    version: Optional[str] = None
     created_by: uuid.UUID
     created_at: datetime
 
@@ -540,6 +541,7 @@ class KnowledgeEntryCreate(BaseModel):
     content: str = Field(..., min_length=1)
     tags: Optional[List[str]] = None
     source_project_id: Optional[uuid.UUID] = None
+    version: Optional[str] = Field(None, max_length=20, description="Semantic version e.g. 1.0")
 
 
 class FeedbackCorrectionResponse(BaseModel):
@@ -709,6 +711,10 @@ class TestPlanCreate(BaseModel):
     execution_config: Optional[Dict[str, Any]] = Field(
         None,
         description="Execution playbook: environment, prerequisites, connection refs, env vars",
+    )
+    test_case_ids: Optional[List[uuid.UUID]] = Field(
+        None,
+        description="Test case UUIDs to bind to this plan on creation",
     )
 
 

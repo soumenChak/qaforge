@@ -345,6 +345,9 @@ class KnowledgeEntry(Base):
         UUID(as_uuid=True), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True
     )
     usage_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    version: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True, comment="Semantic version e.g. 1.0, 2.1"
+    )
     created_by: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
     )
