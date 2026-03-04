@@ -28,7 +28,7 @@ const ROLE_BADGE = {
 
 const CATEGORY_META = {
   'getting-started': { label: 'Getting Started', icon: RocketLaunchIcon, accent: 'from-fg-teal to-fg-green' },
-  'mcp':             { label: 'MCP & Claude Code Setup', icon: SignalIcon, accent: 'from-cyan-400 to-blue-600' },
+  'mcp':             { label: 'MCP & Claude Setup', icon: SignalIcon, accent: 'from-cyan-400 to-blue-600' },
   'agents':          { label: 'AI Agent Integration (CLI)', icon: CpuChipIcon, accent: 'from-violet-400 to-purple-600' },
   'test-cases':      { label: 'Test Case Workflows', icon: BeakerIcon, accent: 'from-blue-400 to-indigo-500' },
   'execution':       { label: 'Test Execution', icon: PlayIcon, accent: 'from-green-400 to-emerald-500' },
@@ -99,8 +99,8 @@ const GUIDE_SCENARIOS = [
     ],
     cli: [
       { label: 'Step 1: Install Claude Code', cmd: 'npm install -g @anthropic-ai/claude-code' },
-      { label: 'Step 2: Add QAForge MCP server', cmd: 'claude mcp add qaforge --transport sse \\\n  --url "https://YOUR_HOST:8080/qaforge-mcp/sse"' },
-      { label: 'Step 3: Add Reltio MCP server (optional)', cmd: 'claude mcp add reltio --transport sse \\\n  --url "https://YOUR_HOST:8080/mcp/sse"' },
+      { label: 'Step 2: Add QAForge MCP server', cmd: 'claude mcp add qaforge \\\n  "https://YOUR_HOST:8080/qaforge-mcp/sse" \\\n  --transport sse' },
+      { label: 'Step 3: Add Reltio MCP server (optional)', cmd: 'claude mcp add reltio \\\n  "https://YOUR_HOST:8080/mcp/sse" \\\n  --transport sse' },
       { label: 'Step 4: Start Claude Code', cmd: 'mkdir -p ~/qa-workspace && cd ~/qa-workspace && claude' },
     ],
     tips: [
@@ -110,7 +110,7 @@ const GUIDE_SCENARIOS = [
       'MCP servers persist across Claude Code sessions — you only run the setup commands once.',
     ],
     warnings: ['If using a self-signed SSL certificate, Claude Code may prompt you to accept it on first connection.'],
-    related: ['mcp-developer-setup', 'mcp-qaforge-tools', 'mcp-reltio-tools'],
+    related: ['claude-desktop-qa-setup', 'mcp-developer-setup', 'mcp-qaforge-tools', 'mcp-reltio-tools'],
   },
   {
     id: 'mcp-developer-setup',
@@ -132,8 +132,8 @@ const GUIDE_SCENARIOS = [
     ],
     cli: [
       { label: 'Step 1: Clone the repo', cmd: 'git clone git@bitbucket.org:lifio/qaforge.git\ncd qaforge' },
-      { label: 'Step 2: Add QAForge MCP', cmd: 'claude mcp add qaforge --transport sse \\\n  --url "https://YOUR_HOST:8080/qaforge-mcp/sse"' },
-      { label: 'Step 3: Add Reltio MCP', cmd: 'claude mcp add reltio --transport sse \\\n  --url "https://YOUR_HOST:8080/mcp/sse"' },
+      { label: 'Step 2: Add QAForge MCP', cmd: 'claude mcp add qaforge \\\n  "https://YOUR_HOST:8080/qaforge-mcp/sse" \\\n  --transport sse' },
+      { label: 'Step 3: Add Reltio MCP', cmd: 'claude mcp add reltio \\\n  "https://YOUR_HOST:8080/mcp/sse" \\\n  --transport sse' },
       { label: 'Step 4: Start Claude Code from repo', cmd: 'cd ~/Downloads/qaforge && claude' },
     ],
     tips: [
@@ -141,7 +141,7 @@ const GUIDE_SCENARIOS = [
       'Developers can add new MCP tools: create function in mcp-server/src/tools/, register in server.py, rebuild the container.',
       'Deploy with one command: git push && ssh VM "cd /opt/qaforge && git pull && bash scripts/vm-deploy.sh"',
     ],
-    related: ['mcp-qa-user-setup', 'mcp-qaforge-tools', 'agent-claude-code'],
+    related: ['claude-desktop-dev-setup', 'mcp-qa-user-setup', 'mcp-qaforge-tools', 'agent-claude-code'],
   },
   {
     id: 'mcp-qaforge-tools',
@@ -217,6 +217,80 @@ const GUIDE_SCENARIOS = [
     ],
     warnings: ['Agent keys are project-scoped. Make sure you have the right key for the project you want to access.'],
     related: ['mcp-qaforge-tools', 'create-project', 'mcp-qa-user-setup'],
+  },
+  {
+    id: 'claude-desktop-qa-setup',
+    title: 'Claude Desktop — QA Mode (No Terminal Needed)',
+    role: 'everyone',
+    category: 'mcp',
+    description: 'Set up Claude Desktop (Anthropic\'s desktop app) with QAForge + Reltio MCP servers. No terminal, no CLI, no git repo — just a desktop app with full MCP tool access.',
+    prerequisites: [
+      'Claude Desktop app installed (download from claude.ai/download)',
+      'QAForge server URL from your admin (e.g. https://your-server:8080)',
+      'An Anthropic account (for Claude Desktop login)',
+    ],
+    steps: [
+      '**Download Claude Desktop** from claude.ai/download (macOS or Windows). Install and sign in with your Anthropic account.',
+      '**Open the config file** — Claude Desktop stores its MCP server configuration in a JSON file on your machine.',
+      '**Add QAForge + Reltio MCP servers** — paste the JSON configuration (see below) into the config file. Replace YOUR_HOST with your actual server IP or domain.',
+      '**Quit and reopen Claude Desktop** — press Cmd+Q (Mac) or close completely (Windows), then reopen. MCP servers load on startup.',
+      '**Verify connection** — start a new conversation and ask "What tools do you have?" or "Show me MCP tools." You should see QAForge and Reltio tools listed.',
+      '**Connect to your project** — say: "Connect to my project with key qf_xxx..." (get the key from your admin or the Project Settings page in QAForge UI).',
+      '**Start working** — you now have full access to 65 tools (20 QAForge + 45 Reltio). Just talk naturally: "Show me all test cases", "Generate 10 regression tests", "Search Reltio for entities with FirstName John".',
+    ],
+    cli: [
+      { label: 'Config file location (macOS)', cmd: '~/Library/Application Support/Claude/claude_desktop_config.json' },
+      { label: 'Config file location (Windows)', cmd: '%APPDATA%\\Claude\\claude_desktop_config.json' },
+      { label: 'JSON to add (paste into config file)', cmd: '{\n  "mcpServers": {\n    "qaforge": {\n      "url": "https://YOUR_HOST:8080/qaforge-mcp/sse"\n    },\n    "reltio": {\n      "url": "https://YOUR_HOST:8080/mcp/sse"\n    }\n  }\n}' },
+    ],
+    tips: [
+      'Replace YOUR_HOST with your actual server address (e.g. 13.233.36.18).',
+      'If the config file already has content, merge the "mcpServers" block into the existing JSON — don\'t overwrite the whole file.',
+      'Claude Desktop is ideal for QA users who don\'t need terminal or codebase access.',
+      'You can add more MCP servers later by editing the same config file.',
+      'On macOS, open the config file quickly: open the Terminal app and run: open ~/Library/Application\\ Support/Claude/claude_desktop_config.json',
+    ],
+    warnings: [
+      'You must fully quit Claude Desktop (Cmd+Q on Mac) and reopen it for new MCP servers to take effect.',
+      'If using a self-signed SSL certificate, you may need to accept it in your system keychain first.',
+    ],
+    related: ['claude-desktop-dev-setup', 'mcp-qa-user-setup', 'mcp-qaforge-tools', 'mcp-connect-project'],
+  },
+  {
+    id: 'claude-desktop-dev-setup',
+    title: 'Claude Desktop — Developer Mode (Full Codebase Access)',
+    role: 'engineer',
+    category: 'mcp',
+    description: 'Use Claude Desktop with MCP servers AND full codebase access. Open a project folder in Claude Desktop to get file editing, terminal commands, git operations, and all 65 MCP tools in one session.',
+    prerequisites: [
+      'Claude Desktop app installed with MCP servers configured (see QA Mode setup first)',
+      'Git access to the QAForge repo (or any project repo)',
+      'Node.js 18+ (for Claude Code features inside Desktop)',
+    ],
+    steps: [
+      '**Complete the QA Mode setup first** — add QAForge and Reltio MCP servers to your Claude Desktop config file (see "Claude Desktop — QA Mode" scenario).',
+      '**Open your project in Claude Desktop** — use File > Open Folder (or drag the project folder onto Claude Desktop). This gives Claude access to your full codebase.',
+      '**Alternatively, use Claude Code from the project directory** — run `claude` from your repo root. Claude Code reads the `.mcp.json` file in the project root for MCP server config.',
+      '**For Claude Code: add a `.mcp.json` file** to your project root with the MCP server configuration (see below). This auto-loads MCP servers when Claude Code starts from that directory.',
+      '**You now have dual capabilities:** All 65 MCP tools for test management + full codebase access to edit code, run commands, deploy, and debug.',
+      '**Example developer workflows:** "Fix the bug in api_client.py and then run the smoke tests via QAForge", "Add a new MCP tool for test plan export, then test it by calling it", "Generate test cases from this BRD file in my Downloads folder".',
+    ],
+    cli: [
+      { label: 'Option A: .mcp.json in project root (for Claude Code)', cmd: '# Create .mcp.json in your project root:\n{\n  "mcpServers": {\n    "qaforge": {\n      "type": "sse",\n      "url": "https://YOUR_HOST:8080/qaforge-mcp/sse"\n    },\n    "reltio": {\n      "type": "sse",\n      "url": "https://YOUR_HOST:8080/mcp/sse"\n    }\n  }\n}' },
+      { label: 'Option B: Global config (for Claude Code CLI)', cmd: 'claude mcp add qaforge \\\n  "https://YOUR_HOST:8080/qaforge-mcp/sse" \\\n  --transport sse\n\nclaude mcp add reltio \\\n  "https://YOUR_HOST:8080/mcp/sse" \\\n  --transport sse' },
+      { label: 'Start Claude Code from repo', cmd: 'cd ~/path/to/your/project && claude' },
+    ],
+    tips: [
+      'Claude Code reads CLAUDE.md at startup — add QAForge instructions there so Claude knows how to run tests and submit results automatically.',
+      '.mcp.json is project-scoped (only loads when Claude Code runs from that directory). `claude mcp add` is user-scoped (loads in every session).',
+      'Developer mode gives you the power to fix a bug, run tests, submit results to QAForge, and deploy — all in one conversation.',
+      'Developers can also add new MCP tools: create a function in mcp-server/src/tools/, register in server.py, rebuild the container, and immediately test via MCP.',
+    ],
+    warnings: [
+      'Keep .mcp.json in .gitignore if it contains internal server addresses you don\'t want in version control.',
+      'The .mcp.json format uses "type": "sse" while claude_desktop_config.json just uses "url" directly — they are different formats.',
+    ],
+    related: ['claude-desktop-qa-setup', 'mcp-developer-setup', 'mcp-qaforge-tools', 'agent-claude-code'],
   },
 
   /* ── AI Agent Integration ──────────────────────────────────────── */
