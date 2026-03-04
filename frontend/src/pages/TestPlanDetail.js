@@ -67,7 +67,7 @@ export default function TestPlanDetail() {
   }, [projectId, planId]);
 
   const loadTC = useCallback(() => load(() => testCasesAPI.list(projectId, { test_plan_id: planId }), setTestCases, setTcLoading), [projectId, planId, load]);
-  const loadExec = useCallback(() => load(() => executionsAPI.list(projectId, { test_plan_id: planId }), setExecutions, setExecLoading), [projectId, planId, load]);
+  const loadExec = useCallback(() => load(() => executionRunsAPI.list(projectId, { test_plan_id: planId }), setExecutions, setExecLoading), [projectId, planId, load]);
   const loadTrace = useCallback(() => load(() => testPlansAPI.getTraceability(projectId, planId), setTraceability, setTraceLoading), [projectId, planId, load]);
   const loadSum = useCallback(() => load(() => testPlansAPI.getSummary(projectId, planId), setSummary, setSumLoading), [projectId, planId, load]);
 
@@ -305,65 +305,107 @@ export default function TestPlanDetail() {
       {/* ── Executions ── */}
       {activeTab === 'executions' && <div className="animate-fade-in">
         {execLoading ? <Spinner /> : !executions.length ? <p className="text-fg-mid text-sm py-8 text-center">No executions recorded yet.</p> : (
-          <div className="table-container"><table className="min-w-full divide-y divide-gray-200">
-            <thead><tr className="table-header">
-              <th className="px-4 py-3 w-8" /><th className="px-4 py-3">Test Case</th><th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Executed By</th><th className="px-4 py-3">Duration</th><th className="px-4 py-3">Review</th>
-              <th className="px-4 py-3">Executed At</th><th className="px-4 py-3">Actions</th>
-            </tr></thead>
-            <tbody className="divide-y divide-gray-100 bg-white">
-              {executions.map(ex => <React.Fragment key={ex.id}>
-                <tr className="table-row">
-                  <td className="px-4 py-3">
-                    <button onClick={() => setExpandedExecId(expandedExecId === ex.id ? null : ex.id)} className="text-fg-mid hover:text-fg-dark">
-                      {expandedExecId === ex.id ? <ChevronUpIcon className="w-4 h-4" /> : <ChevronDownIcon className="w-4 h-4" />}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3 text-sm font-mono text-fg-dark">{ex.test_case_id}</td>
-                  <td className="px-4 py-3"><Chip status={ex.status} /></td>
-                  <td className="px-4 py-3 text-sm text-fg-mid">{ex.executed_by || '-'}</td>
-                  <td className="px-4 py-3 text-sm text-fg-mid">{ex.duration_ms != null ? `${ex.duration_ms}ms` : ex.duration != null ? `${ex.duration}s` : '-'}</td>
-                  <td className="px-4 py-3"><span className={`badge ${REV_STATUS[ex.review_status] || 'badge-gray'}`}>{ex.review_status || 'pending'}</span></td>
-                  <td className="px-4 py-3 text-sm text-fg-mid">{ex.executed_at ? new Date(ex.executed_at).toLocaleString() : '-'}</td>
-                  <td className="px-4 py-3">
-                    {reviewingExecId === ex.id ? (
-                      <div className="flex flex-col gap-2 min-w-[200px]">
-                        <input type="text" placeholder="Comment (optional)" value={reviewComment} onChange={e => setReviewComment(e.target.value)} className="input-field text-xs" />
-                        <div className="flex gap-1">
-                          <button onClick={() => execReview(ex.id, 'approved')} className="btn-primary text-xs px-2 py-1 flex items-center gap-1"><CheckCircleIcon className="w-3.5 h-3.5" /> Approve</button>
-                          <button onClick={() => execReview(ex.id, 'rejected')} className="btn-danger text-xs px-2 py-1 flex items-center gap-1"><XCircleIcon className="w-3.5 h-3.5" /> Reject</button>
-                          <button onClick={() => { setReviewingExecId(null); setReviewComment(''); }} className="btn-ghost text-xs px-2 py-1">Cancel</button>
-                        </div>
+          <div className="space-y-4">
+            {executions.map(run => {
+              const summary = run.results?.summary || {};
+              const testResults = run.results?.test_results || [];
+              const passRate = summary.pass_rate ?? 0;
+              const barColor = passRate === 100 ? 'bg-green-500' : passRate >= 50 ? 'bg-yellow-500' : 'bg-red-500';
+              const isExpanded = expandedExecId === run.id;
+              return (
+                <div key={run.id} className="card-static border border-gray-200 rounded-lg overflow-hidden">
+                  {/* Run header */}
+                  <div className="flex items-center gap-4 px-5 py-3 cursor-pointer hover:bg-gray-50" onClick={() => setExpandedExecId(isExpanded ? null : run.id)}>
+                    <div className="flex-shrink-0">{isExpanded ? <ChevronUpIcon className="w-4 h-4 text-fg-mid" /> : <ChevronDownIcon className="w-4 h-4 text-fg-mid" />}</div>
+                    <Chip status={run.status} />
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="font-semibold text-green-600">{summary.passed || 0} passed</span>
+                        {(summary.failed || 0) > 0 && <span className="font-semibold text-red-600">{summary.failed} failed</span>}
+                        <span className="text-fg-mid">/ {summary.total || testResults.length} tests</span>
                       </div>
-                    ) : <button onClick={() => setReviewingExecId(ex.id)} className="btn-secondary text-xs px-2 py-1">Review</button>}
-                  </td>
-                </tr>
-                {expandedExecId === ex.id && <tr><td colSpan={8} className="px-8 py-4 bg-gray-50">
-                  {ex.actual_result && <div className="mb-3">
-                    <p className="text-xs font-semibold text-fg-mid mb-1 uppercase tracking-wider">Actual Result</p>
-                    <p className="text-sm text-fg-dark">{ex.actual_result}</p>
-                  </div>}
-                  {ex.error_message && <div className="mb-3">
-                    <p className="text-xs font-semibold text-red-500 mb-1 uppercase tracking-wider">Error</p>
-                    <pre className="text-xs text-red-700 bg-red-50 p-2 rounded overflow-x-auto">{ex.error_message}</pre>
-                  </div>}
-                  {ex.proof_artifacts?.length > 0 ? (<div>
-                    <p className="text-xs font-semibold text-fg-mid mb-2 uppercase tracking-wider">Proof Artifacts ({ex.proof_artifacts.length})</p>
-                    <div className="flex flex-wrap gap-2">
-                      {ex.proof_artifacts.map((a, i) => (
-                        <button key={i} onClick={() => setSelectedProof(a)}
-                          className="card-static px-3 py-2 text-xs cursor-pointer hover:bg-blue-50 hover:border-blue-300 transition-colors flex items-center gap-2 border border-gray-200 rounded">
-                          <EyeIcon className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
-                          <span className="font-medium text-fg-dark">{a.title || 'Untitled'}</span>
-                          <span className="badge badge-gray ml-1">{a.proof_type || a.type}</span>
-                        </button>
-                      ))}
+                      <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden max-w-[200px]">
+                        <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${passRate}%` }} />
+                      </div>
+                      <span className="text-xs font-mono text-fg-mid">{passRate}%</span>
                     </div>
-                  </div>) : <p className="text-xs text-fg-mid">No proof artifacts for this execution.</p>}
-                </td></tr>}
-              </React.Fragment>)}
-            </tbody>
-          </table></div>
+                    <div className="text-xs text-fg-mid flex-shrink-0">
+                      {run.created_at ? new Date(run.created_at).toLocaleString() : '-'}
+                    </div>
+                    <div className="flex gap-1 flex-shrink-0">
+                      {reviewingExecId === run.id ? (
+                        <div className="flex flex-col gap-2 min-w-[200px]" onClick={e => e.stopPropagation()}>
+                          <input type="text" placeholder="Comment (optional)" value={reviewComment} onChange={e => setReviewComment(e.target.value)} className="input-field text-xs" />
+                          <div className="flex gap-1">
+                            <button onClick={() => execReview(run.id, 'approved')} className="btn-primary text-xs px-2 py-1 flex items-center gap-1"><CheckCircleIcon className="w-3.5 h-3.5" /> Approve</button>
+                            <button onClick={() => execReview(run.id, 'rejected')} className="btn-danger text-xs px-2 py-1 flex items-center gap-1"><XCircleIcon className="w-3.5 h-3.5" /> Reject</button>
+                            <button onClick={() => { setReviewingExecId(null); setReviewComment(''); }} className="btn-ghost text-xs px-2 py-1">Cancel</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button onClick={e => { e.stopPropagation(); setReviewingExecId(run.id); }} className="btn-secondary text-xs px-2 py-1">Review</button>
+                      )}
+                    </div>
+                  </div>
+                  {/* Expanded: individual test results */}
+                  {isExpanded && testResults.length > 0 && (
+                    <div className="border-t border-gray-100">
+                      <table className="min-w-full divide-y divide-gray-100">
+                        <thead><tr className="bg-gray-50">
+                          <th className="px-5 py-2 text-xs font-semibold text-fg-mid text-left">Test Case</th>
+                          <th className="px-4 py-2 text-xs font-semibold text-fg-mid text-left">Status</th>
+                          <th className="px-4 py-2 text-xs font-semibold text-fg-mid text-left">Template</th>
+                          <th className="px-4 py-2 text-xs font-semibold text-fg-mid text-left">Duration</th>
+                          <th className="px-4 py-2 text-xs font-semibold text-fg-mid text-left w-8" />
+                        </tr></thead>
+                        <tbody className="divide-y divide-gray-50 bg-white">
+                          {testResults.map((tr, idx) => {
+                            const trExpKey = `${run.id}-${idx}`;
+                            const isTrExpanded = expandedExecId === trExpKey;
+                            return (
+                              <React.Fragment key={idx}>
+                                <tr className="hover:bg-gray-50">
+                                  <td className="px-5 py-2 text-sm text-fg-dark">{tr.title || tr.test_case_display_id || '-'}</td>
+                                  <td className="px-4 py-2"><Chip status={tr.status} /></td>
+                                  <td className="px-4 py-2 text-xs font-mono text-fg-mid">{tr.template_used || '-'}</td>
+                                  <td className="px-4 py-2 text-xs text-fg-mid">{tr.duration_seconds != null ? `${tr.duration_seconds}s` : '-'}</td>
+                                  <td className="px-4 py-2">
+                                    <button onClick={() => setExpandedExecId(isTrExpanded ? run.id : trExpKey)} className="text-fg-mid hover:text-fg-dark">
+                                      <EyeIcon className="w-4 h-4" />
+                                    </button>
+                                  </td>
+                                </tr>
+                                {isTrExpanded && <tr><td colSpan={5} className="px-8 py-3 bg-gray-50">
+                                  {tr.logs?.length > 0 && <div className="mb-3">
+                                    <p className="text-xs font-semibold text-fg-mid mb-1 uppercase tracking-wider">Execution Logs</p>
+                                    <pre className="text-xs text-fg-dark bg-white border border-gray-200 p-3 rounded overflow-x-auto max-h-48">{tr.logs.join('\n')}</pre>
+                                  </div>}
+                                  {tr.assertions?.length > 0 && <div className="mb-3">
+                                    <p className="text-xs font-semibold text-fg-mid mb-1 uppercase tracking-wider">Assertions</p>
+                                    <div className="flex flex-wrap gap-1">
+                                      {tr.assertions.map((a, ai) => (
+                                        <span key={ai} className={`badge text-xs ${a.passed ? 'badge-green' : 'badge-red'}`}>
+                                          {a.passed ? '\u2713' : '\u2717'} {a.check || a.type || 'assertion'}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>}
+                                  {tr.details?.raw_response && <div>
+                                    <p className="text-xs font-semibold text-fg-mid mb-1 uppercase tracking-wider">Response</p>
+                                    <pre className="text-xs text-fg-dark bg-white border border-gray-200 p-3 rounded overflow-x-auto max-h-32">{typeof tr.details.raw_response === 'string' ? tr.details.raw_response.slice(0, 500) : JSON.stringify(tr.details.raw_response, null, 2).slice(0, 500)}</pre>
+                                  </div>}
+                                </td></tr>}
+                              </React.Fragment>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>}
 
