@@ -20,6 +20,7 @@ QAForge solves this by being the **documentation layer** — agents test, QAForg
 | **Validation Checkpoints** | Human QA gates — review and approve before sign-off |
 | **AI Test Generation** | Domain-specific agents generate test cases from requirements + BRD/PRD |
 | **Coverage Analysis** | Priority-weighted scoring with Requirements Traceability Matrix |
+| **Testing Frameworks** | Domain-specific quality standards (AI, MDM, Data Eng, Integration, App) with versioning |
 | **Knowledge Base** | RAG-powered semantic search for test patterns and best practices |
 
 ## Architecture
@@ -42,7 +43,7 @@ QAForge solves this by being the **documentation layer** — agents test, QAForg
   ┌────▼────┐     ┌──────▼──────┐   ┌─────▼─────┐
   │ QAForge │     │ QAForge MCP │   │ Reltio MCP│
   │ Backend │◄────│ Server      │   │ Server    │
-  │ FastAPI │     │ 16 tools    │   │ 45 tools  │
+  │ FastAPI │     │ 18 tools    │   │ 45 tools  │
   └──┬──┬──┬┘     └─────────────┘   └─────┬─────┘
      │  │  │                               │
   ┌──▼┐┌▼─┐┌▼──────┐┌────────┐     ┌──────▼──────┐
@@ -81,7 +82,7 @@ QA users don't need the QAForge source code. They connect Claude Code to remote 
 # 1. Install Claude Code
 npm install -g @anthropic-ai/claude-code
 
-# 2. Add QAForge MCP server (test management, generation, execution)
+# 2. Add QAForge MCP server (test management, generation, frameworks, execution)
 claude mcp add qaforge --transport sse \
   --url "https://YOUR_HOST:8080/qaforge-mcp/sse"
 
@@ -98,6 +99,8 @@ Then just talk naturally:
 - *"Generate 10 security test cases from the requirements"*
 - *"Execute the smoke test plan and show me results"*
 - *"What's the current test coverage?"*
+- *"Check framework coverage for the AI domain"*
+- *"Show me the testing frameworks"*
 
 ## Integrate with Any Project
 
@@ -122,7 +125,7 @@ Then during vibe coding, just say: *"use QAForge to document testing"*
 |-----------|-----------|---------|
 | Backend | FastAPI (Python 3.11) | REST API + WebSocket |
 | Frontend | React 18 + Tailwind CSS | Web UI |
-| QAForge MCP | FastMCP (SSE) | 16 MCP tools for Claude Code |
+| QAForge MCP | FastMCP (SSE) | 18 MCP tools for Claude Code |
 | Reltio MCP | FastMCP (SSE) | 45 MCP tools for MDM operations |
 | Database | PostgreSQL 16 | Primary data store |
 | Cache | Redis 7 | Rate limiting, sessions |
@@ -161,12 +164,12 @@ qaforge/
     execution/           # Test execution engine + templates
   mcp-server/            # QAForge MCP Server (SSE transport)
     main.py              # Entry point: mcp.run(transport="sse")
-    src/server.py        # FastMCP instance + 16 tool registrations
+    src/server.py        # FastMCP instance + 18 tool registrations
     src/api_client.py    # httpx wrapper for QAForge Agent API
-    src/tools/           # 7 tool modules (project, requirements, test_cases, etc.)
+    src/tools/           # 8 tool modules (project, requirements, test_cases, frameworks, etc.)
     Dockerfile           # Python 3.11-slim container
   frontend/
-    src/pages/           # 11 React pages
+    src/pages/           # 12 React pages (incl. Frameworks)
     src/components/      # 10 reusable components
     src/services/api.js  # API client modules
   docker-compose.yml     # 6-service stack + MCP server
