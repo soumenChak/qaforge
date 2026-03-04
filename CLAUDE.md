@@ -141,7 +141,7 @@ Exposes QAForge operations as 16 MCP tools over SSE transport, so any remote Cla
 - **Developers:** Full codebase access + MCP tools + can modify QAForge itself
 
 **SSE endpoints:**
-- QAForge MCP: `https://13.233.36.18:8080/qaforge-mcp/sse` (16 tools)
+- QAForge MCP: `https://13.233.36.18:8080/qaforge-mcp/sse` (20 tools)
 - Reltio MCP: `https://13.233.36.18:8080/mcp/sse` (45 tools)
 
 ### Testing
