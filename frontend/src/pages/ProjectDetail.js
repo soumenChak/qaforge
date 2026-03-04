@@ -75,6 +75,17 @@ export default function ProjectDetail() {
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
 
+  // Generate test cases state
+  const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [generateForm, setGenerateForm] = useState({
+    description: '', count: 10, selectedReqIds: [], selectAll: true,
+  });
+
+  // Async extraction state
+  const [extractionJobId, setExtractionJobId] = useState(null);
+  const [extractionStatus, setExtractionStatus] = useState(null);
+
   // Test Plans state
   const [testPlans, setTestPlans] = useState([]);
   const [testPlansLoading, setTestPlansLoading] = useState(false);
@@ -230,6 +241,35 @@ export default function ProjectDetail() {
   useEffect(() => { if (activeTab === 'test_cases') { loadTestCases(); loadCoverage(); } }, [activeTab, loadTestCases, loadCoverage]);
   useEffect(() => { if (activeTab === 'test_plans') loadTestPlans(); }, [activeTab, loadTestPlans]);
 
+  // Poll async extraction job
+  useEffect(() => {
+    if (!extractionJobId) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await requirementsAPI.getExtractionJob(id, extractionJobId);
+        setExtractionStatus(res.data);
+        if (res.data.status === 'completed') {
+          clearInterval(interval);
+          setExtractionJobId(null);
+          setExtracting(false);
+          setShowUpload(false);
+          setExtractFile(null);
+          loadRequirements();
+          loadProject();
+          alert(`Successfully extracted ${res.data.result_count} requirements using AI.`);
+        } else if (res.data.status === 'failed') {
+          clearInterval(interval);
+          setExtractionJobId(null);
+          setExtracting(false);
+          alert(`Extraction failed: ${res.data.error || 'Unknown error'}`);
+        }
+      } catch (e) {
+        console.error('Extraction poll error:', e);
+      }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [extractionJobId, id, loadRequirements, loadProject]);
+
   const handleAddRequirement = async (e) => {
     e.preventDefault();
     if (!newReq.req_id || !newReq.title) return;
@@ -269,27 +309,36 @@ export default function ProjectDetail() {
     }
   };
 
-  // File upload extraction (Excel, PDF, Word)
+  // File upload extraction (Excel, PDF, Word) — now async with polling
   const handleFileExtract = async () => {
     if (!extractFile) return;
     setExtracting(true);
+    setExtractionStatus(null);
     try {
       const formData = new FormData();
       formData.append('file', extractFile);
       if (project?.domain) formData.append('domain', project.domain);
       if (project?.sub_domain) formData.append('sub_domain', project.sub_domain);
       const resp = await requirementsAPI.uploadFile(id, formData);
-      const count = resp.data?.length || 0;
-      setShowUpload(false);
-      setExtractFile(null);
-      loadRequirements();
-      loadProject();
-      if (count > 0) {
-        alert(`✅ Successfully extracted ${count} requirements from "${extractFile.name}" using AI.`);
+
+      // Async response: backend returns job_id, start polling
+      if (resp.data?.job_id) {
+        setExtractionJobId(resp.data.job_id);
+        setExtractionStatus({ status: 'processing', progress: resp.data.progress || 'Starting extraction...' });
+        // Keep extracting=true; polling useEffect will clear it on completion
+      } else {
+        // Fallback: synchronous response (legacy)
+        const count = Array.isArray(resp.data) ? resp.data.length : 0;
+        setShowUpload(false);
+        setExtractFile(null);
+        setExtracting(false);
+        loadRequirements();
+        loadProject();
+        if (count > 0) alert(`Successfully extracted ${count} requirements using AI.`);
       }
     } catch (err) {
-      { const d = err.response?.data?.detail; alert(typeof d === 'string' ? d : (err.message || 'File extraction failed. Please try again.')); }
-    } finally {
+      const d = err.response?.data?.detail;
+      alert(typeof d === 'string' ? d : (err.message || 'File extraction failed. Please try again.'));
       setExtracting(false);
     }
   };
@@ -430,6 +479,37 @@ export default function ProjectDetail() {
       setUploadResult({ error: err.response?.data?.detail || 'Upload failed.' });
     } finally {
       setUploading(false);
+    }
+  };
+
+  // AI Test Case Generation
+  const handleGenerateTestCases = async () => {
+    setGenerating(true);
+    try {
+      const payload = {
+        description: generateForm.description.trim(),
+        domain: project?.domain || 'mdm',
+        sub_domain: project?.sub_domain || '',
+        count: generateForm.count,
+      };
+      if (!generateForm.selectAll && generateForm.selectedReqIds.length > 0) {
+        payload.requirement_ids = generateForm.selectedReqIds;
+      }
+      if (project?.brd_prd_text) {
+        payload.brd_prd_text = project.brd_prd_text;
+      }
+      const res = await testCasesAPI.generate(id, payload);
+      const count = res.data?.length || 0;
+      setShowGenerateModal(false);
+      setGenerateForm({ description: '', count: 10, selectedReqIds: [], selectAll: true });
+      loadTestCases();
+      loadProject();
+      alert(`Successfully generated ${count} test cases using AI.`);
+    } catch (err) {
+      const d = err.response?.data?.detail;
+      alert(typeof d === 'string' ? d : (err.message || 'Generation failed. Please try again.'));
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -891,7 +971,7 @@ export default function ProjectDetail() {
                         {extracting ? (
                           <>
                             <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                            Extracting from file...
+                            {extractionStatus?.progress || 'Extracting from file...'}
                           </>
                         ) : 'Extract Requirements'}
                       </button>
@@ -1075,6 +1155,7 @@ export default function ProjectDetail() {
                 }
                 setShowAddTc(!showAddTc);
                 setShowBulkUpload(false);
+                setShowGenerateModal(false);
               }}
               className="btn-secondary flex items-center gap-2 text-sm"
             >
@@ -1082,13 +1163,127 @@ export default function ProjectDetail() {
               Add Test Case
             </button>
             <button
-              onClick={() => { setShowBulkUpload(!showBulkUpload); setShowAddTc(false); setUploadResult(null); setUploadFile(null); }}
+              onClick={() => { setShowBulkUpload(!showBulkUpload); setShowAddTc(false); setUploadResult(null); setUploadFile(null); setShowGenerateModal(false); }}
               className="btn-secondary flex items-center gap-2 text-sm"
             >
               <ArrowUpTrayIcon className="w-4 h-4" />
               Bulk Upload
             </button>
+            <button
+              onClick={() => { setShowGenerateModal(!showGenerateModal); setShowAddTc(false); setShowBulkUpload(false); }}
+              className="btn-primary flex items-center gap-2 text-sm"
+            >
+              <SparklesIcon className="w-4 h-4" />
+              Generate with AI
+            </button>
           </div>
+
+          {/* AI Generate Test Cases Panel */}
+          {showGenerateModal && (
+            <div className="card-static p-5 mb-5 animate-slide-up border-l-4 border-purple-500">
+              <h3 className="text-sm font-bold text-fg-navy mb-3 flex items-center gap-2">
+                <SparklesIcon className="w-4 h-4 text-purple-600" />
+                Generate Test Cases with AI
+              </h3>
+
+              {/* Description / Focus */}
+              <div className="mb-4">
+                <label className="label">Description / Focus *</label>
+                <textarea
+                  value={generateForm.description}
+                  onChange={(e) => setGenerateForm(f => ({ ...f, description: e.target.value }))}
+                  placeholder="e.g. Generate functional and edge-case tests for the MDM data quality rules, match/merge logic, and integration pipelines..."
+                  className="input-field"
+                  rows={3}
+                />
+              </div>
+
+              {/* Requirement scope */}
+              <div className="mb-4">
+                <label className="label">Requirements Scope</label>
+                <div className="flex items-center gap-4 mb-2">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="radio" name="reqScope"
+                      checked={generateForm.selectAll}
+                      onChange={() => setGenerateForm(f => ({ ...f, selectAll: true, selectedReqIds: [] }))}
+                    />
+                    All requirements ({requirements.length})
+                  </label>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="radio" name="reqScope"
+                      checked={!generateForm.selectAll}
+                      onChange={() => setGenerateForm(f => ({ ...f, selectAll: false }))}
+                    />
+                    Select specific
+                  </label>
+                </div>
+                {!generateForm.selectAll && requirements.length > 0 && (
+                  <div className="max-h-40 overflow-y-auto border rounded p-2 space-y-1 bg-white">
+                    {requirements.map(req => (
+                      <label key={req.id} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-gray-50 p-1 rounded">
+                        <input
+                          type="checkbox"
+                          checked={generateForm.selectedReqIds.includes(req.id)}
+                          onChange={(e) => {
+                            setGenerateForm(f => ({
+                              ...f,
+                              selectedReqIds: e.target.checked
+                                ? [...f.selectedReqIds, req.id]
+                                : f.selectedReqIds.filter(rid => rid !== req.id),
+                            }));
+                          }}
+                        />
+                        <span className="font-mono text-teal-700 font-medium">{req.req_id}</span>
+                        <span className="truncate">{req.title}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {!generateForm.selectAll && generateForm.selectedReqIds.length > 0 && (
+                  <div className="text-xs text-fg-mid mt-1">{generateForm.selectedReqIds.length} requirement(s) selected</div>
+                )}
+              </div>
+
+              {/* Count slider */}
+              <div className="mb-4">
+                <label className="label">Number of test cases: <span className="font-bold text-purple-700">{generateForm.count}</span></label>
+                <input
+                  type="range" min={1} max={50} step={1}
+                  value={generateForm.count}
+                  onChange={(e) => setGenerateForm(f => ({ ...f, count: parseInt(e.target.value) }))}
+                  className="w-full accent-purple-600"
+                />
+                <div className="flex justify-between text-xs text-fg-mid">
+                  <span>1</span><span>10</span><span>25</span><span>50</span>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex justify-end gap-3">
+                <button onClick={() => setShowGenerateModal(false)} className="btn-ghost text-sm">Cancel</button>
+                <button
+                  onClick={handleGenerateTestCases}
+                  disabled={generating || !generateForm.description.trim() || generateForm.description.trim().length < 10}
+                  className="btn-primary text-sm flex items-center gap-2 disabled:opacity-50"
+                  style={{ background: generating ? undefined : 'linear-gradient(135deg, #7c3aed, #a855f7)' }}
+                >
+                  {generating ? (
+                    <>
+                      <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <SparklesIcon className="w-4 h-4" />
+                      Generate {generateForm.count} Test Cases
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Inline Add Test Case form */}
           {showAddTc && (

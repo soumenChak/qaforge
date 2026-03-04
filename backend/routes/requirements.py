@@ -23,7 +23,7 @@ import re
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from db_models import Project, Requirement, User
@@ -36,6 +36,7 @@ from dependencies import (
     track_cost,
 )
 from models import (
+    ExtractionJobResponse,
     MessageResponse,
     RequirementCreate,
     RequirementExtractRequest,
@@ -51,6 +52,10 @@ router = APIRouter()
 # In-memory store for uploaded BRD/PRD text, keyed by project_id.
 # In production this would be persisted, but for Phase 1 this is sufficient.
 _uploaded_texts: dict[str, dict] = {}
+
+# In-memory extraction job tracking for async extraction.
+# Keys: job_id (str), Values: dict with status, project_id, progress, result_count, error
+_extraction_jobs: dict[str, dict] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -130,13 +135,14 @@ def _extract_text_from_docx(content: bytes) -> str:
 # ---------------------------------------------------------------------------
 @router.post(
     "/{project_id}/requirements/upload-file",
-    response_model=list[RequirementResponse],
-    summary="Upload BRD/PRD file and extract requirements",
-    status_code=status.HTTP_201_CREATED,
+    response_model=ExtractionJobResponse,
+    summary="Upload BRD/PRD file and start async extraction",
+    status_code=status.HTTP_202_ACCEPTED,
 )
 async def upload_file_and_extract(
     project_id: uuid.UUID,
     request: Request,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     domain: Optional[str] = Form(None),
     sub_domain: Optional[str] = Form(None),
@@ -146,7 +152,8 @@ async def upload_file_and_extract(
 ):
     """
     Upload a BRD/PRD file (.xlsx, .pdf, .docx), extract text,
-    run LLM-powered requirement extraction, and persist results.
+    and kick off async LLM-powered requirement extraction.
+    Returns immediately with a job_id for polling.
     """
     project = _get_project_or_404(project_id, db)
 
@@ -168,7 +175,7 @@ async def upload_file_and_extract(
             detail=f"Unsupported file type '.{ext}'. Allowed: .xlsx, .pdf, .docx",
         )
 
-    # Extract text based on file type
+    # Extract text based on file type (fast, synchronous — ~100ms)
     try:
         if ext == "xlsx":
             text = _extract_text_from_xlsx(content)
@@ -189,79 +196,176 @@ async def upload_file_and_extract(
             detail="Extracted text is too short (< 10 chars). The file may be empty or unreadable.",
         )
 
-    # LLM extraction
-    extracted = _extract_via_llm(
+    # Create async extraction job
+    job_id = str(uuid.uuid4())
+    _extraction_jobs[job_id] = {
+        "status": "processing",
+        "progress": "Analyzing document with AI...",
+        "project_id": str(project_id),
+        "result_count": None,
+        "error": None,
+    }
+
+    # Kick off background extraction (LLM calls happen here, not blocking HTTP)
+    background_tasks.add_task(
+        _run_extraction_background,
+        job_id=job_id,
         document_text=text,
-        document_type="brd",
         domain=domain or project.domain,
         sub_domain=sub_domain or project.sub_domain,
         project_id=project_id,
         user_id=current_user.id,
-        db=db,
         focus_areas=focus_areas,
-    )
-
-    # Persist extracted requirements (same logic as extract_requirements)
-    created_reqs = []
-    base_count = db.query(Requirement).filter(
-        Requirement.project_id == project_id
-    ).count()
-
-    for i, item in enumerate(extracted):
-        req_id = f"REQ-{base_count + i + 1:03d}"
-
-        # Check for duplicate req_id — keep incrementing until unique
-        while db.query(Requirement).filter(
-            Requirement.project_id == project_id,
-            Requirement.req_id == req_id,
-        ).first():
-            base_count += 1
-            req_id = f"REQ-{base_count + i + 1:03d}"
-
-        # Build description with source section traceability
-        description = sanitize_string(item.get("description")) or ""
-        source_section = item.get("source_section", "")
-        if source_section:
-            description = f"[Source: {sanitize_string(source_section)}]\n\n{description}"
-
-        req = Requirement(
-            project_id=project_id,
-            req_id=req_id,
-            title=sanitize_string(item.get("title", "Untitled Requirement")) or "Untitled",
-            description=description,
-            priority=item.get("priority", "medium"),
-            category=sanitize_string(item.get("category")),
-            source="brd",
-        )
-        db.add(req)
-        db.flush()
-        created_reqs.append(req)
-
-    audit_log(
-        db,
-        user_id=current_user.id,
-        action="upload_file_extract_requirements",
-        entity_type="requirement",
-        entity_id=str(project_id),
-        details={
-            "filename": file.filename,
-            "file_extension": ext,
-            "file_size_bytes": len(content),
-            "text_length": len(text),
-            "extracted_count": len(created_reqs),
-        },
-        ip_address=get_client_ip(request),
+        filename=file.filename,
+        file_ext=ext,
+        file_size=len(content),
+        text_length=len(text),
     )
 
     logger.info(
-        "Extracted %d requirements from uploaded file '%s' for project %s by %s",
-        len(created_reqs),
-        file.filename,
-        project.name,
-        current_user.email,
+        "Started async extraction job %s for file '%s' (%d chars) — project %s",
+        job_id, file.filename, len(text), project.name,
     )
 
-    return [RequirementResponse.model_validate(r) for r in created_reqs]
+    return ExtractionJobResponse(
+        job_id=job_id,
+        status="processing",
+        progress="Analyzing document with AI...",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Background extraction worker
+# ---------------------------------------------------------------------------
+def _run_extraction_background(
+    job_id: str,
+    document_text: str,
+    domain: str,
+    sub_domain: str,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+    focus_areas: str | None,
+    filename: str,
+    file_ext: str,
+    file_size: int,
+    text_length: int,
+):
+    """Background task: run LLM extraction + persist requirements."""
+    from db_session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        _extraction_jobs[job_id]["progress"] = "Extracting requirements with AI..."
+
+        extracted = _extract_via_llm(
+            document_text=document_text,
+            document_type="brd",
+            domain=domain,
+            sub_domain=sub_domain,
+            project_id=project_id,
+            user_id=user_id,
+            db=db,
+            focus_areas=focus_areas,
+        )
+
+        _extraction_jobs[job_id]["progress"] = "Saving requirements..."
+
+        # Persist extracted requirements
+        created_reqs = []
+        base_count = db.query(Requirement).filter(
+            Requirement.project_id == project_id
+        ).count()
+
+        for i, item in enumerate(extracted):
+            req_id = f"REQ-{base_count + i + 1:03d}"
+            while db.query(Requirement).filter(
+                Requirement.project_id == project_id,
+                Requirement.req_id == req_id,
+            ).first():
+                base_count += 1
+                req_id = f"REQ-{base_count + i + 1:03d}"
+
+            description = sanitize_string(item.get("description")) or ""
+            source_section = item.get("source_section", "")
+            if source_section:
+                description = f"[Source: {sanitize_string(source_section)}]\n\n{description}"
+
+            req = Requirement(
+                project_id=project_id,
+                req_id=req_id,
+                title=sanitize_string(item.get("title", "Untitled Requirement")) or "Untitled",
+                description=description,
+                priority=item.get("priority", "medium"),
+                category=sanitize_string(item.get("category")),
+                source="brd",
+            )
+            db.add(req)
+            db.flush()
+            created_reqs.append(req)
+
+        audit_log(
+            db,
+            user_id=user_id,
+            action="upload_file_extract_requirements",
+            entity_type="requirement",
+            entity_id=str(project_id),
+            details={
+                "filename": filename,
+                "file_extension": file_ext,
+                "file_size_bytes": file_size,
+                "text_length": text_length,
+                "extracted_count": len(created_reqs),
+                "async": True,
+            },
+        )
+        db.commit()
+
+        _extraction_jobs[job_id]["status"] = "completed"
+        _extraction_jobs[job_id]["result_count"] = len(created_reqs)
+        _extraction_jobs[job_id]["progress"] = None
+
+        logger.info(
+            "Async extraction complete: %d requirements for job %s (file: %s)",
+            len(created_reqs), job_id, filename,
+        )
+
+    except Exception as exc:
+        logger.error("Async extraction failed for job %s: %s", job_id, exc, exc_info=True)
+        db.rollback()
+        _extraction_jobs[job_id]["status"] = "failed"
+        _extraction_jobs[job_id]["error"] = str(exc)[:500]
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# GET /{project_id}/requirements/extraction-jobs/{job_id}
+# ---------------------------------------------------------------------------
+@router.get(
+    "/{project_id}/requirements/extraction-jobs/{job_id}",
+    response_model=ExtractionJobResponse,
+    summary="Poll extraction job status",
+)
+def get_extraction_job(
+    project_id: uuid.UUID,
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Check the status of an async requirement extraction job."""
+    _get_project_or_404(project_id, db)
+    job = _extraction_jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, "Extraction job not found")
+    if job.get("project_id") != str(project_id):
+        raise HTTPException(404, "Extraction job not found")
+    return ExtractionJobResponse(
+        job_id=job_id,
+        status=job["status"],
+        progress=job.get("progress"),
+        result_count=job.get("result_count"),
+        error=job.get("error"),
+    )
 
 
 # ---------------------------------------------------------------------------

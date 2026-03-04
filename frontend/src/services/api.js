@@ -83,8 +83,10 @@ export const requirementsAPI = {
   uploadFile: (projectId, formData) =>
     api.post(`/projects/${projectId}/requirements/upload-file`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 120000, // 2 min — LLM extraction can be slow for large docs
+      timeout: 30000, // 30s — now async, just uploads file
     }),
+  getExtractionJob: (projectId, jobId) =>
+    api.get(`/projects/${projectId}/requirements/extraction-jobs/${jobId}`),
 };
 
 // -- Test Cases --

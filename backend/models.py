@@ -581,6 +581,16 @@ class LLMProviderInfo(BaseModel):
     models: List[str]
 
 
+class ExtractionJobResponse(BaseModel):
+    """Status of an async requirement extraction job."""
+
+    job_id: str
+    status: str  # processing | completed | failed
+    progress: Optional[str] = None
+    result_count: Optional[int] = None
+    error: Optional[str] = None
+
+
 class MessageResponse(BaseModel):
     """Generic message response for actions without a dedicated schema."""
 
