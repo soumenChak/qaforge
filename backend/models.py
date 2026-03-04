@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -766,7 +766,7 @@ class ProofArtifactSubmit(BaseModel):
         pattern=r"^(api_response|screenshot|test_output|query_result|data_comparison|dq_scorecard|log|code_diff|manual_note)$",
     )
     title: str = Field(..., min_length=1, max_length=500)
-    content: Optional[Dict[str, Any]] = None
+    content: Optional[Union[str, Dict[str, Any]]] = None
     file_path: Optional[str] = None
 
 
@@ -779,7 +779,7 @@ class ProofArtifactResponse(BaseModel):
     execution_result_id: uuid.UUID
     proof_type: str
     title: str
-    content: Optional[Dict[str, Any]] = None
+    content: Optional[Union[str, Dict[str, Any]]] = None
     file_path: Optional[str] = None
     file_size_bytes: Optional[int] = None
     created_at: datetime
