@@ -241,6 +241,16 @@ bash scripts/verify-mcp.sh
 
 If any checks fail, the script shows the fix command.
 
+### Optional: E2E Agent Workflow Test
+
+After verification passes, run the end-to-end agent workflow test to confirm the full API pipeline works:
+
+```bash
+bash e2e_agent_test.sh
+```
+
+This creates a test project, generates an agent key, submits test cases with proof artifacts, and checks the summary — exercising the complete agent workflow in 9 steps.
+
 ---
 
 ## Phase 6: Security Hardening

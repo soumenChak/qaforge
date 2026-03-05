@@ -25,6 +25,7 @@
 15. [Integration Patterns by Project Type](#15-integration-patterns-by-project-type)
 16. [Troubleshooting](#16-troubleshooting)
 17. [FAQ](#17-faq)
+18. [Testing the QAForge Platform Itself](#18-testing-the-qaforge-platform-itself)
 
 ---
 
@@ -993,6 +994,97 @@ Convention: `scripts/qaforge.py` in your project root. The CLI reads `.env` from
 
 **Q: How do I export test results?**
 QAForge UI has export functionality. Go to a test plan → use export options for Excel/Word/JSON formats.
+
+---
+
+## 18. Testing the QAForge Platform Itself
+
+This section is for **admins deploying or maintaining QAForge** — it covers how to verify the platform is working correctly after deployment or updates.
+
+### Post-Deploy Verification (`verify-mcp.sh`)
+
+The verification script runs 6 automated checks and reports pass/fail with color-coded output:
+
+```bash
+cd /opt/qaforge
+bash scripts/verify-mcp.sh
+```
+
+| Check | What it verifies |
+|-------|-----------------|
+| **1. Container health** | All 7 containers running (6 QAForge + Reltio MCP) |
+| **2. Backend health** | `/api/health` returns 200 |
+| **3. QAForge MCP SSE** | SSE path includes `/qaforge-mcp/messages/` prefix |
+| **4. Reltio MCP SSE** | SSE path includes `/mcp/messages/` prefix (sub_filter working) |
+| **5. Agent key** | `QAFORGE_MCP_AGENT_KEY` set and valid (API returns 200) |
+| **6. Docker network** | Reltio MCP container on `qaforge_default` network |
+
+Exit code = number of failures. If any check fails, the script shows the fix command.
+
+### Full Stack Deployment Test (`full-deploy.sh`)
+
+Orchestrates a complete deployment including Reltio MCP and runs `verify-mcp.sh` automatically:
+
+```bash
+bash scripts/full-deploy.sh                  # Full stack: QAForge + Reltio + verify
+bash scripts/full-deploy.sh --qaforge-only   # Skip Reltio MCP
+bash scripts/full-deploy.sh --skip-build     # Restart without rebuilding images
+bash scripts/full-deploy.sh --skip-verify    # Skip post-deploy verification
+```
+
+### E2E Agent Workflow Test (`e2e_agent_test.sh`)
+
+End-to-end test that exercises the complete agent workflow in 9 steps:
+
+```bash
+bash e2e_agent_test.sh
+```
+
+| Step | What it does |
+|------|-------------|
+| 1 | Login as admin, get JWT |
+| 2 | Create a test project |
+| 3 | Generate agent API key |
+| 4 | Create a test plan |
+| 5 | Start an agent session |
+| 6 | Submit 3 test cases |
+| 7 | Fetch test case UUIDs |
+| 8 | Submit 2 execution results with proof artifacts |
+| 9 | Check summary — verify counts and pass rates |
+
+This creates real data in the database. Run it after a fresh deploy to confirm the full API pipeline works.
+
+### MCP Test Execution (`mcp_executor.py`)
+
+The MCP executor connects to MCP servers via SSE and runs structured test steps with assertions:
+
+```bash
+# Discover available tools from an MCP server
+python scripts/qaforge.py discover --mcp-url https://host:8080/mcp/sse --save
+
+# Execute a test plan (calls MCP tools, validates assertions, submits results)
+python scripts/qaforge.py execute --plan "Smoke Test" --mcp-url https://host:8080/mcp/sse
+```
+
+Features:
+- Connects to any MCP server over SSE transport
+- Calls tools with specified parameters
+- Validates assertions: `json_path`, `contains`, `not_empty`, `response_time_ms`
+- Supports variable binding between steps: `{{step_1.parsed.field}}`
+- Records results + proof artifacts back to QAForge — **zero LLM tokens**
+
+### Health Check Quick Reference
+
+| Service | Command | Expected |
+|---------|---------|----------|
+| Backend | `curl -k https://localhost:8080/api/health` | `{"status": "ok"}` |
+| QAForge MCP | `curl -sk -N --max-time 3 https://localhost:8080/qaforge-mcp/sse` | `data: /qaforge-mcp/messages/...` |
+| Reltio MCP | `curl -sk -N --max-time 3 https://localhost:8080/mcp/sse` | `data: /mcp/messages/...` |
+| PostgreSQL | `docker compose exec db pg_isready -U qaforge` | `accepting connections` |
+| Redis | `docker compose exec redis redis-cli ping` | `PONG` |
+| ChromaDB | `curl http://localhost:8001/api/v1/heartbeat` | `{"nanosecond heartbeat": ...}` |
+| All containers | `docker compose ps` | All show "healthy" |
+| Full verification | `bash scripts/verify-mcp.sh` | `0 failed` |
 
 ---
 

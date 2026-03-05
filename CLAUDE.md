@@ -166,20 +166,23 @@ claude mcp add qaforge "https://host:8080/qaforge-mcp/sse" --transport sse
 
 ### Testing
 ```bash
-# Backend tests (if any)
-docker compose exec backend python -m pytest tests/ -v
+# ── Platform Verification (post-deploy) ──────────────────────────────────
+bash scripts/verify-mcp.sh              # 6-check: containers, SSE paths, agent key, network
+bash scripts/full-deploy.sh             # Full stack deploy + Reltio + verify
+bash e2e_agent_test.sh                  # E2E: login → project → key → plan → cases → results → summary
 
-# Manual API test
+# ── Manual API Checks ────────────────────────────────────────────────────
 curl -k https://localhost:8080/api/health
-
-# Agent API test
 curl -k https://localhost:8080/api/agent/summary -H "X-Agent-Key: qf_..."
 
-# MCP SSE test
+# ── MCP SSE Test ─────────────────────────────────────────────────────────
 curl -sk -N --max-time 5 https://localhost:8080/qaforge-mcp/sse
 # Should return: event: endpoint\ndata: /qaforge-mcp/messages/?session_id=...
 # IMPORTANT: Path MUST have /qaforge-mcp/ prefix. If it shows /messages/
 # without prefix, FASTMCP_MOUNT_PATH is not set → MCP clients get 405
+
+# ── Backend Unit Tests (if any) ──────────────────────────────────────────
+docker compose exec backend python -m pytest tests/ -v
 ```
 
 ### Deploy
