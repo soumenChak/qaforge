@@ -30,7 +30,7 @@ Key is shown **once** — store it securely. Format: `qf_<random_string>`
 
 ```bash
 # .env
-QAFORGE_API_URL=https://your-qaforge-host:8080/api
+QAFORGE_API_URL=https://qaforge.freshgravity.net/api
 QAFORGE_AGENT_KEY=qf_your_key_here
 ```
 
@@ -55,7 +55,7 @@ During vibe coding, just say: *"use QAForge to document testing"*
 All agent API calls use the `X-Agent-Key` header. No JWT, no login, no session cookies.
 
 ```bash
-curl -k https://your-qaforge:8080/api/agent/summary \
+curl https://qaforge.freshgravity.net/api/agent/summary \
   -H "X-Agent-Key: qf_your_key_here"
 ```
 
@@ -70,7 +70,7 @@ The key is project-scoped — all data submitted is automatically associated wit
 
 ## Complete API Reference
 
-Base URL: `https://your-qaforge:8080/api/agent`
+Base URL: `https://qaforge.freshgravity.net/api/agent`
 
 All requests require: `X-Agent-Key: qf_...` header and `Content-Type: application/json`
 
@@ -79,7 +79,7 @@ All requests require: `X-Agent-Key: qf_...` header and `Content-Type: applicatio
 Populate the project's app profile so QAForge understands what's being tested.
 
 ```bash
-curl -k -X PUT https://qaforge:8080/api/agent/project \
+curl -k -X PUT https://qaforge.freshgravity.net/api/agent/project \
   -H "X-Agent-Key: qf_..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -111,7 +111,7 @@ curl -k -X PUT https://qaforge:8080/api/agent/project \
 Track which agent submitted what. Sessions group submissions for audit.
 
 ```bash
-curl -k -X POST https://qaforge:8080/api/agent/sessions \
+curl -k -X POST https://qaforge.freshgravity.net/api/agent/sessions \
   -H "X-Agent-Key: qf_..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -152,7 +152,7 @@ curl -k -X POST https://qaforge:8080/api/agent/sessions \
 Group test cases and execution results under a named plan.
 
 ```bash
-curl -k -X POST https://qaforge:8080/api/agent/test-plans \
+curl -k -X POST https://qaforge.freshgravity.net/api/agent/test-plans \
   -H "X-Agent-Key: qf_..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -183,7 +183,7 @@ curl -k -X POST https://qaforge:8080/api/agent/test-plans \
 Submit one or more test cases. Stored as `status=draft`, `source=ai_generated`.
 
 ```bash
-curl -k -X POST https://qaforge:8080/api/agent/test-cases \
+curl -k -X POST https://qaforge.freshgravity.net/api/agent/test-cases \
   -H "X-Agent-Key: qf_..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -243,7 +243,7 @@ curl -k -X POST https://qaforge:8080/api/agent/test-cases \
 Submit results with proof artifacts. Each result links to a test case.
 
 ```bash
-curl -k -X POST https://qaforge:8080/api/agent/executions?session_id=session-uuid \
+curl -k -X POST https://qaforge.freshgravity.net/api/agent/executions?session_id=session-uuid \
   -H "X-Agent-Key: qf_..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -295,7 +295,7 @@ curl -k -X POST https://qaforge:8080/api/agent/executions?session_id=session-uui
 ### 6. Add Proof Artifact (to existing execution)
 
 ```bash
-curl -k -X POST https://qaforge:8080/api/agent/executions/{execution_id}/proof \
+curl -k -X POST https://qaforge.freshgravity.net/api/agent/executions/{execution_id}/proof \
   -H "X-Agent-Key: qf_..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -324,7 +324,7 @@ curl -k -X POST https://qaforge:8080/api/agent/executions/{execution_id}/proof \
 ### 7. Get Summary
 
 ```bash
-curl -k https://qaforge:8080/api/agent/summary \
+curl https://qaforge.freshgravity.net/api/agent/summary \
   -H "X-Agent-Key: qf_..."
 ```
 
@@ -349,7 +349,7 @@ Optional: `?test_plan_id=uuid` to filter by plan.
 ### 8. Get Test Cases
 
 ```bash
-curl -k https://qaforge:8080/api/agent/test-cases \
+curl https://qaforge.freshgravity.net/api/agent/test-cases \
   -H "X-Agent-Key: qf_..."
 ```
 
@@ -593,6 +593,8 @@ The `domain` and `sub_domain` fields on projects, plus `domain_tags` on test cas
 
 ---
 
-## Self-Signed Certificate Note
+## SSL Note
 
-If QAForge uses self-signed certificates (default for Docker), use `-k` with curl or `verify=False` in Python requests. The helper script handles this automatically.
+QAForge at `qaforge.freshgravity.net` uses a valid Let's Encrypt certificate. No `-k` flag or `verify=False` needed.
+
+For local development with self-signed certificates, use `-k` with curl or `verify=False` in Python requests. The helper script handles this automatically.

@@ -105,24 +105,47 @@ QAForge is an **Enterprise Test Documentation Platform**. When you vibe code wit
 
 This is the **recommended** approach for QA users. You talk naturally to Claude, and it uses QAForge MCP tools behind the scenes.
 
+**Claude Code CLI:**
+
 ```bash
 # 1. Install Claude Code
 npm install -g @anthropic-ai/claude-code
 
 # 2. Add QAForge MCP server
 claude mcp add qaforge --transport sse \
-  --url "https://13.233.36.18:8080/qaforge-mcp/sse"
+  --url "https://qaforge.freshgravity.net/qaforge-mcp/sse"
 
 # 3. (Optional) Add Reltio MCP server for MDM testing
 claude mcp add reltio --transport sse \
-  --url "https://13.233.36.18:8080/mcp/sse"
+  --url "https://qaforge.freshgravity.net/mcp/sse"
 
 # 4. Start Claude Code from any directory
 mkdir -p ~/qa-workspace && cd ~/qa-workspace
 claude
 ```
 
-Then just talk:
+**Claude Desktop App:**
+
+Add MCP servers to your config file (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
+```json
+{
+  "mcpServers": {
+    "qaforge": {
+      "type": "sse",
+      "url": "https://qaforge.freshgravity.net/qaforge-mcp/sse"
+    },
+    "reltio": {
+      "type": "sse",
+      "url": "https://qaforge.freshgravity.net/mcp/sse"
+    }
+  }
+}
+```
+
+Restart Claude Desktop — tools are available immediately.
+
+**Then just talk:**
 - *"Show me all test cases"*
 - *"Generate 10 security test cases from the requirements"*
 - *"Create a smoke test plan and add all P1 test cases"*
@@ -135,7 +158,7 @@ See [MCP Operations Guide](MCP_OPERATIONS_GUIDE.md) for full setup details.
 
 | Requirement | Details |
 |-------------|---------|
-| **QAForge instance** | Running at `https://<host>:8080` (e.g., `https://13.233.36.18:8080`) |
+| **QAForge instance** | Running at `https://qaforge.freshgravity.net` (e.g., `https://qaforge.freshgravity.net`) |
 | **Login credentials** | Default: `admin@freshgravity.com` / `admin123` |
 | **Python 3.8+** | For the `qaforge.py` CLI helper |
 | **`requests` package** | `pip install requests` |
@@ -144,7 +167,7 @@ See [MCP Operations Guide](MCP_OPERATIONS_GUIDE.md) for full setup details.
 ### QAForge Instance Access
 
 If QAForge is already deployed (e.g., on your team's VM), you just need:
-1. The URL: `https://<host>:8080`
+1. The URL: `https://qaforge.freshgravity.net`
 2. Login credentials
 3. A project + agent key (created in Step 1)
 
@@ -156,9 +179,8 @@ If you need to deploy QAForge itself, see the [QAForge Runbook](RUNBOOK.md).
 
 ### 4.1 Log In to QAForge UI
 
-1. Open `https://<your-qaforge-host>:8080` in your browser
-2. Accept the self-signed certificate warning (if applicable)
-3. Log in with your credentials
+1. Open `https://qaforge.freshgravity.net` in your browser
+2. Log in with your credentials (valid Let's Encrypt SSL — no certificate warnings)
 
 ### 4.2 Create a Project
 
@@ -198,7 +220,7 @@ Add these two lines to your project's `.env` file:
 
 ```bash
 # QAForge Integration
-QAFORGE_API_URL=https://13.233.36.18:8080/api
+QAFORGE_API_URL=https://qaforge.freshgravity.net/api
 QAFORGE_AGENT_KEY=qf_your_key_here
 ```
 
@@ -454,7 +476,7 @@ docker compose ps   # all should show "healthy"
 # .env already has QAFORGE_API_URL and QAFORGE_AGENT_KEY
 # (added during scaffold or manually)
 cat .env | grep QAFORGE
-# QAFORGE_API_URL=https://13.233.36.18:8080/api
+# QAFORGE_API_URL=https://qaforge.freshgravity.net/api
 # QAFORGE_AGENT_KEY=qf_abc123...
 ```
 
@@ -528,7 +550,7 @@ Output:
 
 ### Step 7: Review in QAForge UI
 
-1. Open `https://13.233.36.18:8080`
+1. Open `https://qaforge.freshgravity.net`
 2. Login → Projects → "fgtest"
 3. Test Plans → "fgtest Framework Validation"
 4. Executions tab → 29 results, all green ✅
@@ -562,7 +584,7 @@ Output:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `QAFORGE_API_URL` | ✅ | QAForge API URL (e.g., `https://13.233.36.18:8080/api`) |
+| `QAFORGE_API_URL` | ✅ | QAForge API URL (e.g., `https://qaforge.freshgravity.net/api`) |
 | `QAFORGE_AGENT_KEY` | ✅ | Agent API key (e.g., `qf_abc123...`) |
 | `APP_BASE_URL` | For `run-smoke` | App URL to test against (default: `http://localhost:8000`) |
 
@@ -754,7 +776,7 @@ Every execution result can have proof artifacts — evidence that the test was a
 
 ## 14. Agent API Quick Reference
 
-Base URL: `https://<qaforge-host>:8080/api/agent`
+Base URL: `https://qaforge.freshgravity.net/api/agent`
 
 All requests require: `X-Agent-Key: qf_...` header
 
@@ -983,8 +1005,8 @@ Yes. Each agent creates its own session. All submissions are tagged with the age
 **Q: What if I regenerate the agent key?**
 The old key stops working immediately. Update `QAFORGE_AGENT_KEY` in your `.env` file.
 
-**Q: Does QAForge work with self-signed certificates?**
-Yes. The `qaforge.py` CLI uses `verify=False` for HTTPS requests. When using `curl` directly, add the `-k` flag.
+**Q: Does QAForge require special SSL handling?**
+No. Production uses valid Let's Encrypt certificates at `qaforge.freshgravity.net`. For local development with self-signed certs, the `qaforge.py` CLI uses `verify=False` automatically.
 
 **Q: Can I use QAForge with Codex or Gemini instead of Claude Code?**
 Yes. QAForge is agent-agnostic. Add the CLAUDE.md section (adapted for your agent's instruction format) and use the same CLI.

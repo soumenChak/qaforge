@@ -33,7 +33,7 @@ QAForge solves this by being the **documentation layer** — agents test, QAForg
              │ SSE                                  │ SSE + Git
              │                                      │
   ┌──────────▼──────────────────────────────────────▼──────────┐
-  │                    Nginx (HTTPS :8080)                      │
+  │          Nginx (HTTPS — qaforge.freshgravity.net)           │
   │   /qaforge-mcp/* → QAForge MCP Server                      │
   │   /mcp/*         → Reltio MCP Server                       │
   │   /api/*         → QAForge Backend                         │
@@ -67,16 +67,18 @@ cp .env.example .env
 docker compose up -d
 
 # 3. Login
-# Open https://localhost:8080
+# Open https://qaforge.freshgravity.net
 # Credentials: admin@freshgravity.com / admin123
 
 # 4. Create a project and generate an agent key
 # Projects > New Project > Agent API Key > Generate
 ```
 
-### Connect as QA User (Claude Code + MCP — No Codebase Needed)
+### Connect as QA User (Claude Code / Claude Desktop — No Codebase Needed)
 
-QA users don't need the QAForge source code. They connect Claude Code to remote MCP servers:
+QA users don't need the QAForge source code. They connect to remote MCP servers.
+
+#### Option A: Claude Code (CLI)
 
 ```bash
 # 1. Install Claude Code
@@ -84,23 +86,69 @@ npm install -g @anthropic-ai/claude-code
 
 # 2. Add QAForge MCP server (test management, generation, frameworks, execution)
 claude mcp add qaforge --transport sse \
-  --url "https://YOUR_HOST:8080/qaforge-mcp/sse"
+  --url "https://qaforge.freshgravity.net/qaforge-mcp/sse"
 
 # 3. Add Reltio MCP server (entity search, match, merge — optional)
 claude mcp add reltio --transport sse \
-  --url "https://YOUR_HOST:8080/mcp/sse"
+  --url "https://qaforge.freshgravity.net/mcp/sse"
 
 # 4. Start Claude Code from any directory
 cd ~/qa-workspace && claude
 ```
 
-Then just talk naturally:
+#### Option B: Claude Desktop App
+
+Add MCP servers to your Claude Desktop config file:
+
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "qaforge": {
+      "type": "sse",
+      "url": "https://qaforge.freshgravity.net/qaforge-mcp/sse"
+    },
+    "reltio": {
+      "type": "sse",
+      "url": "https://qaforge.freshgravity.net/mcp/sse"
+    }
+  }
+}
+```
+
+Restart Claude Desktop, then talk naturally.
+
+#### Option C: Project-Level `.mcp.json`
+
+Add a `.mcp.json` file to any project directory:
+
+```json
+{
+  "mcpServers": {
+    "qaforge": {
+      "type": "sse",
+      "url": "https://qaforge.freshgravity.net/qaforge-mcp/sse"
+    },
+    "reltio": {
+      "type": "sse",
+      "url": "https://qaforge.freshgravity.net/mcp/sse"
+    }
+  }
+}
+```
+
+Claude Code auto-discovers `.mcp.json` when you open the project.
+
+#### What You Can Say
+
 - *"Show me all test cases for the project"*
 - *"Generate 10 security test cases from the requirements"*
 - *"Execute the smoke test plan and show me results"*
 - *"What's the current test coverage?"*
 - *"Check framework coverage for the AI domain"*
-- *"Show me the testing frameworks"*
+- *"Search Reltio for Organization entities"*
 
 ## Integrate with Any Project
 
@@ -108,7 +156,7 @@ Add QAForge to any vibe-coded project in 2 minutes:
 
 ```bash
 # 1. Add to your project's .env
-QAFORGE_API_URL=https://your-qaforge-host:8080/api
+QAFORGE_API_URL=https://qaforge.freshgravity.net/api
 QAFORGE_AGENT_KEY=qf_your_key_here
 
 # 2. Copy the helper script

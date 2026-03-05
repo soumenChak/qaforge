@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "qaforge": {
+      "type": "sse",
+      "url": "https://qaforge.freshgravity.net/qaforge-mcp/sse"
+    },
+    "reltio": {
+      "type": "sse",
+      "url": "https://qaforge.freshgravity.net/mcp/sse"
+    }
+  }
+}

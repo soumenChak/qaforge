@@ -1,7 +1,7 @@
 # QAForge MCP Platform — Operations Guide
 
 **Complete setup, deployment, and connection guide for QAForge MCP + Reltio MCP + Claude Code.**
-**Last updated: 2026-03-04**
+**Last updated: 2026-03-05**
 
 ---
 
@@ -35,9 +35,10 @@
             │ SSE (MCP protocol)                │ SSE + Git + local tools
             │                                    │
   ┌─────────▼────────────────────────────────────▼─────────┐
-  │                  Nginx (HTTPS :8080)                     │
+  │    System Nginx (qaforge.freshgravity.net :443)           │
+  │    Let's Encrypt SSL · auto-renewing                     │
   │                                                          │
-  │   /qaforge-mcp/*  →  QAForge MCP Server (16 tools)      │
+  │   /qaforge-mcp/*  →  QAForge MCP Server (20 tools)      │
   │   /mcp/*          →  Reltio MCP Server  (45 tools)      │
   │   /api/*          →  QAForge Backend    (REST API)      │
   │   /*              →  React SPA          (Web UI)        │
@@ -63,17 +64,19 @@
          └───────┘  └──────┘  └────────┘
 ```
 
-### Docker Containers (VM: 13.233.36.18)
+### Docker Containers (VM: 13.233.36.18 — qaforge.freshgravity.net)
 
 | Container | Image | Internal Port | External Port | Purpose |
 |-----------|-------|:---:|:---:|---------|
-| `qaforge_frontend` | qaforge-frontend (nginx) | 443 | **8080** | HTTPS proxy + React SPA |
+| `qaforge_frontend` | qaforge-frontend (nginx) | 443 | **8081** | Container nginx + React SPA |
 | `qaforge_backend` | qaforge-backend (FastAPI) | 8000 | *internal* | REST API + execution engine |
-| `qaforge_mcp` | qaforge-qaforge_mcp (FastMCP) | 8000 | **8090** | QAForge MCP Server (16 tools, SSE) |
+| `qaforge_mcp` | qaforge-qaforge_mcp (FastMCP) | 8000 | **8090** | QAForge MCP Server (20 tools, SSE) |
 | `qaforge_db` | postgres:16-alpine | 5432 | 5434 | Primary data store |
 | `qaforge_redis` | redis:7-alpine | 6379 | 6381 | Rate limiting, caching |
 | `qaforge_chromadb` | chromadb/chroma:0.4.24 | 8000 | 8001 | Vector embeddings (RAG KB) |
 | `reltio_mcp_server` | reltio-mcp-server | 8000 | 8002 | Reltio MCP Server (45 tools, SSE) |
+
+**Reverse proxy:** System nginx on the VM listens on ports 80/443 with Let's Encrypt SSL. It routes `qaforge.freshgravity.net` → `localhost:8081` and `orbit.freshgravity.net` → `localhost:8443`.
 
 **Network:** All QAForge containers share `qaforge_default`. The Reltio MCP server runs in its own compose but is connected to `qaforge_default` via `docker network connect`.
 
@@ -102,18 +105,20 @@ QAForge supports two distinct user types with different levels of access:
 
 | Item | Value |
 |------|-------|
+| **Domain** | `qaforge.freshgravity.net` |
 | **VM IP** | 13.233.36.18 |
+| **SSL** | Let's Encrypt (auto-renewing via certbot webroot) |
 | **SSH key** | `~/Desktop/innovation-lab.pem` |
 | **SSH command** | `ssh -i ~/Desktop/innovation-lab.pem ubuntu@13.233.36.18` |
 | **QAForge code (VM)** | `/opt/qaforge` |
 | **MCP server code (VM)** | `/opt/reltio-mcp-server` (Reltio), inside `/opt/qaforge/mcp-server` (QAForge) |
 | **QAForge code (local)** | `/Users/soumenc/Downloads/qaforge` |
-| **QAForge UI** | `https://13.233.36.18:8080` |
-| **QAForge API** | `https://13.233.36.18:8080/api/` |
-| **QAForge MCP (HTTPS)** | `https://13.233.36.18:8080/qaforge-mcp/sse` |
-| **Reltio MCP (HTTPS)** | `https://13.233.36.18:8080/mcp/sse` |
-| **QAForge MCP (direct)** | `http://13.233.36.18:8090/sse` |
-| **Reltio MCP (direct)** | `http://13.233.36.18:8002/sse` |
+| **QAForge UI** | `https://qaforge.freshgravity.net` |
+| **QAForge API** | `https://qaforge.freshgravity.net/api/` |
+| **QAForge MCP (HTTPS)** | `https://qaforge.freshgravity.net/qaforge-mcp/sse` |
+| **Reltio MCP (HTTPS)** | `https://qaforge.freshgravity.net/mcp/sse` |
+| **QAForge MCP (direct)** | `http://qaforge.freshgravity.net:8090/sse` |
+| **Reltio MCP (direct)** | `http://qaforge.freshgravity.net:8002/sse` |
 | **Git remote** | `git@bitbucket.org:lifio/qaforge.git` |
 | **Admin login** | `admin@freshgravity.com` / `admin123` |
 
@@ -148,18 +153,31 @@ cp .env.example .env
 #   DB_PASSWORD=qaforge_pass
 ```
 
-### 4.3 Generate SSL Certificates
+### 4.3 SSL Certificates
+
+**Production (qaforge.freshgravity.net):**
+
+SSL is handled by the system nginx reverse proxy using Let's Encrypt certificates:
+
+```bash
+# Certificates are at:
+/etc/letsencrypt/live/qaforge.freshgravity.net/fullchain.pem
+/etc/letsencrypt/live/qaforge.freshgravity.net/privkey.pem
+
+# Auto-renewal via certbot webroot (no downtime)
+sudo certbot renew --dry-run   # test renewal
+
+# System nginx config:
+/etc/nginx/sites-enabled/qaforge.freshgravity.net
+```
+
+**Development (self-signed):**
 
 ```bash
 mkdir -p certs
-
-# Option A: Self-signed (dev/testing)
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
   -keyout certs/key.pem -out certs/cert.pem \
   -subj "/CN=qaforge.local"
-
-# Option B: Let's Encrypt (production)
-# See RUNBOOK.md for certbot setup
 ```
 
 ### 4.4 Build & Start All Services
@@ -411,40 +429,36 @@ This is configured in `frontend/nginx.conf` under the `/mcp/` location block. If
 
 ---
 
-## 7. Claude Code — QA User Setup (Step-by-Step)
+## 7. Claude Code / Claude Desktop — QA User Setup (Step-by-Step)
 
-This is for **QA users who don't need the QAForge codebase**. They connect Claude Code to remote MCP servers and use natural language to manage tests.
+This is for **QA users who don't need the QAForge codebase**. They connect Claude to remote MCP servers and use natural language to manage tests.
 
 ### Prerequisites
 
 - macOS, Linux, or Windows with Node.js 18+
-- An Anthropic API key (for Claude Code itself)
+- An Anthropic API key (for Claude Code) or Claude Pro/Team subscription (for Claude Desktop)
 
-### Step 1: Install Claude Code
+### Option A: Claude Code CLI (Recommended for Power Users)
+
+#### Step 1: Install Claude Code
 
 ```bash
 npm install -g @anthropic-ai/claude-code
 ```
 
-### Step 2: Add QAForge MCP Server
+#### Step 2: Add MCP Servers
 
 ```bash
-claude mcp add qaforge "https://13.233.36.18:8080/qaforge-mcp/sse" \
-  --transport sse
+# QAForge MCP (test management, generation, execution)
+claude mcp add qaforge --transport sse \
+  --url "https://qaforge.freshgravity.net/qaforge-mcp/sse"
+
+# Reltio MCP (MDM operations — optional)
+claude mcp add reltio --transport sse \
+  --url "https://qaforge.freshgravity.net/mcp/sse"
 ```
 
-This gives Claude Code access to 16 QAForge tools: test case management, AI generation, execution results, KB, and summaries.
-
-### Step 3: Add Reltio MCP Server (Optional)
-
-```bash
-claude mcp add reltio "https://13.233.36.18:8080/mcp/sse" \
-  --transport sse
-```
-
-This adds 45 Reltio MDM tools: entity search, match, merge, data model, workflows.
-
-### Step 4: Start Claude Code
+#### Step 3: Start Claude Code
 
 ```bash
 # From any directory — no repo needed
@@ -452,7 +466,68 @@ mkdir -p ~/qa-workspace && cd ~/qa-workspace
 claude
 ```
 
-### Step 5: Start Working
+#### Verify Connection
+
+Inside Claude Code, type `/mcp` — you should see `qaforge` and `reltio` listed with their tools.
+
+### Option B: Claude Desktop App (Recommended for Non-Technical Users)
+
+Claude Desktop supports MCP servers natively. No terminal needed after initial setup.
+
+#### Step 1: Open Claude Desktop Config
+
+| OS | Config file path |
+|----|-----------------|
+| **macOS** | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| **Windows** | `%APPDATA%\Claude\claude_desktop_config.json` |
+
+#### Step 2: Add MCP Servers
+
+Add or merge the `mcpServers` section into the config file:
+
+```json
+{
+  "mcpServers": {
+    "qaforge": {
+      "type": "sse",
+      "url": "https://qaforge.freshgravity.net/qaforge-mcp/sse"
+    },
+    "reltio": {
+      "type": "sse",
+      "url": "https://qaforge.freshgravity.net/mcp/sse"
+    }
+  }
+}
+```
+
+> **Note:** If the file already has other settings (like `preferences`), just add the `mcpServers` key alongside them.
+
+#### Step 3: Restart Claude Desktop
+
+Quit and reopen Claude Desktop. The MCP servers will connect automatically. You'll see tool indicators in the chat input area.
+
+### Option C: Project-Level `.mcp.json` (For Teams)
+
+Drop a `.mcp.json` file in any project directory. Claude Code auto-discovers it when you `cd` into the project:
+
+```json
+{
+  "mcpServers": {
+    "qaforge": {
+      "type": "sse",
+      "url": "https://qaforge.freshgravity.net/qaforge-mcp/sse"
+    },
+    "reltio": {
+      "type": "sse",
+      "url": "https://qaforge.freshgravity.net/mcp/sse"
+    }
+  }
+}
+```
+
+This is ideal for teams — commit `.mcp.json` to the repo so everyone gets the same MCP setup.
+
+### Start Working
 
 Talk naturally to Claude:
 
@@ -462,18 +537,17 @@ Talk naturally to Claude:
 | *"Generate 10 security test cases"* | Calls `generate_test_cases` tool |
 | *"Create a smoke test plan"* | Calls `create_test_plan` tool |
 | *"What's our test coverage?"* | Calls `get_summary` tool |
+| *"Execute the smoke test plan"* | Calls test plan execution |
 | *"Search Reltio for entities where FirstName is John"* | Calls Reltio `search_entities_tool` |
 | *"Upload this BRD and extract requirements"* | Calls `extract_requirements` tool |
 
-### Verify Connection
+### Tips for Efficient MCP Usage
 
-Inside Claude Code, type:
-
-```
-/mcp
-```
-
-You should see `qaforge` and `reltio` listed with their tools.
+1. **Be specific with tool context** — Say "use QAForge to show test cases" if Claude doesn't automatically pick the right tool
+2. **Chain operations** — "Generate 10 test cases for auth, submit them, then create a smoke test plan"
+3. **Use proof artifacts** — "Search Reltio for Organization entities and submit the results as proof to QAForge"
+4. **Cross-MCP workflows** — "Test the Reltio health endpoint, then record the result in QAForge"
+5. **Batch operations** — "Generate test cases for all requirements and add them to the regression plan"
 
 ---
 
@@ -488,17 +562,11 @@ git clone git@bitbucket.org:lifio/qaforge.git
 cd qaforge
 ```
 
-### Step 2: Add MCP Servers
+### Step 2: MCP Servers (Auto-Configured)
 
-```bash
-# QAForge MCP (test management via MCP)
-claude mcp add qaforge "https://13.233.36.18:8080/qaforge-mcp/sse" \
-  --transport sse
+The repo already includes `.mcp.json` — Claude Code auto-discovers it. No manual `claude mcp add` needed.
 
-# Reltio MCP (MDM operations via MCP)
-claude mcp add reltio "https://13.233.36.18:8080/mcp/sse" \
-  --transport sse
-```
+If you prefer global config or use Claude Desktop, see [Section 7](#7-claude-code--claude-desktop--qa-user-setup-step-by-step).
 
 ### Step 3: Start Claude Code from the Repo
 
@@ -507,8 +575,8 @@ cd ~/Downloads/qaforge   # or wherever you cloned
 claude
 ```
 
-Claude Code will read `CLAUDE.md` automatically and have both:
-- **MCP tools** — for test management operations
+Claude Code will read `CLAUDE.md` + `.mcp.json` automatically and have both:
+- **MCP tools** — for test management operations (20 QAForge + 45 Reltio tools)
 - **Codebase access** — for modifying QAForge code, adding features, fixing bugs
 
 ### Developer Workflow Examples
@@ -776,13 +844,13 @@ print(f'Secret length: {len(RELTIO_CLIENT_SECRET)}')
 **Symptom:** `/mcp` in Claude Code doesn't list qaforge tools.
 
 **Check:**
-1. Is the MCP server running? `curl -sk -N --max-time 3 https://13.233.36.18:8080/qaforge-mcp/sse`
+1. Is the MCP server running? `curl -sk -N --max-time 3 https://qaforge.freshgravity.net/qaforge-mcp/sse`
 2. Was the MCP added correctly? `claude mcp list`
 
 **Fix:**
 ```bash
 claude mcp remove qaforge
-claude mcp add qaforge "https://13.233.36.18:8080/qaforge-mcp/sse" \
+claude mcp add qaforge "https://qaforge.freshgravity.net/qaforge-mcp/sse" \
   --transport sse
 # Restart Claude Code
 ```
@@ -823,10 +891,12 @@ docker compose restart qaforge_mcp
 
 | Endpoint | URL | Tools |
 |----------|-----|-------|
-| QAForge MCP (via Nginx) | `https://13.233.36.18:8080/qaforge-mcp/sse` | 16 |
-| Reltio MCP (via Nginx) | `https://13.233.36.18:8080/mcp/sse` | 45 |
-| QAForge MCP (direct) | `http://13.233.36.18:8090/sse` | 16 |
+| QAForge MCP (via Nginx) | `https://qaforge.freshgravity.net/qaforge-mcp/sse` | 20 |
+| Reltio MCP (via Nginx) | `https://qaforge.freshgravity.net/mcp/sse` | 45 |
+| QAForge MCP (direct) | `http://13.233.36.18:8090/sse` | 20 |
 | Reltio MCP (direct) | `http://13.233.36.18:8002/sse` | 45 |
+
+> **Always use the HTTPS endpoints** (`qaforge.freshgravity.net`) — they have valid Let's Encrypt SSL and work with Claude Code/Desktop without certificate issues.
 
 ### API Endpoints (Quick Reference)
 
@@ -880,9 +950,15 @@ POST   /api/agent/upload-reference                   # Upload KB samples
 │                             │   qaforge-mcp/sse                    │
 +─────────────────────────────+──────────────────────────────────────+
 │ QA User: add MCP            │ claude mcp add qaforge               │
-│                             │   --transport sse                    │
-│                             │   --url "https://13.233.36.18:8080/  │
+│   (Claude Code)             │   --transport sse --url              │
+│                             │   "https://qaforge.freshgravity.net/ │
 │                             │   qaforge-mcp/sse"                   │
++─────────────────────────────+──────────────────────────────────────+
+│ QA User: Claude Desktop     │ Add to claude_desktop_config.json:   │
+│                             │   "mcpServers": { "qaforge":         │
+│                             │   { "type":"sse", "url":"https://    │
+│                             │   qaforge.freshgravity.net/          │
+│                             │   qaforge-mcp/sse" } }               │
 +─────────────────────────────+──────────────────────────────────────+
 │ Backend logs                │ docker logs qaforge_backend --tail 30│
 +─────────────────────────────+──────────────────────────────────────+
@@ -895,7 +971,7 @@ POST   /api/agent/upload-reference                   # Upload KB samples
 │                             │   'cd /opt/qaforge && git pull &&    │
 │                             │   bash scripts/vm-deploy.sh'         │
 +─────────────────────────────+──────────────────────────────────────+
-│ QAForge UI                  │ https://13.233.36.18:8080            │
+│ QAForge UI                  │ https://qaforge.freshgravity.net     │
 │ Login                       │ admin@freshgravity.com / admin123    │
 +─────────────────────────────+──────────────────────────────────────+
 ```
