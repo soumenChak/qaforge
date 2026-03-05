@@ -1012,6 +1012,48 @@ const GUIDE_SCENARIOS = [
     tips: ['Check the Dashboard daily — pending reviews should not accumulate. A healthy queue has < 20 items.'],
     related: ['review-results'],
   },
+  {
+    id: 'fresh-vm-deploy',
+    title: 'Fresh VM Deployment — Full Stack',
+    role: 'admin',
+    category: 'admin',
+    description: 'Deploy QAForge + MCP servers on a brand-new Ubuntu VM from scratch. Covers system prep, QAForge core, Reltio MCP, SSL, and verification. ~35 minutes total.',
+    prerequisites: [
+      'Ubuntu 22.04+ VM with 4 GB RAM, 20 GB disk',
+      'SSH access to the VM',
+      'Docker 24+ and Docker Compose v2 installed',
+      'At least one LLM API key (Anthropic, OpenAI, or Groq)',
+      'Reltio OAuth credentials (if deploying Reltio MCP)',
+    ],
+    steps: [
+      '**Phase 1 — System Prep (5 min):** SSH into your VM. Install Docker and Docker Compose if not present. Create `/opt/qaforge` and `/opt/reltio-mcp-server` directories.',
+      '**Phase 2 — QAForge Core (10 min):** Clone the repo to `/opt/qaforge`. Copy `.env.example` to `.env`, set `SECRET_KEY` (generate with `python3 -c "import secrets; print(secrets.token_urlsafe(64))"`), add your LLM API key, and change `DB_PASSWORD`. Generate SSL certs. Run `docker compose up -d --build` and wait for all 6 containers to show "healthy". Run Alembic migrations.',
+      '**Phase 3 — Agent Key (5 min):** Open `https://VM_IP:8080`, log in as `admin@freshgravity.com / admin123`, create a project, and generate an agent API key. Add `QAFORGE_MCP_AGENT_KEY=qf_YOUR_KEY` to `.env` and restart: `docker compose up -d qaforge_mcp`.',
+      '**Phase 4 — Reltio MCP (10 min, Optional):** Clone `https://github.com/reltio-ai/reltio-mcp-server.git` to `/opt/reltio-mcp-server`. Create `.env` with Reltio credentials (single-quote the secret if it contains `$`). Change port mapping to `8002:8000`. Build and start, then run `docker network connect qaforge_default reltio_mcp_server`.',
+      '**Phase 5 — Verify (5 min):** Run `bash scripts/verify-mcp.sh` from `/opt/qaforge`. It checks all containers, MCP SSE path prefixes, agent key authentication, and Docker network connectivity. All checks should pass.',
+      '**Phase 6 — Security Hardening:** Change the admin password, restrict DB/Redis external ports, set `CORS_ORIGINS` to your domain, and set up SSL auto-renewal if using Let\'s Encrypt.',
+    ],
+    cli: [
+      { label: 'Clone QAForge', cmd: 'cd /opt && git clone git@bitbucket.org:lifio/qaforge.git && cd qaforge' },
+      { label: 'Configure environment', cmd: 'cp .env.example .env\n# Edit .env: set SECRET_KEY, DB_PASSWORD, LLM API key' },
+      { label: 'Generate SSL certs', cmd: 'mkdir -p certs && openssl req -x509 -nodes -days 365 \\\n  -newkey rsa:2048 -keyout certs/key.pem -out certs/cert.pem \\\n  -subj "/CN=qaforge.local"' },
+      { label: 'Build and start', cmd: 'docker compose up -d --build' },
+      { label: 'Run migrations', cmd: 'docker compose exec backend sh -c "cd /app && alembic upgrade head"' },
+      { label: 'Full deploy (subsequent)', cmd: 'cd /opt/qaforge && git pull && bash scripts/full-deploy.sh' },
+      { label: 'Verify MCP endpoints', cmd: 'bash scripts/verify-mcp.sh' },
+    ],
+    tips: [
+      'For subsequent deploys, use `git pull && bash scripts/vm-deploy.sh` (QAForge only) or `bash scripts/full-deploy.sh` (full stack).',
+      'The verify-mcp.sh script catches the most common issue: MCP path prefixes missing, which causes 405 errors for MCP clients.',
+      'See docs/FRESH_DEPLOY.md for the complete step-by-step guide with expected outputs.',
+    ],
+    warnings: [
+      'Change the default admin password (admin123) immediately after first login.',
+      'If RELTIO_CLIENT_SECRET contains $ characters, wrap the value in single quotes in .env.',
+      'After every restart of the Reltio MCP container, re-run: docker network connect qaforge_default reltio_mcp_server',
+    ],
+    related: ['create-project', 'mcp-qa-user-setup', 'configure-llm', 'monitor-health'],
+  },
 
   /* ── CLI Reference ──────────────────────────────────────────────── */
   {

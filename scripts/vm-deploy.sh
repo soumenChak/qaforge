@@ -98,9 +98,20 @@ check_health() {
 }
 
 HEALTHY=true
-for svc in db redis chromadb backend frontend; do
+for svc in db redis chromadb backend frontend mcp; do
     check_health "$svc" || HEALTHY=false
 done
+
+# ── QAForge MCP Path Check ──────────────────────────────────────────────────
+step "Verifying QAForge MCP SSE path"
+MCP_SSE=$(curl -s -N --max-time 3 http://localhost:${MCP_PORT:-8090}/qaforge-mcp/sse 2>&1 || true)
+if echo "$MCP_SSE" | grep -q '/qaforge-mcp/messages/'; then
+    log "QAForge MCP path prefix: ${GREEN}correct${NC}"
+elif echo "$MCP_SSE" | grep -q '/messages/'; then
+    warn "QAForge MCP path prefix missing — check FASTMCP_MOUNT_PATH env var"
+else
+    warn "QAForge MCP SSE not responding on direct port — will verify after nginx starts"
+fi
 
 # ── Final Status ─────────────────────────────────────────────────────────────
 step "Deployment status"
