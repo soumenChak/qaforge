@@ -193,10 +193,10 @@ export default function TestPlanDetail() {
                 <StopIcon className="w-4 h-4" />Cancel
               </button>
             )}
-            {/* Delete Plan Button */}
+            {/* Delete Plan — subtle icon-only to avoid confusion with test case actions */}
             <button
               onClick={async () => {
-                if (!window.confirm(`Delete test plan "${plan.name}"? This cannot be undone.`)) return;
+                if (!window.confirm(`Delete the entire test plan "${plan.name}"? All linked executions will be removed. This cannot be undone.`)) return;
                 try {
                   await testPlansAPI.delete(projectId, planId);
                   navigate(`/projects/${projectId}?tab=test_plans`);
@@ -204,9 +204,10 @@ export default function TestPlanDetail() {
                   alert('Failed to delete test plan.');
                 }
               }}
-              className="btn-secondary text-sm flex items-center gap-1.5 border-red-200 text-red-600 hover:bg-red-50"
+              className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+              title="Delete this test plan"
             >
-              <TrashIcon className="w-4 h-4" />Delete Plan
+              <TrashIcon className="w-4 h-4" />
             </button>
           </div>
         </div>
