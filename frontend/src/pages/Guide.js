@@ -99,17 +99,17 @@ const GUIDE_SCENARIOS = [
     ],
     cli: [
       { label: 'Step 1: Install Claude Code', cmd: 'npm install -g @anthropic-ai/claude-code' },
-      { label: 'Step 2: Add QAForge MCP server', cmd: 'claude mcp add qaforge \\\n  "https://YOUR_HOST:8080/qaforge-mcp/sse" \\\n  --transport sse' },
-      { label: 'Step 3: Add Reltio MCP server (optional)', cmd: 'claude mcp add reltio \\\n  "https://YOUR_HOST:8080/mcp/sse" \\\n  --transport sse' },
+      { label: 'Step 2: Add QAForge MCP server', cmd: 'claude mcp add qaforge \\\n  "https://qaforge.freshgravity.net/qaforge-mcp/sse" \\\n  --transport sse' },
+      { label: 'Step 3: Add Reltio MCP server (optional)', cmd: 'claude mcp add reltio \\\n  "https://qaforge.freshgravity.net/mcp/sse" \\\n  --transport sse' },
       { label: 'Step 4: Start Claude Code', cmd: 'mkdir -p ~/qa-workspace && cd ~/qa-workspace && claude' },
     ],
     tips: [
-      'Replace YOUR_HOST with your actual QAForge server IP or domain (e.g. 13.233.36.18).',
+      'The QAForge server is at qaforge.freshgravity.net with valid Let\'s Encrypt SSL.',
       'No agent key needed in your terminal — the MCP server has the key configured on the server side.',
       'Works from any directory — you don\'t need a git repo or any project files.',
       'MCP servers persist across Claude Code sessions — you only run the setup commands once.',
     ],
-    warnings: ['If using a self-signed SSL certificate, Claude Code may prompt you to accept it on first connection.'],
+    warnings: ['Valid Let\'s Encrypt SSL — no certificate warnings or special configuration needed.'],
     related: ['claude-desktop-qa-setup', 'mcp-developer-setup', 'mcp-qaforge-tools', 'mcp-reltio-tools'],
   },
   {
@@ -132,8 +132,8 @@ const GUIDE_SCENARIOS = [
     ],
     cli: [
       { label: 'Step 1: Clone the repo', cmd: 'git clone git@bitbucket.org:lifio/qaforge.git\ncd qaforge' },
-      { label: 'Step 2: Add QAForge MCP', cmd: 'claude mcp add qaforge \\\n  "https://YOUR_HOST:8080/qaforge-mcp/sse" \\\n  --transport sse' },
-      { label: 'Step 3: Add Reltio MCP', cmd: 'claude mcp add reltio \\\n  "https://YOUR_HOST:8080/mcp/sse" \\\n  --transport sse' },
+      { label: 'Step 2: Add QAForge MCP', cmd: 'claude mcp add qaforge \\\n  "https://qaforge.freshgravity.net/qaforge-mcp/sse" \\\n  --transport sse' },
+      { label: 'Step 3: Add Reltio MCP', cmd: 'claude mcp add reltio \\\n  "https://qaforge.freshgravity.net/mcp/sse" \\\n  --transport sse' },
       { label: 'Step 4: Start Claude Code from repo', cmd: 'cd ~/Downloads/qaforge && claude' },
     ],
     tips: [
@@ -167,7 +167,7 @@ const GUIDE_SCENARIOS = [
       'You don\'t need to remember tool names. Just say "show me test cases" and Claude picks the right tool.',
       'Example prompts: "Generate 10 security test cases", "Create a smoke test plan", "What\'s the pass rate?", "Check framework coverage for MDM".',
       '`generate_test_cases` now auto-fetches testing frameworks as mandatory test areas — ensuring AI-generated tests satisfy domain standards.',
-      'SSE endpoint: https://YOUR_HOST:8080/qaforge-mcp/sse',
+      'SSE endpoint: https://qaforge.freshgravity.net/qaforge-mcp/sse',
     ],
     related: ['mcp-connect-project', 'mcp-reltio-tools', 'mcp-qa-user-setup'],
   },
@@ -191,7 +191,7 @@ const GUIDE_SCENARIOS = [
       'Entity URIs from search_entities_tool can be passed to merge, unmerge, and relation tools.',
       'Use get_data_model_definition_tool to understand the tenant\'s entity types before searching.',
       'Example prompts: "Search for entities where FirstName starts with John", "Find potential matches for entity X", "Merge these two entities".',
-      'SSE endpoint: https://YOUR_HOST:8080/mcp/sse',
+      'SSE endpoint: https://qaforge.freshgravity.net/mcp/sse',
     ],
     related: ['mcp-qaforge-tools', 'mcp-qa-user-setup'],
   },
@@ -232,7 +232,7 @@ const GUIDE_SCENARIOS = [
     steps: [
       '**Download Claude Desktop** from claude.ai/download (macOS or Windows). Install and sign in with your Anthropic account.',
       '**Open the config file** — Claude Desktop stores its MCP server configuration in a JSON file on your machine.',
-      '**Add QAForge + Reltio MCP servers** — paste the JSON configuration (see below) into the config file. Replace YOUR_HOST with your actual server IP or domain.',
+      '**Add QAForge + Reltio MCP servers** — paste the JSON configuration (see below) into the config file. URLs are pre-configured for qaforge.freshgravity.net.',
       '**Quit and reopen Claude Desktop** — press Cmd+Q (Mac) or close completely (Windows), then reopen. MCP servers load on startup.',
       '**Verify connection** — start a new conversation and ask "What tools do you have?" or "Show me MCP tools." You should see QAForge and Reltio tools listed.',
       '**Connect to your project** — say: "Connect to my project with key qf_xxx..." (get the key from your admin or the Project Settings page in QAForge UI).',
@@ -241,10 +241,10 @@ const GUIDE_SCENARIOS = [
     cli: [
       { label: 'Config file location (macOS)', cmd: '~/Library/Application Support/Claude/claude_desktop_config.json' },
       { label: 'Config file location (Windows)', cmd: '%APPDATA%\\Claude\\claude_desktop_config.json' },
-      { label: 'JSON to add (paste into config file)', cmd: '{\n  "mcpServers": {\n    "qaforge": {\n      "url": "https://YOUR_HOST:8080/qaforge-mcp/sse"\n    },\n    "reltio": {\n      "url": "https://YOUR_HOST:8080/mcp/sse"\n    }\n  }\n}' },
+      { label: 'JSON to add (paste into config file)', cmd: '{\n  "mcpServers": {\n    "qaforge": {\n      "url": "https://qaforge.freshgravity.net/qaforge-mcp/sse"\n    },\n    "reltio": {\n      "url": "https://qaforge.freshgravity.net/mcp/sse"\n    }\n  }\n}' },
     ],
     tips: [
-      'Replace YOUR_HOST with your actual server address (e.g. 13.233.36.18).',
+      'The QAForge server is at qaforge.freshgravity.net — no port number needed.',
       'If the config file already has content, merge the "mcpServers" block into the existing JSON — don\'t overwrite the whole file.',
       'Claude Desktop is ideal for QA users who don\'t need terminal or codebase access.',
       'You can add more MCP servers later by editing the same config file.',
@@ -252,7 +252,7 @@ const GUIDE_SCENARIOS = [
     ],
     warnings: [
       'You must fully quit Claude Desktop (Cmd+Q on Mac) and reopen it for new MCP servers to take effect.',
-      'If using a self-signed SSL certificate, you may need to accept it in your system keychain first.',
+      'Valid Let\'s Encrypt SSL — works out of the box with Claude Desktop.',
     ],
     related: ['claude-desktop-dev-setup', 'mcp-qa-user-setup', 'mcp-qaforge-tools', 'mcp-connect-project'],
   },
@@ -276,8 +276,8 @@ const GUIDE_SCENARIOS = [
       '**Example developer workflows:** "Fix the bug in api_client.py and then run the smoke tests via QAForge", "Add a new MCP tool for test plan export, then test it by calling it", "Generate test cases from this BRD file in my Downloads folder".',
     ],
     cli: [
-      { label: 'Option A: .mcp.json in project root (for Claude Code)', cmd: '# Create .mcp.json in your project root:\n{\n  "mcpServers": {\n    "qaforge": {\n      "type": "sse",\n      "url": "https://YOUR_HOST:8080/qaforge-mcp/sse"\n    },\n    "reltio": {\n      "type": "sse",\n      "url": "https://YOUR_HOST:8080/mcp/sse"\n    }\n  }\n}' },
-      { label: 'Option B: Global config (for Claude Code CLI)', cmd: 'claude mcp add qaforge \\\n  "https://YOUR_HOST:8080/qaforge-mcp/sse" \\\n  --transport sse\n\nclaude mcp add reltio \\\n  "https://YOUR_HOST:8080/mcp/sse" \\\n  --transport sse' },
+      { label: 'Option A: .mcp.json in project root (for Claude Code)', cmd: '# Create .mcp.json in your project root:\n{\n  "mcpServers": {\n    "qaforge": {\n      "type": "sse",\n      "url": "https://qaforge.freshgravity.net/qaforge-mcp/sse"\n    },\n    "reltio": {\n      "type": "sse",\n      "url": "https://qaforge.freshgravity.net/mcp/sse"\n    }\n  }\n}' },
+      { label: 'Option B: Global config (for Claude Code CLI)', cmd: 'claude mcp add qaforge \\\n  "https://qaforge.freshgravity.net/qaforge-mcp/sse" \\\n  --transport sse\n\nclaude mcp add reltio \\\n  "https://qaforge.freshgravity.net/mcp/sse" \\\n  --transport sse' },
       { label: 'Start Claude Code from repo', cmd: 'cd ~/path/to/your/project && claude' },
     ],
     tips: [
@@ -508,7 +508,7 @@ const GUIDE_SCENARIOS = [
     ],
     tips: [
       'Agent keys are project-scoped — each key can only access its own project\'s data.',
-      '-sk in curl: -s suppresses progress, -k allows self-signed certs. Use proper certs in production.',
+      '-s in curl suppresses progress. No -k flag needed — qaforge.freshgravity.net has valid Let\'s Encrypt SSL.',
       'Proof artifact types: api_response, test_output, screenshot, log, query_result, data_comparison.',
       'Test case statuses: draft, approved, executed, passed, failed, deprecated.',
     ],
