@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { projectsAPI, requirementsAPI, testCasesAPI, testPlansAPI, agentKeyAPI } from '../services/api';
 import TestCaseTable from '../components/TestCaseTable';
 import { DOMAIN_COLORS, DOMAIN_NAMES } from '../constants/domains';
@@ -965,7 +965,7 @@ export default function ProjectDetail() {
                     onDrop={handleDrop}
                     onClick={() => fileInputRef.current?.click()}
                     className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-200
-                      ${dragActive ? 'border-fg-teal bg-teal-50/50 scale-[1.01]' : 'border-gray-300 hover:border-fg-teal hover:bg-gray-50'}
+                      ${dragActive ? 'border-fg-teal bg-teal-50/50 ring-2 ring-fg-teal/30' : 'border-gray-300 hover:border-fg-teal hover:bg-gray-50'}
                       ${extractFile ? 'border-green-400 bg-green-50/30' : ''}`}
                   >
                     <input
@@ -1751,6 +1751,7 @@ export default function ProjectDetail() {
             testCases={testCases}
             loading={tcLoading}
             onRowClick={(tc) => navigate(`/projects/${id}/test-cases/${tc.id}`)}
+            getRowHref={(tc) => `/projects/${id}/test-cases/${tc.id}`}
             onStatusChange={handleStatusChange}
             onDuplicate={handleDuplicateTc}
             onDelete={handleDeleteTc}
@@ -1774,13 +1775,13 @@ export default function ProjectDetail() {
             <p className="text-sm text-fg-mid">
               {testPlans.length} test plan{testPlans.length !== 1 ? 's' : ''}
             </p>
-            <button
-              onClick={() => navigate(`/projects/${id}/test-plans`)}
+            <Link
+              to={`/projects/${id}/test-plans`}
               className="btn-primary text-sm flex items-center gap-2"
             >
               <DocumentTextIcon className="w-4 h-4" />
               Manage Test Plans
-            </button>
+            </Link>
           </div>
 
           {testPlansLoading ? (
@@ -1792,12 +1793,12 @@ export default function ProjectDetail() {
               <p className="text-xs text-fg-mid mb-4">
                 Create a test plan to organize test cases, track executions, and manage QA checkpoints.
               </p>
-              <button
-                onClick={() => navigate(`/projects/${id}/test-plans`)}
-                className="btn-primary text-sm"
+              <Link
+                to={`/projects/${id}/test-plans`}
+                className="btn-primary text-sm inline-block"
               >
                 Create Test Plan
-              </button>
+              </Link>
             </div>
           ) : (
             <div className="space-y-3">
@@ -1805,10 +1806,10 @@ export default function ProjectDetail() {
                 const passRate = plan.executed_count > 0
                   ? Math.round((plan.passed_count / plan.executed_count) * 100) : 0;
                 return (
-                  <div
+                  <Link
                     key={plan.id}
-                    className="card cursor-pointer overflow-hidden"
-                    onClick={() => navigate(`/projects/${id}/test-plans/${plan.id}`)}
+                    to={`/projects/${id}/test-plans/${plan.id}`}
+                    className="block card cursor-pointer overflow-hidden"
                   >
                     <div className={`h-1 ${
                       plan.status === 'completed' ? 'bg-gradient-to-r from-green-400 to-green-500' :
@@ -1843,7 +1844,17 @@ export default function ProjectDetail() {
                         <EyeIcon className="w-4 h-4 text-gray-400" />
                       </div>
                     </div>
-                  </div>
+                    {plan.test_case_count > 0 && (
+                      <div className="px-4 pb-3">
+                        <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${passRate >= 70 ? 'bg-green-500' : passRate >= 40 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                            style={{ width: `${plan.executed_count > 0 ? Math.round((plan.executed_count / plan.test_case_count) * 100) : 0}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </Link>
                 );
               })}
             </div>

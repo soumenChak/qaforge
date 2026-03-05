@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 
 const STATUS_COLOR = code => (code >= 200 && code < 300 ? '#22c55e' : '#ef4444');
 const PASS_FAIL = status => (status === 'PASS' ? '#22c55e' : '#ef4444');
@@ -208,7 +208,22 @@ const RENDERERS = {
   code_diff: CodeDiff,
 };
 
-export default function ProofViewer({ proof, onClose, visible }) {
+const navBtn = {
+  background: 'none', border: '1px solid #e5e7eb', borderRadius: 6,
+  padding: '4px 10px', cursor: 'pointer', fontSize: 13, color: '#555',
+  display: 'inline-flex', alignItems: 'center', gap: 4,
+};
+
+export default function ProofViewer({ proof: singleProof, proofs, initialIndex = 0, onClose, visible }) {
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
+
+  // Derive the list and active proof
+  const list = proofs || (singleProof ? [singleProof] : []);
+  const proof = list[currentIndex] || null;
+
+  // Reset index when proofs change
+  useEffect(() => { setCurrentIndex(initialIndex); }, [proofs, singleProof, initialIndex]);
+
   if (!visible || !proof) return null;
 
   const Renderer = RENDERERS[proof.proof_type] || GenericContent;
@@ -217,13 +232,20 @@ export default function ProofViewer({ proof, onClose, visible }) {
     <div style={overlay} onClick={onClose}>
       <div style={modal} onClick={e => e.stopPropagation()}>
         <button style={closeBtn} onClick={onClose} aria-label="Close">&times;</button>
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <span style={badge}>{proof.proof_type}</span>
           <span style={{ fontSize: 16, fontWeight: 600 }}>{proof.title || 'Proof Artifact'}</span>
           {proof.created_at && (
-            <span style={{ fontSize: 11, color: '#999', marginLeft: 8 }}>
+            <span style={{ fontSize: 11, color: '#999' }}>
               {new Date(proof.created_at).toLocaleString()}
             </span>
+          )}
+          {list.length > 1 && (
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button style={navBtn} disabled={currentIndex === 0} onClick={() => setCurrentIndex(i => i - 1)} aria-label="Previous proof">&larr;</button>
+              <span style={{ fontSize: 12, color: '#888', fontWeight: 600 }}>{currentIndex + 1} / {list.length}</span>
+              <button style={navBtn} disabled={currentIndex === list.length - 1} onClick={() => setCurrentIndex(i => i + 1)} aria-label="Next proof">&rarr;</button>
+            </div>
           )}
         </div>
         <Renderer content={proof.content} file_path={proof.file_path} />

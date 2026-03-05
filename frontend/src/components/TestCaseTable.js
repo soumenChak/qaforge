@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { TrashIcon, DocumentDuplicateIcon } from '@heroicons/react/24/outline';
 import RatingWidget from './RatingWidget';
 
@@ -42,6 +43,7 @@ const EXEC_TYPE_STYLES = {
 export default function TestCaseTable({
   testCases = [],
   onRowClick,
+  getRowHref,
   onStatusChange,
   onDelete,
   onDuplicate,
@@ -187,7 +189,11 @@ export default function TestCaseTable({
                   </td>
                 )}
                 <td className="px-4 py-3 text-sm font-mono font-medium text-fg-tealDark whitespace-nowrap">
-                  {tc.test_case_id}
+                  {getRowHref ? (
+                    <Link to={getRowHref(tc)} className="hover:underline" onClick={e => e.stopPropagation()}>
+                      {tc.test_case_id}
+                    </Link>
+                  ) : tc.test_case_id}
                 </td>
                 <td className="px-4 py-3 text-sm text-fg-dark max-w-xs truncate">
                   {tc.title}

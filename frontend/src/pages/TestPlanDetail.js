@@ -199,7 +199,7 @@ export default function TestPlanDetail() {
                 if (!window.confirm(`Delete test plan "${plan.name}"? This cannot be undone.`)) return;
                 try {
                   await testPlansAPI.delete(projectId, planId);
-                  navigate(`/projects/${projectId}`, { state: { tab: 'test_plans' } });
+                  navigate(`/projects/${projectId}?tab=test_plans`);
                 } catch (err) {
                   alert('Failed to delete test plan.');
                 }
@@ -354,7 +354,7 @@ export default function TestPlanDetail() {
                       <td className="px-4 py-3 text-xs text-fg-mid">{ex.duration_ms != null ? `${ex.duration_ms}ms` : '-'}</td>
                       <td className="px-4 py-3 text-xs text-fg-mid">{ex.executed_at ? new Date(ex.executed_at).toLocaleString() : '-'}</td>
                       <td className="px-4 py-3">{ex.proof_artifacts?.length ? (
-                        <button onClick={() => setSelectedProof(ex.proof_artifacts[0])} className="badge badge-teal text-xs cursor-pointer">{ex.proof_artifacts.length} proof{ex.proof_artifacts.length > 1 ? 's' : ''}</button>
+                        <button onClick={() => setSelectedProof(ex.proof_artifacts)} className="badge badge-teal text-xs cursor-pointer">{ex.proof_artifacts.length} proof{ex.proof_artifacts.length > 1 ? 's' : ''}</button>
                       ) : <span className="text-xs text-fg-mid">-</span>}</td>
                       <td className="px-4 py-3">
                         {reviewingExecId === ex.id ? (
@@ -432,6 +432,7 @@ export default function TestPlanDetail() {
                           <th className="px-4 py-2 text-xs font-semibold text-fg-mid text-left">Status</th>
                           <th className="px-4 py-2 text-xs font-semibold text-fg-mid text-left">Template</th>
                           <th className="px-4 py-2 text-xs font-semibold text-fg-mid text-left">Duration</th>
+                          <th className="px-4 py-2 text-xs font-semibold text-fg-mid text-left">Proof</th>
                           <th className="px-4 py-2 text-xs font-semibold text-fg-mid text-left w-8" />
                         </tr></thead>
                         <tbody className="divide-y divide-gray-50 bg-white">
@@ -439,19 +440,22 @@ export default function TestPlanDetail() {
                             const trExpKey = `${run.id}-${idx}`;
                             const isTrExpanded = expandedExecId === trExpKey;
                             return (
-                              <React.Fragment key={idx}>
+                              <React.Fragment key={tr.test_case_id || tr.test_case_display_id || idx}>
                                 <tr className="hover:bg-gray-50">
                                   <td className="px-5 py-2 text-sm text-fg-dark">{tr.title || tr.test_case_display_id || '-'}</td>
                                   <td className="px-4 py-2"><Chip status={tr.status} /></td>
                                   <td className="px-4 py-2 text-xs font-mono text-fg-mid">{tr.template_used || '-'}</td>
                                   <td className="px-4 py-2 text-xs text-fg-mid">{tr.duration_seconds != null ? `${tr.duration_seconds}s` : '-'}</td>
+                                  <td className="px-4 py-2">{tr.proof_artifacts?.length ? (
+                                    <button onClick={() => setSelectedProof(tr.proof_artifacts)} className="badge badge-teal text-xs cursor-pointer">{tr.proof_artifacts.length} proof{tr.proof_artifacts.length > 1 ? 's' : ''}</button>
+                                  ) : <span className="text-xs text-fg-mid">-</span>}</td>
                                   <td className="px-4 py-2">
                                     <button onClick={() => setExpandedExecId(isTrExpanded ? run.id : trExpKey)} className="text-fg-mid hover:text-fg-dark">
                                       <EyeIcon className="w-4 h-4" />
                                     </button>
                                   </td>
                                 </tr>
-                                {isTrExpanded && <tr><td colSpan={5} className="px-8 py-3 bg-gray-50">
+                                {isTrExpanded && <tr><td colSpan={6} className="px-8 py-3 bg-gray-50">
                                   {tr.logs?.length > 0 && <div className="mb-3">
                                     <p className="text-xs font-semibold text-fg-mid mb-1 uppercase tracking-wider">Execution Logs</p>
                                     <pre className="text-xs text-fg-dark bg-white border border-gray-200 p-3 rounded overflow-x-auto max-h-48">{tr.logs.join('\n')}</pre>
@@ -460,7 +464,7 @@ export default function TestPlanDetail() {
                                     <p className="text-xs font-semibold text-fg-mid mb-1 uppercase tracking-wider">Assertions</p>
                                     <div className="flex flex-wrap gap-1">
                                       {tr.assertions.map((a, ai) => (
-                                        <span key={ai} className={`badge text-xs ${a.passed ? 'badge-green' : 'badge-red'}`}>
+                                        <span key={a.check || a.type || ai} className={`badge text-xs ${a.passed ? 'badge-green' : 'badge-red'}`}>
                                           {a.passed ? '\u2713' : '\u2717'} {a.check || a.type || 'assertion'}
                                         </span>
                                       ))}
@@ -863,7 +867,7 @@ export default function TestPlanDetail() {
       </div>}
 
       {/* Proof Viewer Modal */}
-      <ProofViewer proof={selectedProof} visible={!!selectedProof} onClose={() => setSelectedProof(null)} />
+      <ProofViewer proofs={Array.isArray(selectedProof) ? selectedProof : selectedProof ? [selectedProof] : null} visible={!!selectedProof} onClose={() => setSelectedProof(null)} />
     </div>
   );
 }
