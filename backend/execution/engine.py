@@ -378,6 +378,48 @@ def _apply_template_guardrails(
 # Feature 5: Failure-to-Fix Feedback Loop — Failure Analysis
 # ---------------------------------------------------------------------------
 
+def _build_proof_artifacts(result: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Build proof artifacts from execution template results.
+
+    Converts raw_response, screenshots, and other details into the
+    proof_artifact format expected by the frontend ProofViewer.
+    """
+    artifacts: List[Dict[str, Any]] = []
+    details = result.get("details", {})
+
+    # API / MCP raw response
+    raw = details.get("raw_response")
+    if raw:
+        artifacts.append({
+            "proof_type": "api_response",
+            "title": "API Response",
+            "content": raw if isinstance(raw, dict) else {"body": raw},
+        })
+
+    # Screenshots from UI Playwright template
+    screenshots = details.get("screenshots", [])
+    for ss in screenshots:
+        b64 = ss.get("base64") or ss.get("data_base64") or ss.get("image_base64")
+        if b64:
+            artifacts.append({
+                "proof_type": "screenshot",
+                "title": ss.get("name", "Screenshot"),
+                "content": {"image_base64": b64, "mime_type": "image/png"},
+            })
+
+    # Execution logs as proof (only when no other artifacts exist)
+    if not artifacts:
+        logs = result.get("logs", [])
+        if logs:
+            artifacts.append({
+                "proof_type": "log",
+                "title": "Execution Log",
+                "content": "\n".join(logs) if isinstance(logs, list) else str(logs),
+            })
+
+    return artifacts
+
+
 def _analyze_failure(test_result: Dict[str, Any]) -> List[Dict[str, str]]:
     """
     Analyze a failed test result and return actionable fix suggestions.
@@ -1170,6 +1212,11 @@ async def _execute_run(run_id: UUID) -> None:
                     "details": result.get("details", {}),
                     "error": None,
                 }
+
+                # Auto-generate proof_artifacts from execution details
+                proof_artifacts = _build_proof_artifacts(result)
+                if proof_artifacts:
+                    test_result["proof_artifacts"] = proof_artifacts
 
                 if result["passed"]:
                     passed_count += 1
