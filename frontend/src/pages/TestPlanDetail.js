@@ -113,20 +113,29 @@ export default function TestPlanDetail() {
   };
 
   // Poll active execution run for progress
+  const activeRunId = activeRun?.id;
   useEffect(() => {
-    if (!runPolling || !activeRun?.id) return;
-    const interval = setInterval(async () => {
-      try {
-        const res = await executionRunsAPI.getById(projectId, activeRun.id);
-        setActiveRun(res.data);
-        if (['completed', 'failed', 'cancelled'].includes(res.data.status)) {
-          setRunPolling(false);
-          loadExec();
-        }
-      } catch (e) { console.error('Poll failed:', e); }
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [runPolling, activeRun, projectId, loadExec]);
+    if (!runPolling || !activeRunId) return;
+    let cancelled = false;
+    const poll = async () => {
+      while (!cancelled) {
+        await new Promise(r => setTimeout(r, 2000));
+        if (cancelled) break;
+        try {
+          const res = await executionRunsAPI.getById(projectId, activeRunId);
+          if (cancelled) break;
+          setActiveRun(res.data);
+          if (['completed', 'failed', 'cancelled'].includes(res.data.status)) {
+            setRunPolling(false);
+            loadExec();
+            break;
+          }
+        } catch (e) { console.error('Poll failed:', e); }
+      }
+    };
+    poll();
+    return () => { cancelled = true; };
+  }, [runPolling, activeRunId, projectId, loadExec]);
 
   // ── Handlers ──
   const toggleTc = (id) => setSelectedTcIds(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
