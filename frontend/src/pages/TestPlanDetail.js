@@ -5,7 +5,13 @@ import Breadcrumb from '../components/Breadcrumb';
 import ProofViewer from '../components/ProofViewer';
 import { CheckCircleIcon, XCircleIcon, ClockIcon, ChevronDownIcon, ChevronUpIcon, EyeIcon, DocumentArrowDownIcon, TrashIcon, PlayIcon, StopIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 
-const STATUS_CHIP = { draft: 'badge-gray', reviewed: 'bg-blue-100 text-blue-800', approved: 'badge-green', executed: 'bg-orange-100 text-orange-800', passed: 'badge-green', failed: 'badge-red' };
+const STATUS_CHIP = {
+  draft: 'badge-gray', reviewed: 'bg-blue-100 text-blue-800', approved: 'badge-green',
+  executed: 'bg-orange-100 text-orange-800', passed: 'badge-green', failed: 'badge-red',
+  pending: 'bg-yellow-100 text-yellow-800', running: 'bg-blue-100 text-blue-700',
+  cancelled: 'bg-gray-200 text-gray-600', error: 'bg-red-100 text-red-700',
+  completed: 'bg-green-100 text-green-700',
+};
 const CP_STATUS = { pending: 'badge-yellow', approved: 'badge-green', rejected: 'badge-red', needs_rework: 'bg-orange-100 text-orange-800' };
 const REV_STATUS = { pending: 'badge-yellow', approved: 'badge-green', rejected: 'badge-red' };
 
@@ -53,6 +59,8 @@ export default function TestPlanDetail() {
   const [executing, setExecuting] = useState(false);
   const [activeRun, setActiveRun] = useState(null);
   const [runPolling, setRunPolling] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [pollErrors, setPollErrors] = useState(0);
 
   // ── Loaders ──
   const load = useCallback(async (fn, setter, loadingSetter) => {
@@ -72,7 +80,22 @@ export default function TestPlanDetail() {
     setExecLoading(true);
     try {
       const runsRes = await executionRunsAPI.list(projectId, { test_plan_id: planId });
-      setExecutions(runsRes.data || []);
+      const runs = runsRes.data || [];
+      setExecutions(runs);
+      // Auto-detect if any run is still running (e.g. page reload mid-execution)
+      const inProgress = runs.find(r => r.status === 'running' || r.status === 'pending');
+      if (inProgress) {
+        setActiveRun(prev => {
+          if (!prev || prev.id !== inProgress.id) {
+            setRunPolling(true);
+            return inProgress;
+          }
+          return prev;
+        });
+      } else {
+        // No in-progress runs — clear the banner
+        setActiveRun(prev => (prev && !['running', 'pending'].includes(prev.status)) ? null : prev);
+      }
       // Also load individual execution results as fallback
       const resultsRes = await executionsAPI.list(projectId, { test_plan_id: planId });
       setIndividualExecs(resultsRes.data || []);
@@ -118,19 +141,31 @@ export default function TestPlanDetail() {
     if (!runPolling || !activeRunId) return;
     let cancelled = false;
     const poll = async () => {
+      let errors = 0;
       while (!cancelled) {
         await new Promise(r => setTimeout(r, 2000));
         if (cancelled) break;
         try {
           const res = await executionRunsAPI.getById(projectId, activeRunId);
           if (cancelled) break;
+          errors = 0;
+          setPollErrors(0);
           setActiveRun(res.data);
           if (['completed', 'failed', 'cancelled'].includes(res.data.status)) {
             setRunPolling(false);
             loadExec();
             break;
           }
-        } catch (e) { console.error('Poll failed:', e); }
+        } catch (e) {
+          console.error('Poll failed:', e);
+          errors++;
+          setPollErrors(errors);
+          if (errors >= 5) {
+            setRunPolling(false);
+            loadExec();
+            break;
+          }
+        }
       }
     };
     poll();
@@ -194,12 +229,27 @@ export default function TestPlanDetail() {
             {runPolling && activeRun && (
               <button
                 onClick={async () => {
-                  try { await executionRunsAPI.cancel(projectId, activeRun.id); setRunPolling(false); loadExec(); }
-                  catch (e) { alert('Failed to cancel.'); }
+                  if (cancelling) return;
+                  setCancelling(true);
+                  try {
+                    await executionRunsAPI.cancel(projectId, activeRun.id);
+                    setRunPolling(false);
+                    setActiveRun(prev => prev ? { ...prev, status: 'cancelled' } : prev);
+                    loadExec();
+                  } catch (e) {
+                    alert('Failed to cancel: ' + (e.response?.data?.detail || e.message));
+                  } finally {
+                    setCancelling(false);
+                  }
                 }}
-                className="btn-secondary text-sm flex items-center gap-1.5 border-red-200 text-red-600 hover:bg-red-50"
+                disabled={cancelling}
+                className="btn-secondary text-sm flex items-center gap-1.5 border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
               >
-                <StopIcon className="w-4 h-4" />Cancel
+                {cancelling ? (
+                  <><ArrowPathIcon className="w-4 h-4 animate-spin" />Cancelling...</>
+                ) : (
+                  <><StopIcon className="w-4 h-4" />Cancel</>
+                )}
               </button>
             )}
             {/* Delete Plan — subtle icon-only to avoid confusion with test case actions */}
@@ -325,6 +375,33 @@ export default function TestPlanDetail() {
 
       {/* ── Executions ── */}
       {activeTab === 'executions' && <div className="animate-fade-in">
+        {/* Active run status banner */}
+        {activeRun && ['running', 'pending'].includes(activeRun.status) && (
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-3">
+            <ArrowPathIcon className="w-5 h-5 text-blue-600 animate-spin flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-blue-800">
+                Execution in progress{activeRun.results?.summary ? ` — ${activeRun.results.summary.completed || 0}/${activeRun.results.summary.total || '?'} tests` : ''}
+              </p>
+              {pollErrors > 0 && <p className="text-xs text-blue-600 mt-0.5">Connection unstable ({pollErrors}/5 retries)...</p>}
+            </div>
+          </div>
+        )}
+        {activeRun && activeRun.status === 'cancelled' && !runPolling && (
+          <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg flex items-center gap-3">
+            <StopIcon className="w-5 h-5 text-gray-500 flex-shrink-0" />
+            <p className="text-sm font-medium text-gray-700">Execution was cancelled.</p>
+          </div>
+        )}
+        {pollErrors >= 5 && (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-3">
+            <XCircleIcon className="w-5 h-5 text-amber-600 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-amber-800">Lost connection to execution. Results may have updated — refresh to check.</p>
+            </div>
+            <button onClick={() => { setPollErrors(0); loadExec(); }} className="btn-secondary text-xs px-3 py-1">Refresh</button>
+          </div>
+        )}
         {execLoading ? <Spinner /> : !executions.length && !individualExecs.length ? <p className="text-fg-mid text-sm py-8 text-center">No executions recorded yet.</p> : (<>
           {/* Individual execution results (when no execution runs exist) */}
           {!executions.length && individualExecs.length > 0 && (
