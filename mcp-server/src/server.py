@@ -17,8 +17,14 @@ from src.config import QAFORGE_SERVER_NAME
 from src.api_client import set_agent_key, get_active_key, is_override_active
 from src.tools.project import get_project_info, update_project_info
 from src.tools.requirements import list_requirements_impl, extract_requirements_impl, submit_requirements_impl
-from src.tools.test_cases import list_test_cases_impl, generate_test_cases_impl, submit_test_cases_impl
-from src.tools.test_plans import list_test_plans_impl, create_test_plan_impl, get_plan_test_cases_impl
+from src.tools.test_cases import (
+    list_test_cases_impl, generate_test_cases_impl, submit_test_cases_impl,
+    archive_test_cases_impl, delete_test_cases_impl,
+)
+from src.tools.test_plans import (
+    list_test_plans_impl, create_test_plan_impl, get_plan_test_cases_impl,
+    archive_test_plan_impl, delete_test_plan_impl,
+)
 from src.tools.executions import submit_results_impl, add_proof_impl
 from src.tools.knowledge import kb_stats_impl, upload_reference_impl
 from src.tools.frameworks import get_frameworks_impl, check_framework_coverage_impl
@@ -408,3 +414,58 @@ async def get_summary() -> dict:
     pass_rate, recent_executions, coverage_percent.
     """
     return await get_summary_impl()
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Archive / Delete Tools
+# ═══════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+async def archive_test_cases(test_case_ids: list) -> dict:
+    """Archive test cases by setting their status to 'archived'. Reversible.
+
+    Use this to soft-delete test cases without losing execution history.
+    Archived test cases won't appear in default listings.
+
+    Args:
+        test_case_ids: List of test case UUIDs to archive
+    """
+    return await archive_test_cases_impl(test_case_ids)
+
+
+@mcp.tool()
+async def delete_test_cases(test_case_ids: list) -> dict:
+    """Permanently delete test cases and all their execution results. NOT reversible.
+
+    Use archive_test_cases for reversible soft-delete instead.
+    Cascades: execution results and feedback for these test cases are also deleted.
+
+    Args:
+        test_case_ids: List of test case UUIDs to permanently delete
+    """
+    return await delete_test_cases_impl(test_case_ids)
+
+
+@mcp.tool()
+async def archive_test_plan(plan_id: str) -> dict:
+    """Archive a test plan by setting its status to 'archived'. Reversible.
+
+    Test cases in the plan are NOT affected — only the plan itself is archived.
+
+    Args:
+        plan_id: UUID of the test plan to archive
+    """
+    return await archive_test_plan_impl(plan_id)
+
+
+@mcp.tool()
+async def delete_test_plan(plan_id: str) -> dict:
+    """Permanently delete a test plan. NOT reversible.
+
+    Test cases are unlinked (test_plan_id set to NULL), NOT deleted.
+    Use delete_test_cases separately if you also want to remove the test cases.
+
+    Args:
+        plan_id: UUID of the test plan to permanently delete
+    """
+    return await delete_test_plan_impl(plan_id)

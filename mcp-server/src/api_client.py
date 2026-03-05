@@ -72,3 +72,13 @@ async def agent_put(path: str, json: dict | None = None) -> dict | list:
         r = await client.put(_url(path), headers=_headers(), json=json)
         r.raise_for_status()
         return r.json()
+
+
+async def agent_delete(path: str, json: dict | None = None) -> dict:
+    """DELETE request to Agent API."""
+    async with httpx.AsyncClient(verify=False, timeout=_TIMEOUT) as client:
+        r = await client.request(
+            "DELETE", _url(path), headers=_headers(), json=json
+        )
+        r.raise_for_status()
+        return r.json()

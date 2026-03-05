@@ -1,7 +1,7 @@
 """QAForge MCP Tools — Test Case Management"""
 import logging
 
-from src.api_client import agent_get, agent_post
+from src.api_client import agent_delete, agent_get, agent_post, agent_put
 
 logger = logging.getLogger("qaforge.mcp.tools.test_cases")
 
@@ -85,3 +85,13 @@ async def submit_test_cases_impl(test_cases: list) -> list:
                      execution_type, expected_result, preconditions, test_steps, tags}
     """
     return await agent_post("/test-cases", json={"test_cases": test_cases})
+
+
+async def archive_test_cases_impl(test_case_ids: list) -> dict:
+    """Archive test cases by setting status to 'archived'. Reversible."""
+    return await agent_put("/test-cases/archive", json={"test_case_ids": test_case_ids})
+
+
+async def delete_test_cases_impl(test_case_ids: list) -> dict:
+    """Permanently delete test cases and their execution results."""
+    return await agent_delete("/test-cases", json={"test_case_ids": test_case_ids})

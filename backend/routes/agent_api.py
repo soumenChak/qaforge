@@ -1442,3 +1442,126 @@ def get_summary(
         pending_review=pending_review,
         pass_rate=round(pass_rate, 1) if pass_rate is not None else None,
     )
+
+
+# ---------------------------------------------------------------------------
+# Archive / Delete — Test Cases
+# ---------------------------------------------------------------------------
+from pydantic import BaseModel as _BM
+
+
+class _TCBatchIDs(_BM):
+    test_case_ids: List[uuid.UUID]
+
+
+@router.put("/test-cases/archive")
+def archive_test_cases(
+    body: _TCBatchIDs,
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """Archive test cases by setting status to 'archived'. Reversible."""
+    tcs = (
+        db.query(TestCase)
+        .filter(TestCase.project_id == project.id, TestCase.id.in_(body.test_case_ids))
+        .all()
+    )
+    found_ids = {tc.id for tc in tcs}
+    not_found = [str(tid) for tid in body.test_case_ids if tid not in found_ids]
+
+    for tc in tcs:
+        tc.status = "archived"
+    db.commit()
+
+    logger.info(
+        "Agent archived %d test cases in project %s", len(tcs), project.name
+    )
+    return {"archived": len(tcs), "not_found": len(not_found), "missing_ids": not_found}
+
+
+@router.delete("/test-cases")
+def delete_test_cases(
+    body: _TCBatchIDs,
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """Permanently delete test cases and their execution results."""
+    tcs = (
+        db.query(TestCase)
+        .filter(TestCase.project_id == project.id, TestCase.id.in_(body.test_case_ids))
+        .all()
+    )
+    found_ids = {tc.id for tc in tcs}
+    not_found = [str(tid) for tid in body.test_case_ids if tid not in found_ids]
+
+    for tc in tcs:
+        db.delete(tc)  # cascade deletes execution_results + feedback
+    db.commit()
+
+    logger.info(
+        "Agent deleted %d test cases in project %s", len(tcs), project.name
+    )
+    return {"deleted": len(tcs), "not_found": len(not_found), "missing_ids": not_found}
+
+
+# ---------------------------------------------------------------------------
+# Archive / Delete — Test Plans
+# ---------------------------------------------------------------------------
+@router.put("/test-plans/{plan_id}/archive")
+def archive_test_plan(
+    plan_id: uuid.UUID,
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """Archive a test plan by setting status to 'archived'. Reversible."""
+    plan = (
+        db.query(TestPlan)
+        .filter(TestPlan.id == plan_id, TestPlan.project_id == project.id)
+        .first()
+    )
+    if not plan:
+        raise HTTPException(404, f"Test plan {plan_id} not found")
+
+    plan.status = "archived"
+    db.commit()
+    db.refresh(plan)
+
+    logger.info("Agent archived test plan '%s' in project %s", plan.name, project.name)
+    return {"archived": True, "plan_id": str(plan.id), "name": plan.name}
+
+
+@router.delete("/test-plans/{plan_id}")
+def delete_test_plan(
+    plan_id: uuid.UUID,
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """Permanently delete a test plan. Test cases are unlinked, not deleted."""
+    plan = (
+        db.query(TestPlan)
+        .filter(TestPlan.id == plan_id, TestPlan.project_id == project.id)
+        .first()
+    )
+    if not plan:
+        raise HTTPException(404, f"Test plan {plan_id} not found")
+
+    # Unlink test cases (set test_plan_id to NULL, don't delete them)
+    unlinked = (
+        db.query(TestCase)
+        .filter(TestCase.test_plan_id == plan_id, TestCase.project_id == project.id)
+        .update({TestCase.test_plan_id: None})
+    )
+    # Also unlink execution results
+    db.query(ExecutionResult).filter(
+        ExecutionResult.test_plan_id == plan_id
+    ).update({ExecutionResult.test_plan_id: None})
+
+    plan_name = plan.name
+    db.delete(plan)  # cascades to validation_checkpoints
+    db.commit()
+
+    logger.info(
+        "Agent deleted test plan '%s' (%d TCs unlinked) in project %s",
+        plan_name, unlinked, project.name,
+    )
+    return {"deleted": True, "plan_name": plan_name, "test_cases_unlinked": unlinked}
