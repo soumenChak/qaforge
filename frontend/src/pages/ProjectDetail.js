@@ -9,6 +9,7 @@ import {
   PlusIcon,
   ArrowUpTrayIcon,
   DocumentMagnifyingGlassIcon,
+  MagnifyingGlassIcon,
   ArrowDownTrayIcon,
   XMarkIcon,
   FunnelIcon,
@@ -65,6 +66,8 @@ export default function ProjectDetail() {
   const [tcLoading, setTcLoading] = useState(false);
   const [selectedTcIds, setSelectedTcIds] = useState(new Set());
   const [tcFilter, setTcFilter] = useState({ status: '', priority: '', category: '', source: '' });
+  const [tcSearchInput, setTcSearchInput] = useState('');
+  const [tcSearchDebounced, setTcSearchDebounced] = useState('');
   const [tcPage, setTcPage] = useState(1);
   const [tcPageSize, setTcPageSize] = useState(25);
   const [tcTotal, setTcTotal] = useState(0);
@@ -97,6 +100,10 @@ export default function ProjectDetail() {
   // Test Plans state
   const [testPlans, setTestPlans] = useState([]);
   const [testPlansLoading, setTestPlansLoading] = useState(false);
+  const [testPlanSearch, setTestPlanSearch] = useState('');
+
+  // Requirements search
+  const [reqSearch, setReqSearch] = useState('');
   // Agent key state
   const [agentKeyVisible, setAgentKeyVisible] = useState(null);
   const [generatingKey, setGeneratingKey] = useState(false);
@@ -209,16 +216,18 @@ export default function ProjectDetail() {
       if (tcFilter.category) params.category = tcFilter.category;
       if (tcFilter.source) params.source = tcFilter.source;
       if (tcFilter.execution_type) params.execution_type = tcFilter.execution_type;
+      if (tcSearchDebounced) params.search = tcSearchDebounced;
 
       const res = await testCasesAPI.list(id, params);
       setTestCases(res.data);
-      setTcTotal(project?.test_case_count || res.data.length);
+      const totalFromHeader = parseInt(res.headers?.['x-total-count'], 10);
+      setTcTotal(totalFromHeader > 0 ? totalFromHeader : (project?.test_case_count || res.data.length));
     } catch (err) {
       console.error('Failed to load test cases:', err);
     } finally {
       setTcLoading(false);
     }
-  }, [id, tcPage, tcPageSize, tcFilter, project?.test_case_count]);
+  }, [id, tcPage, tcPageSize, tcFilter, tcSearchDebounced, project?.test_case_count]);
 
   const loadTestPlans = useCallback(async () => {
     setTestPlansLoading(true);
@@ -244,6 +253,12 @@ export default function ProjectDetail() {
       setCoverageLoading(false);
     }
   }, [id]);
+
+  // Debounce test case search
+  useEffect(() => {
+    const timer = setTimeout(() => { setTcSearchDebounced(tcSearchInput); setTcPage(1); }, 300);
+    return () => clearTimeout(timer);
+  }, [tcSearchInput]);
 
   useEffect(() => { loadProject(); }, [loadProject]);
   useEffect(() => { if (activeTab === 'requirements') loadRequirements(); }, [activeTab, loadRequirements]);
@@ -833,7 +848,17 @@ export default function ProjectDetail() {
       {activeTab === 'requirements' && (
         <div className="animate-fade-in">
           {/* Actions */}
-          <div className="flex flex-wrap gap-3 mb-5">
+          <div className="flex flex-wrap items-center gap-3 mb-5">
+            <div className="relative">
+              <MagnifyingGlassIcon className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={reqSearch}
+                onChange={(e) => setReqSearch(e.target.value)}
+                placeholder="Search requirements..."
+                className="text-xs border rounded-md pl-8 pr-3 py-1.5 w-48 border-gray-200 focus:ring-fg-teal focus:border-fg-teal"
+              />
+            </div>
             <button
               onClick={() => {
                 if (!showAddReq) {
@@ -1094,7 +1119,11 @@ export default function ProjectDetail() {
             </div>
           ) : (
             <div className="space-y-3">
-              {requirements.map((req) => {
+              {requirements.filter((req) => {
+                if (!reqSearch) return true;
+                const q = reqSearch.toLowerCase();
+                return req.req_id?.toLowerCase().includes(q) || req.title?.toLowerCase().includes(q) || req.description?.toLowerCase().includes(q);
+              }).map((req) => {
                 const isExpanded = expandedReqId === req.id;
                 const isEditing = editingReqId === req.id;
                 return (
@@ -1683,6 +1712,16 @@ export default function ProjectDetail() {
           {/* Filters + actions */}
           <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
             <div className="flex flex-wrap items-center gap-3">
+              <div className="relative">
+                <MagnifyingGlassIcon className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={tcSearchInput}
+                  onChange={(e) => setTcSearchInput(e.target.value)}
+                  placeholder="Search test cases..."
+                  className="text-xs border rounded-md pl-8 pr-3 py-1.5 w-48 border-gray-200 focus:ring-fg-teal focus:border-fg-teal"
+                />
+              </div>
               <FunnelIcon className="w-4 h-4 text-fg-mid" />
               <select
                 value={tcFilter.status}
@@ -1720,6 +1759,7 @@ export default function ProjectDetail() {
               >
                 <option value="">All Types</option>
                 <option value="api">API</option>
+                <option value="mcp">MCP</option>
                 <option value="ui">UI (Playwright)</option>
                 <option value="sql">SQL (Database)</option>
                 <option value="manual">Manual</option>
@@ -1772,9 +1812,21 @@ export default function ProjectDetail() {
       {activeTab === 'test_plans' && (
         <div className="animate-fade-in">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
-            <p className="text-sm text-fg-mid">
-              {testPlans.length} test plan{testPlans.length !== 1 ? 's' : ''}
-            </p>
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <MagnifyingGlassIcon className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={testPlanSearch}
+                  onChange={(e) => setTestPlanSearch(e.target.value)}
+                  placeholder="Search test plans..."
+                  className="text-xs border rounded-md pl-8 pr-3 py-1.5 w-48 border-gray-200 focus:ring-fg-teal focus:border-fg-teal"
+                />
+              </div>
+              <p className="text-sm text-fg-mid">
+                {testPlans.length} test plan{testPlans.length !== 1 ? 's' : ''}
+              </p>
+            </div>
             <Link
               to={`/projects/${id}/test-plans`}
               className="btn-primary text-sm flex items-center gap-2"
@@ -1802,7 +1854,11 @@ export default function ProjectDetail() {
             </div>
           ) : (
             <div className="space-y-3">
-              {testPlans.map((plan) => {
+              {testPlans.filter((plan) => {
+                if (!testPlanSearch) return true;
+                const q = testPlanSearch.toLowerCase();
+                return plan.name?.toLowerCase().includes(q) || plan.description?.toLowerCase().includes(q) || plan.plan_type?.toLowerCase().includes(q);
+              }).map((plan) => {
                 const passRate = plan.executed_count > 0
                   ? Math.round((plan.passed_count / plan.executed_count) * 100) : 0;
                 return (

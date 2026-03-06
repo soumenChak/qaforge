@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { testCasesAPI, testPlansAPI, executionsAPI, executionRunsAPI, projectsAPI } from '../services/api';
 import Breadcrumb from '../components/Breadcrumb';
 import ProofViewer from '../components/ProofViewer';
-import { CheckCircleIcon, XCircleIcon, ClockIcon, ChevronDownIcon, ChevronUpIcon, EyeIcon, DocumentArrowDownIcon, TrashIcon, PlayIcon, StopIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import { CheckCircleIcon, XCircleIcon, ClockIcon, ChevronDownIcon, ChevronUpIcon, EyeIcon, DocumentArrowDownIcon, TrashIcon, PlayIcon, StopIcon, ArrowPathIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 
 const STATUS_CHIP = {
   draft: 'badge-gray', reviewed: 'bg-blue-100 text-blue-800', approved: 'badge-green',
@@ -32,7 +32,7 @@ export default function TestPlanDetail() {
   const navigate = useNavigate();
   const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('test_cases');
+  const [activeTab, setActiveTab] = useState('executions');
 
   // Test Cases
   const [testCases, setTestCases] = useState([]);
@@ -43,6 +43,7 @@ export default function TestPlanDetail() {
   const [executions, setExecutions] = useState([]);
   const [execLoading, setExecLoading] = useState(false);
   const [expandedExecId, setExpandedExecId] = useState(null);
+  const [execSearch, setExecSearch] = useState('');
   const [reviewingExecId, setReviewingExecId] = useState(null);
   const [reviewComment, setReviewComment] = useState('');
   // Proof Viewer
@@ -194,7 +195,6 @@ export default function TestPlanDetail() {
   if (!plan) return <div className="page-container"><p className="text-fg-mid">Test plan not found.</p><button onClick={() => navigate(-1)} className="btn-secondary mt-4">Go Back</button></div>;
 
   const tabs = [
-    { key: 'test_cases', label: 'Test Cases' },
     { key: 'executions', label: 'Executions' },
     { key: 'traceability', label: 'Traceability' },
     { key: 'summary', label: 'Summary' },
@@ -343,36 +343,6 @@ export default function TestPlanDetail() {
         </div>
       )}
 
-      {/* ── Test Cases ── */}
-      {activeTab === 'test_cases' && <div className="animate-fade-in">
-        {selectedTcIds.size > 0 && <div className="flex items-center gap-3 mb-4">
-          <span className="text-sm text-fg-mid">{selectedTcIds.size} selected</span>
-          <button onClick={bulkApprove} disabled={bulkApproving} className="btn-primary text-sm flex items-center gap-1">
-            <CheckCircleIcon className="w-4 h-4" />{bulkApproving ? 'Approving...' : 'Bulk Approve'}
-          </button>
-        </div>}
-        {tcLoading ? <Spinner /> : !testCases.length ? <p className="text-fg-mid text-sm py-8 text-center">No test cases linked to this plan.</p> : (
-          <div className="table-container"><table className="min-w-full divide-y divide-gray-200">
-            <thead><tr className="table-header">
-              <th className="px-4 py-3"><input type="checkbox" checked={selectedTcIds.size === testCases.length && testCases.length > 0} onChange={selectAllTc} className="rounded border-gray-300" /></th>
-              <th className="px-4 py-3">TC ID</th><th className="px-4 py-3">Title</th><th className="px-4 py-3">Category</th>
-              <th className="px-4 py-3">Priority</th><th className="px-4 py-3">Execution Type</th><th className="px-4 py-3">Status</th>
-            </tr></thead>
-            <tbody className="divide-y divide-gray-100 bg-white">
-              {testCases.map(tc => <tr key={tc.id} className="table-row">
-                <td className="px-4 py-3"><input type="checkbox" checked={selectedTcIds.has(tc.id)} onChange={() => toggleTc(tc.id)} className="rounded border-gray-300" /></td>
-                <td className="px-4 py-3 text-sm font-mono text-fg-dark">{tc.test_case_id}</td>
-                <td className="px-4 py-3 text-sm text-fg-dark max-w-xs truncate">{tc.title}</td>
-                <td className="px-4 py-3 text-sm text-fg-mid">{tc.category}</td>
-                <td className="px-4 py-3"><Chip status={tc.priority} /></td>
-                <td className="px-4 py-3 text-sm text-fg-mid">{tc.execution_type}</td>
-                <td className="px-4 py-3"><Chip status={tc.status} /></td>
-              </tr>)}
-            </tbody>
-          </table></div>
-        )}
-      </div>}
-
       {/* ── Executions ── */}
       {activeTab === 'executions' && <div className="animate-fade-in">
         {/* Active run status banner */}
@@ -400,6 +370,21 @@ export default function TestPlanDetail() {
               <p className="text-sm font-medium text-amber-800">Lost connection to execution. Results may have updated — refresh to check.</p>
             </div>
             <button onClick={() => { setPollErrors(0); loadExec(); }} className="btn-secondary text-xs px-3 py-1">Refresh</button>
+          </div>
+        )}
+        {/* Search within executions */}
+        {(executions.length > 0 || individualExecs.length > 0) && (
+          <div className="mb-4">
+            <div className="relative w-64">
+              <MagnifyingGlassIcon className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={execSearch}
+                onChange={(e) => setExecSearch(e.target.value)}
+                placeholder="Filter test cases..."
+                className="text-xs border rounded-md pl-8 pr-3 py-1.5 w-full border-gray-200 focus:ring-fg-teal focus:border-fg-teal"
+              />
+            </div>
           </div>
         )}
         {execLoading ? <Spinner /> : !executions.length && !individualExecs.length ? <p className="text-fg-mid text-sm py-8 text-center">No executions recorded yet.</p> : (<>
@@ -433,7 +418,11 @@ export default function TestPlanDetail() {
                   <th className="px-4 py-3 text-xs font-semibold text-fg-mid text-left">Review</th>
                 </tr></thead>
                 <tbody className="divide-y divide-gray-100 bg-white">
-                  {individualExecs.map(ex => (
+                  {individualExecs.filter(ex => {
+                    if (!execSearch) return true;
+                    const q = execSearch.toLowerCase();
+                    return (ex.test_case_display_id || '').toLowerCase().includes(q) || (ex.test_case_title || '').toLowerCase().includes(q);
+                  }).map(ex => (
                     <tr key={ex.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3"><span className="text-sm font-medium text-fg-dark">{ex.test_case_display_id || '-'}</span>{ex.test_case_title && <p className="text-xs text-fg-mid mt-0.5 truncate max-w-xs">{ex.test_case_title}</p>}</td>
                       <td className="px-4 py-3"><Chip status={ex.status} /></td>
@@ -523,7 +512,11 @@ export default function TestPlanDetail() {
                           <th className="px-4 py-2 text-xs font-semibold text-fg-mid text-left w-8" />
                         </tr></thead>
                         <tbody className="divide-y divide-gray-50 bg-white">
-                          {testResults.map((tr, idx) => {
+                          {testResults.filter(tr => {
+                            if (!execSearch) return true;
+                            const q = execSearch.toLowerCase();
+                            return (tr.title || '').toLowerCase().includes(q) || (tr.test_case_display_id || '').toLowerCase().includes(q);
+                          }).map((tr, idx) => {
                             const trExpKey = `${run.id}-${idx}`;
                             const isTrExpanded = expandedExecId === trExpKey;
                             return (

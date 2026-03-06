@@ -23,7 +23,7 @@ import time
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -767,12 +767,14 @@ def _mock_generate(
 )
 def list_test_cases(
     project_id: uuid.UUID,
+    response: Response,
     test_status: Optional[str] = Query(None, alias="status", description="Filter by status"),
     priority: Optional[str] = Query(None, description="Filter by priority (P1/P2/P3/P4)"),
     category: Optional[str] = Query(None, description="Filter by category"),
     source: Optional[str] = Query(None, description="Filter by source (ai_generated/manual/hybrid)"),
     execution_type: Optional[str] = Query(None, description="Filter by execution type (api/ui/sql/manual)"),
     test_plan_id: Optional[uuid.UUID] = Query(None, description="Filter by test plan"),
+    search: Optional[str] = Query(None, description="Keyword search across test_case_id, title, description"),
     limit: int = Query(50, ge=1, le=500, description="Page size"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     db: Session = Depends(get_db),
@@ -797,6 +799,18 @@ def list_test_cases(
         query = query.filter(TestCase.execution_type == execution_type)
     if test_plan_id:
         query = query.filter(TestCase.test_plan_id == test_plan_id)
+    if search:
+        like_term = f"%{search}%"
+        query = query.filter(
+            or_(
+                TestCase.test_case_id.ilike(like_term),
+                TestCase.title.ilike(like_term),
+                TestCase.description.ilike(like_term),
+            )
+        )
+
+    total = query.count()
+    response.headers["X-Total-Count"] = str(total)
 
     test_cases = (
         query.order_by(TestCase.created_at.desc())
