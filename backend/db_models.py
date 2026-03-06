@@ -555,7 +555,7 @@ class ExecutionResult(Base):
         UUID(as_uuid=True), ForeignKey("test_cases.id", ondelete="CASCADE"), nullable=False, index=True
     )
     test_plan_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("test_plans.id", ondelete="SET NULL"), nullable=True, index=True
+        UUID(as_uuid=True), ForeignKey("test_plans.id", ondelete="CASCADE"), nullable=True, index=True
     )
     status: Mapped[str] = mapped_column(
         String(20), nullable=False,
@@ -888,7 +888,7 @@ class ExecutionRun(Base):
     )
     # Added columns
     test_plan_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("test_plans.id", ondelete="SET NULL"),
+        UUID(as_uuid=True), ForeignKey("test_plans.id", ondelete="CASCADE"),
         nullable=True, index=True,
     )
     triggered_by: Mapped[Optional[uuid.UUID]] = mapped_column(
