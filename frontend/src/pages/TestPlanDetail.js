@@ -43,6 +43,7 @@ export default function TestPlanDetail() {
   const [executions, setExecutions] = useState([]);
   const [execLoading, setExecLoading] = useState(false);
   const [expandedExecId, setExpandedExecId] = useState(null);
+  const [expandedTrKeys, setExpandedTrKeys] = useState(new Set());
   const [execSearch, setExecSearch] = useState('');
   const [reviewingExecId, setReviewingExecId] = useState(null);
   const [reviewComment, setReviewComment] = useState('');
@@ -511,11 +512,11 @@ export default function TestPlanDetail() {
               const testResults = run.results?.test_results || [];
               const passRate = summary.pass_rate ?? 0;
               const barColor = passRate === 100 ? 'bg-green-500' : passRate >= 50 ? 'bg-yellow-500' : 'bg-red-500';
-              const isExpanded = expandedExecId === run.id || (typeof expandedExecId === 'string' && expandedExecId.startsWith(run.id + '-'));
+              const isExpanded = expandedExecId === run.id;
               return (
                 <div key={run.id} className="card-static border border-gray-200 rounded-lg overflow-hidden">
                   {/* Run header */}
-                  <div className="flex items-center gap-4 px-5 py-3 cursor-pointer hover:bg-gray-50" onClick={() => setExpandedExecId(isExpanded ? null : run.id)}>
+                  <div className="flex items-center gap-4 px-5 py-3 cursor-pointer hover:bg-gray-50" onClick={() => { setExpandedExecId(isExpanded ? null : run.id); if (isExpanded) setExpandedTrKeys(new Set()); }}>
                     <div className="flex-shrink-0">{isExpanded ? <ChevronUpIcon className="w-4 h-4 text-fg-mid" /> : <ChevronDownIcon className="w-4 h-4 text-fg-mid" />}</div>
                     <Chip status={run.status} />
                     <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -567,11 +568,11 @@ export default function TestPlanDetail() {
                             return (tr.title || '').toLowerCase().includes(q) || (tr.test_case_display_id || '').toLowerCase().includes(q);
                           }).map((tr, idx) => {
                             const trExpKey = `${run.id}-${idx}`;
-                            const isTrExpanded = expandedExecId === trExpKey;
+                            const isTrExpanded = expandedTrKeys.has(trExpKey);
                             return (
                               <React.Fragment key={tr.test_case_id || tr.test_case_display_id || idx}>
-                                <tr className="hover:bg-gray-50">
-                                  <td className="px-2 py-2 text-center">
+                                <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => setExpandedTrKeys(prev => { const n = new Set(prev); n.has(trExpKey) ? n.delete(trExpKey) : n.add(trExpKey); return n; })}>
+                                  <td className="px-2 py-2 text-center" onClick={e => e.stopPropagation()}>
                                     <button
                                       onClick={() => handleRerunSingle(tr.test_case_id, tr.test_case_display_id)}
                                       disabled={rerunningTcId === tr.test_case_id}
@@ -585,13 +586,11 @@ export default function TestPlanDetail() {
                                   <td className="px-4 py-2"><Chip status={tr.status} /></td>
                                   <td className="px-4 py-2 text-xs font-mono text-fg-mid">{tr.template_used || '-'}</td>
                                   <td className="px-4 py-2 text-xs text-fg-mid">{tr.duration_seconds != null ? `${tr.duration_seconds}s` : '-'}</td>
-                                  <td className="px-4 py-2">{tr.proof_artifacts?.length ? (
+                                  <td className="px-4 py-2" onClick={e => e.stopPropagation()}>{tr.proof_artifacts?.length ? (
                                     <button onClick={() => setSelectedProof(tr.proof_artifacts)} className="badge badge-teal text-xs cursor-pointer">{tr.proof_artifacts.length} proof{tr.proof_artifacts.length > 1 ? 's' : ''}</button>
                                   ) : <span className="text-xs text-fg-mid">-</span>}</td>
                                   <td className="px-4 py-2">
-                                    <button onClick={() => setExpandedExecId(isTrExpanded ? run.id : trExpKey)} className="text-fg-mid hover:text-fg-dark">
-                                      <EyeIcon className="w-4 h-4" />
-                                    </button>
+                                    {isTrExpanded ? <ChevronUpIcon className="w-4 h-4 text-fg-teal" /> : <ChevronDownIcon className="w-4 h-4 text-fg-mid" />}
                                   </td>
                                 </tr>
                                 {isTrExpanded && <tr><td colSpan={7} className="px-8 py-3 bg-gray-50">
