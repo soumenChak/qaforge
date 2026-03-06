@@ -21,6 +21,7 @@ const STATUS_STYLES = {
 
 const EXEC_TYPE_STYLES = {
   api: { bg: 'bg-indigo-100 text-indigo-700', label: 'API', icon: '🌐' },
+  mcp: { bg: 'bg-teal-100 text-teal-700', label: 'MCP', icon: '🔗' },
   ui: { bg: 'bg-purple-100 text-purple-700', label: 'UI', icon: '🖥️' },
   sql: { bg: 'bg-amber-100 text-amber-700', label: 'SQL', icon: '🗄️' },
   manual: { bg: 'bg-gray-100 text-gray-600', label: 'Manual', icon: '✋' },

@@ -1618,6 +1618,7 @@ export default function ProjectDetail() {
                       className="input-field"
                     >
                       <option value="api">API</option>
+                      <option value="mcp">MCP</option>
                       <option value="ui">UI (Playwright)</option>
                       <option value="sql">SQL (Database)</option>
                       <option value="manual">Manual</option>
