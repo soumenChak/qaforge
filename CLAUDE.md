@@ -4,8 +4,8 @@
 - **Stack:** FastAPI + React + PostgreSQL + Redis + ChromaDB + MCP Servers (Docker Compose)
 - **Backend:** `backend/main.py` entry point, 11 route modules in `backend/routes/`
 - **Frontend:** React 18 + Tailwind CSS in `frontend/src/`
-- **MCP Server:** `mcp-server/` — FastMCP SSE, 25 QAForge tools for remote Claude Code/Desktop access
-- **Production:** `https://qaforge.freshgravity.net` (VM: `13.233.36.18`, SSH PEM: `~/Desktop/innovation-lab.pem`)
+- **MCP Server:** `mcp-server/` — FastMCP SSE, 31 QAForge tools for remote Claude Code/Desktop access
+- **Production:** `https://qaforge.freshgravity.net` (see `docs/SETUP_GUIDE.md` for deploy details)
 - **Company:** FreshGravity
 
 ## Quick Start
@@ -13,7 +13,7 @@
 ```bash
 cp .env.example .env        # Configure SECRET_KEY + LLM keys
 docker compose up -d         # Start all 6 services (+ QAForge MCP server)
-# Open https://localhost:8080 — admin@freshgravity.com / admin123
+# Open https://localhost:8080 — login with your admin credentials
 ```
 
 ## Project Structure
@@ -56,16 +56,17 @@ qaforge/
     main.py                # Entry point: mcp.run(transport="sse")
     Dockerfile             # Python 3.11-slim container
     src/
-      server.py            # FastMCP instance + 16 @mcp.tool() registrations
+      server.py            # FastMCP instance + 31 @mcp.tool() registrations
       api_client.py        # httpx async client → QAForge Agent API
       config.py            # QAFORGE_API_URL, QAFORGE_AGENT_KEY env vars
-      tools/               # 7 tool modules:
+      tools/               # 8 tool modules:
         project.py         #   get_project, update_project
         requirements.py    #   list/extract/submit requirements
-        test_cases.py      #   list/generate/submit test cases
+        test_cases.py      #   list/generate/submit/get/update test cases
         test_plans.py      #   list/create plans, get plan test cases
-        executions.py      #   submit results, add proof
-        knowledge.py       #   kb_stats, upload_reference
+        executions.py      #   submit results, add proof, execute plan, get run
+        knowledge.py       #   kb_stats, upload_reference, create/list entries
+        frameworks.py      #   get_frameworks, check_coverage
         summary.py         #   get_summary
   frontend/
     src/
@@ -122,14 +123,14 @@ docker compose exec backend sh -c "cd /app && alembic revision --autogenerate -m
 
 ### QAForge MCP Server (`mcp-server/`)
 
-Exposes QAForge operations as 20 MCP tools over SSE transport (includes `connect`/`connection_status` for project switching), so any remote Claude Code/Desktop can manage tests without codebase access.
+Exposes QAForge operations as 31 MCP tools over SSE transport (includes `connect`/`connection_status` for project switching), so any remote Claude Code/Desktop can manage tests without codebase access.
 
 **How it works:** MCP Server → httpx calls → QAForge Agent API (`/api/agent/*`) → same auth (X-Agent-Key)
 
 **Key files:**
-- `mcp-server/src/server.py` — FastMCP instance + all `@mcp.tool()` decorators (20 tools, includes `connect`/`connection_status`)
+- `mcp-server/src/server.py` — FastMCP instance + all `@mcp.tool()` decorators (31 tools, includes `connect`/`connection_status`)
 - `mcp-server/src/api_client.py` — httpx wrapper with dynamic agent key (`set_agent_key()`/`get_active_key()` for session overrides)
-- `mcp-server/src/tools/` — 7 modules (project, requirements, test_cases, test_plans, executions, knowledge, summary)
+- `mcp-server/src/tools/` — 8 modules (project, requirements, test_cases, test_plans, executions, knowledge, frameworks, summary)
 
 **Adding a new MCP tool:**
 1. Add the implementation function in the appropriate `src/tools/*.py` module
@@ -161,8 +162,8 @@ claude mcp add qaforge "https://host:8080/qaforge-mcp/sse" --transport sse
 > **IMPORTANT:** Claude Desktop format uses just `"url"`. `.mcp.json` format requires `"type": "sse"` + `"url"`. They are different formats.
 
 **SSE endpoints:**
-- QAForge MCP: `https://13.233.36.18:8080/qaforge-mcp/sse` (20 tools)
-- Reltio MCP: `https://13.233.36.18:8080/mcp/sse` (45 tools)
+- QAForge MCP: `https://<your-host>/qaforge-mcp/sse` (31 tools)
+- Reltio MCP: `https://<your-host>/mcp/sse` (45 tools)
 
 ### Testing
 ```bash
@@ -173,7 +174,7 @@ bash e2e_agent_test.sh                  # E2E: login → project → key → pla
 
 # ── Manual API Checks ────────────────────────────────────────────────────
 curl -k https://localhost:8080/api/health
-curl -k https://localhost:8080/api/agent/summary -H "X-Agent-Key: qf_..."
+curl -k https://localhost:8080/api/agent/summary -H "X-Agent-Key: $QAFORGE_AGENT_KEY"
 
 # ── MCP SSE Test ─────────────────────────────────────────────────────────
 curl -sk -N --max-time 5 https://localhost:8080/qaforge-mcp/sse
@@ -187,15 +188,14 @@ docker compose exec backend python -m pytest tests/ -v
 
 ### Deploy
 
-**Production VM:** `13.233.36.18` via SSH with PEM key `~/Desktop/innovation-lab.pem`
+**Production VM:** SSH to your deploy server (see `docs/SETUP_GUIDE.md` for details)
 
 ```bash
 # VM deployment — IMPORTANT: git pull must run as ubuntu (not sudo), docker commands need sudo
-ssh -i ~/Desktop/innovation-lab.pem ubuntu@13.233.36.18 \
+ssh -i <your-pem-key> ubuntu@<server-ip> \
   "cd /opt/qaforge && git pull origin main && sudo docker compose build backend frontend && sudo docker compose up -d backend frontend"
 
 # NEVER use `sudo git pull` — root doesn't have SSH keys for Bitbucket, only ubuntu does
-# NEVER use default SSH key — must specify -i ~/Desktop/innovation-lab.pem (innovation-lab)
 
 # Local rebuild
 docker compose build --parallel && docker compose up -d
@@ -317,13 +317,19 @@ PUT  /api/agent/project            — Update app_profile, description
 GET  /api/agent/test-plans         — List test plans (with stats)
 POST /api/agent/test-plans         — Create test plan
 GET  /api/agent/test-plans/{id}/test-cases — Get plan's test cases
+POST /api/agent/test-plans/{id}/execute    — Trigger async execution (returns run_id)
 POST /api/agent/test-cases         — Submit test cases (batch)
+GET  /api/agent/test-cases/{tc_id} — Get single test case (by UUID or display ID)
+PUT  /api/agent/test-cases/{tc_id} — Update test case fields
 POST /api/agent/test-cases/{id}/duplicate — Duplicate a test case
 POST /api/agent/executions         — Submit execution results
+GET  /api/agent/execution-runs/{id}— Get execution run detail + results
 GET  /api/agent/summary            — Progress summary
 POST /api/agent/generate-from-brd  — AI test case generation
 POST /api/agent/upload-reference   — Upload KB reference samples
 GET  /api/agent/kb-stats           — Knowledge base coverage
+POST /api/agent/knowledge          — Create KB entry
+GET  /api/agent/knowledge          — List KB entries (with filters)
 ```
 
 ## New Environment Setup
@@ -414,7 +420,8 @@ When the user says **"run the demo"** or **"start the demo"**, execute the follo
 
 ### Demo Agent Key
 ```
-Reltio MDM:  qf_pu9XD6ePDdq6-BBbfOCmPdap5yjP7zD_pJDrQUqz4eROeVP4IElBOiErfPZEwidG
+# Set your project's agent key (get from QAForge UI > Project Settings > Agent API Key)
+export QAFORGE_AGENT_KEY=qf_your-key-here
 ```
 
 ### Scene 0: Transition (15 sec)
