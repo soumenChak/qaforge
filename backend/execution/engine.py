@@ -871,9 +871,11 @@ def _extract_mcp_params_from_steps(tc: "TestCase") -> Dict[str, Any]:
     for step in steps:
         if not isinstance(step, dict):
             continue
-        # Extract tool_name from step
+        # Extract tool_name from step (check multiple field names)
         if step.get("tool_name"):
             tool_name = step["tool_name"]
+        elif step.get("tool") and not tool_name:
+            tool_name = step["tool"]
         # Extract tool_params as arguments
         if step.get("tool_params"):
             arguments = step["tool_params"]
