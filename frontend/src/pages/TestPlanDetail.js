@@ -118,6 +118,43 @@ export default function TestPlanDetail() {
     }
   }, [activeTab, projectId, planId]);
 
+  // ── Execute Single Test Case ──
+  const [rerunningTcId, setRerunningTcId] = useState(null);
+
+  const handleRerunSingle = async (testCaseId, displayId) => {
+    if (rerunningTcId) return;
+    setRerunningTcId(testCaseId);
+    try {
+      const res = await testPlansAPI.execute(projectId, planId, { test_case_ids: [testCaseId] });
+      const runId = res.data.id;
+      const poll = async (attempts = 0) => {
+        if (attempts > 30) {
+          setRerunningTcId(null);
+          alert(`${displayId}: Execution timed out.`);
+          return;
+        }
+        const run = await executionRunsAPI.getById(projectId, runId);
+        if (run.data.status === 'completed' || run.data.status === 'failed') {
+          setRerunningTcId(null);
+          const results = run.data.results?.test_results || [];
+          const tcResult = results.find(r => r.test_case_id === testCaseId || r.test_case_display_id === displayId);
+          if (tcResult) {
+            const status = tcResult.status === 'passed' ? 'PASSED' : 'FAILED';
+            alert(`${displayId}: ${status}`);
+          }
+          loadExecutions();
+          return;
+        }
+        setTimeout(() => poll(attempts + 1), 2000);
+      };
+      poll();
+    } catch (e) {
+      setRerunningTcId(null);
+      const d = e.response?.data?.detail;
+      alert(typeof d === 'string' ? d : 'Failed to re-run test case.');
+    }
+  };
+
   // ── Execute Plan ──
   const handleExecute = async () => {
     if (executing || runPolling) return;
@@ -409,6 +446,7 @@ export default function TestPlanDetail() {
               </div>
               <div className="overflow-x-auto rounded-lg border border-gray-200"><table className="min-w-full divide-y divide-gray-200">
                 <thead><tr className="bg-gray-50">
+                  <th className="px-4 py-3 text-xs font-semibold text-fg-mid text-left w-10"></th>
                   <th className="px-4 py-3 text-xs font-semibold text-fg-mid text-left">Test Case</th>
                   <th className="px-4 py-3 text-xs font-semibold text-fg-mid text-left">Status</th>
                   <th className="px-4 py-3 text-xs font-semibold text-fg-mid text-left">Actual Result</th>
@@ -424,6 +462,16 @@ export default function TestPlanDetail() {
                     return (ex.test_case_display_id || '').toLowerCase().includes(q) || (ex.test_case_title || '').toLowerCase().includes(q);
                   }).map(ex => (
                     <tr key={ex.id} className="hover:bg-gray-50">
+                      <td className="px-2 py-3 text-center">
+                        <button
+                          onClick={() => handleRerunSingle(ex.test_case_id, ex.test_case_display_id)}
+                          disabled={rerunningTcId === ex.test_case_id}
+                          className={`p-1 rounded transition-colors ${rerunningTcId === ex.test_case_id ? 'text-teal-400 animate-pulse cursor-wait' : 'text-gray-400 hover:text-teal-600'}`}
+                          title={rerunningTcId === ex.test_case_id ? 'Running...' : `Re-run ${ex.test_case_display_id}`}
+                        >
+                          <PlayIcon className="w-4 h-4" />
+                        </button>
+                      </td>
                       <td className="px-4 py-3"><span className="text-sm font-medium text-fg-dark">{ex.test_case_display_id || '-'}</span>{ex.test_case_title && <p className="text-xs text-fg-mid mt-0.5 truncate max-w-xs">{ex.test_case_title}</p>}</td>
                       <td className="px-4 py-3"><Chip status={ex.status} /></td>
                       <td className="px-4 py-3 text-xs text-fg-mid max-w-xs truncate">{ex.actual_result || '-'}</td>
@@ -504,6 +552,7 @@ export default function TestPlanDetail() {
                     <div className="border-t border-gray-100">
                       <table className="min-w-full divide-y divide-gray-100">
                         <thead><tr className="bg-gray-50">
+                          <th className="px-2 py-2 text-xs font-semibold text-fg-mid text-left w-8" />
                           <th className="px-5 py-2 text-xs font-semibold text-fg-mid text-left">Test Case</th>
                           <th className="px-4 py-2 text-xs font-semibold text-fg-mid text-left">Status</th>
                           <th className="px-4 py-2 text-xs font-semibold text-fg-mid text-left">Template</th>
@@ -522,6 +571,16 @@ export default function TestPlanDetail() {
                             return (
                               <React.Fragment key={tr.test_case_id || tr.test_case_display_id || idx}>
                                 <tr className="hover:bg-gray-50">
+                                  <td className="px-2 py-2 text-center">
+                                    <button
+                                      onClick={() => handleRerunSingle(tr.test_case_id, tr.test_case_display_id)}
+                                      disabled={rerunningTcId === tr.test_case_id}
+                                      className={`p-0.5 rounded transition-colors ${rerunningTcId === tr.test_case_id ? 'text-teal-400 animate-pulse cursor-wait' : 'text-gray-400 hover:text-teal-600'}`}
+                                      title={rerunningTcId === tr.test_case_id ? 'Running...' : `Re-run ${tr.test_case_display_id}`}
+                                    >
+                                      <PlayIcon className="w-3.5 h-3.5" />
+                                    </button>
+                                  </td>
                                   <td className="px-5 py-2 text-sm text-fg-dark">{tr.title || tr.test_case_display_id || '-'}</td>
                                   <td className="px-4 py-2"><Chip status={tr.status} /></td>
                                   <td className="px-4 py-2 text-xs font-mono text-fg-mid">{tr.template_used || '-'}</td>
@@ -535,7 +594,7 @@ export default function TestPlanDetail() {
                                     </button>
                                   </td>
                                 </tr>
-                                {isTrExpanded && <tr><td colSpan={6} className="px-8 py-3 bg-gray-50">
+                                {isTrExpanded && <tr><td colSpan={7} className="px-8 py-3 bg-gray-50">
                                   {tr.logs?.length > 0 && <div className="mb-3">
                                     <p className="text-xs font-semibold text-fg-mid mb-1 uppercase tracking-wider">Execution Logs</p>
                                     <pre className="text-xs text-fg-dark bg-white border border-gray-200 p-3 rounded overflow-x-auto max-h-48">{tr.logs.join('\n')}</pre>

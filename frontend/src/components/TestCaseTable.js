@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { TrashIcon, DocumentDuplicateIcon } from '@heroicons/react/24/outline';
+import { TrashIcon, DocumentDuplicateIcon, PlayIcon } from '@heroicons/react/24/outline';
 import RatingWidget from './RatingWidget';
 
 const PRIORITY_STYLES = {
@@ -47,6 +47,8 @@ export default function TestCaseTable({
   onStatusChange,
   onDelete,
   onDuplicate,
+  onExecute,
+  executingIds = new Set(),
   selectedIds = new Set(),
   onSelectChange,
   loading = false,
@@ -164,7 +166,7 @@ export default function TestCaseTable({
                 Status <SortIcon field="status" />
               </th>
               <th className="px-4 py-3">Rating</th>
-              {(onDelete || onDuplicate) && <th className="px-4 py-3 w-24">Actions</th>}
+              {(onDelete || onDuplicate || onExecute) && <th className="px-4 py-3 w-28">Actions</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
@@ -237,9 +239,19 @@ export default function TestCaseTable({
                 <td className="px-4 py-3">
                   <RatingWidget value={tc.rating || 0} readOnly size="sm" />
                 </td>
-                {(onDelete || onDuplicate) && (
+                {(onDelete || onDuplicate || onExecute) && (
                   <td className="px-4 py-3">
                     <div className="flex gap-1">
+                      {onExecute && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onExecute(tc); }}
+                          disabled={executingIds.has(tc.id)}
+                          className={`transition-colors p-1 ${executingIds.has(tc.id) ? 'text-teal-400 animate-pulse cursor-wait' : 'text-gray-400 hover:text-teal-600'}`}
+                          title={executingIds.has(tc.id) ? `Running ${tc.test_case_id}...` : `Run ${tc.test_case_id}`}
+                        >
+                          <PlayIcon className="w-5 h-5" />
+                        </button>
+                      )}
                       {onDuplicate && (
                         <button
                           onClick={(e) => { e.stopPropagation(); onDuplicate(tc); }}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { projectsAPI, requirementsAPI, testCasesAPI, testPlansAPI, agentKeyAPI } from '../services/api';
+import { projectsAPI, requirementsAPI, testCasesAPI, testPlansAPI, executionRunsAPI, agentKeyAPI } from '../services/api';
 import TestCaseTable from '../components/TestCaseTable';
 import { DOMAIN_COLORS, DOMAIN_NAMES } from '../constants/domains';
 import Breadcrumb from '../components/Breadcrumb';
@@ -592,6 +592,50 @@ export default function ProjectDetail() {
       navigate(`/projects/${id}/test-cases/${res.data.id}`);
     } catch (err) {
       alert('Failed to duplicate test case.');
+    }
+  };
+
+  // -- Execute single test case --
+  const [executingTcIds, setExecutingTcIds] = useState(new Set());
+
+  const handleExecuteTc = async (tc) => {
+    if (!tc.test_plan_id) {
+      alert(`${tc.test_case_id} is not assigned to a test plan. Assign it to a plan first.`);
+      return;
+    }
+    setExecutingTcIds(prev => new Set(prev).add(tc.id));
+    try {
+      const res = await testPlansAPI.execute(id, tc.test_plan_id, { test_case_ids: [tc.id] });
+      const runId = res.data.id;
+      // Poll for result
+      const poll = async (attempts = 0) => {
+        if (attempts > 30) {
+          setExecutingTcIds(prev => { const n = new Set(prev); n.delete(tc.id); return n; });
+          alert(`${tc.test_case_id}: Execution timed out. Check the test plan executions tab.`);
+          return;
+        }
+        const run = await executionRunsAPI.getById(id, runId);
+        if (run.data.status === 'completed' || run.data.status === 'failed') {
+          setExecutingTcIds(prev => { const n = new Set(prev); n.delete(tc.id); return n; });
+          const results = run.data.results?.test_results || [];
+          const tcResult = results.find(r => r.test_case_id === tc.id || r.test_case_display_id === tc.test_case_id);
+          if (tcResult) {
+            const status = tcResult.status === 'passed' ? '✅ PASSED' : '❌ FAILED';
+            alert(`${tc.test_case_id}: ${status}`);
+            // Refresh test case status in table
+            setTestCases(prev => prev.map(t => t.id === tc.id ? { ...t, status: tcResult.status } : t));
+          } else {
+            alert(`${tc.test_case_id}: Execution completed. Check results in the test plan.`);
+          }
+          return;
+        }
+        setTimeout(() => poll(attempts + 1), 2000);
+      };
+      poll();
+    } catch (err) {
+      setExecutingTcIds(prev => { const n = new Set(prev); n.delete(tc.id); return n; });
+      const d = err.response?.data?.detail;
+      alert(typeof d === 'string' ? d : 'Failed to execute test case.');
     }
   };
 
@@ -1793,6 +1837,8 @@ export default function ProjectDetail() {
             onRowClick={(tc) => navigate(`/projects/${id}/test-cases/${tc.id}`)}
             getRowHref={(tc) => `/projects/${id}/test-cases/${tc.id}`}
             onStatusChange={handleStatusChange}
+            onExecute={handleExecuteTc}
+            executingIds={executingTcIds}
             onDuplicate={handleDuplicateTc}
             onDelete={handleDeleteTc}
             selectedIds={selectedTcIds}
