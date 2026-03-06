@@ -5,7 +5,7 @@
 - **Backend:** `backend/main.py` entry point, 11 route modules in `backend/routes/`
 - **Frontend:** React 18 + Tailwind CSS in `frontend/src/`
 - **MCP Server:** `mcp-server/` — FastMCP SSE, 20 QAForge tools for remote Claude Code/Desktop access
-- **Production:** `https://13.233.36.18:8080` (VM)
+- **Production:** `https://qaforge.freshgravity.net` (VM: `13.233.36.18`, SSH PEM: `~/Desktop/innovation-lab.pem`)
 - **Company:** FreshGravity
 
 ## Quick Start
@@ -186,9 +186,16 @@ docker compose exec backend python -m pytest tests/ -v
 ```
 
 ### Deploy
+
+**Production VM:** `13.233.36.18` via SSH with PEM key `~/Desktop/innovation-lab.pem`
+
 ```bash
-# VM deployment
-git push && ssh VM 'cd /opt/qaforge && git pull && bash scripts/vm-deploy.sh'
+# VM deployment — IMPORTANT: git pull must run as ubuntu (not sudo), docker commands need sudo
+ssh -i ~/Desktop/innovation-lab.pem ubuntu@13.233.36.18 \
+  "cd /opt/qaforge && git pull origin main && sudo docker compose build backend frontend && sudo docker compose up -d backend frontend"
+
+# NEVER use `sudo git pull` — root doesn't have SSH keys for Bitbucket, only ubuntu does
+# NEVER use default SSH key — must specify -i ~/Desktop/innovation-lab.pem (innovation-lab)
 
 # Local rebuild
 docker compose build --parallel && docker compose up -d
@@ -196,6 +203,15 @@ docker compose build --parallel && docker compose up -d
 # MCP server only
 docker compose build qaforge_mcp && docker compose up -d qaforge_mcp
 ```
+
+**Docker service names** (in docker-compose.yml):
+- `backend`, `frontend`, `db`, `redis`, `chromadb`, `qaforge_mcp`
+- The MCP server service is `qaforge_mcp` (NOT `mcp` or `mcp_server`)
+
+**Git remotes:**
+- `origin` → `https://github.com/soumenChak/qaforge.git`
+- `bitbucket` → `git@bitbucket.org:lifio/qaforge.git`
+- Always push to both: `git push origin main && git push bitbucket main`
 
 ## Key Files by Size (Most Complex)
 
