@@ -20,13 +20,17 @@ from src.tools.requirements import list_requirements_impl, extract_requirements_
 from src.tools.test_cases import (
     list_test_cases_impl, generate_test_cases_impl, submit_test_cases_impl,
     archive_test_cases_impl, delete_test_cases_impl,
+    get_test_case_impl, update_test_case_impl,
 )
 from src.tools.test_plans import (
     list_test_plans_impl, create_test_plan_impl, get_plan_test_cases_impl,
     archive_test_plan_impl, delete_test_plan_impl,
 )
-from src.tools.executions import submit_results_impl, add_proof_impl, delete_execution_runs_impl
-from src.tools.knowledge import kb_stats_impl, upload_reference_impl
+from src.tools.executions import (
+    submit_results_impl, add_proof_impl, delete_execution_runs_impl,
+    execute_test_plan_impl, get_execution_run_impl,
+)
+from src.tools.knowledge import kb_stats_impl, upload_reference_impl, create_kb_entry_impl, list_kb_entries_impl
 from src.tools.frameworks import get_frameworks_impl, check_framework_coverage_impl
 from src.tools.summary import get_summary_impl
 
@@ -254,6 +258,40 @@ async def submit_test_cases(test_cases: list) -> list:
     return await submit_test_cases_impl(test_cases=test_cases)
 
 
+@mcp.tool()
+async def get_test_case(tc_id: str) -> dict:
+    """Get a single test case by UUID or display ID (e.g. TC-MCP-004).
+
+    Returns full test case detail including steps, expected result, tags, and execution history.
+
+    Args:
+        tc_id: Test case UUID or display ID (e.g. 'TC-MCP-004')
+    """
+    return await get_test_case_impl(tc_id=tc_id)
+
+
+@mcp.tool()
+async def update_test_case(tc_id: str, updates: dict) -> dict:
+    """Update fields of an existing test case. Pass only the fields you want to change.
+
+    Use this to fix test steps, expected results, descriptions, or other fields
+    when a generated test case needs adjustment.
+
+    Args:
+        tc_id: Test case UUID or display ID (e.g. 'TC-MCP-004')
+        updates: Dictionary of fields to update. Supported fields:
+            - title: New title
+            - description: New description
+            - expected_result: New expected result text
+            - test_steps: New list of step objects [{action, expected_result, tool_name?, tool_params?}]
+            - priority: 'P1', 'P2', 'P3', 'P4'
+            - category: 'functional', 'integration', 'smoke', etc.
+            - tags: New list of tags
+            - preconditions: New preconditions text
+    """
+    return await update_test_case_impl(tc_id=tc_id, updates=updates)
+
+
 # ═══════════════════════════════════════════════════════════════════
 # Test Plan Tools
 # ═══════════════════════════════════════════════════════════════════
@@ -337,6 +375,33 @@ async def add_proof(execution_id: str, proof_type: str, title: str, content: str
     )
 
 
+@mcp.tool()
+async def execute_test_plan(plan_id: str, test_case_ids: list = []) -> dict:
+    """Trigger execution of a test plan. Returns a run ID to poll for progress.
+
+    Runs all test cases in the plan (or a subset if test_case_ids provided).
+    Execution happens asynchronously — use get_execution_run to poll for results.
+
+    Args:
+        plan_id: UUID of the test plan to execute
+        test_case_ids: Optional list of specific test case UUIDs to run (default: all in plan)
+    """
+    return await execute_test_plan_impl(plan_id=plan_id, test_case_ids=test_case_ids or None)
+
+
+@mcp.tool()
+async def get_execution_run(run_id: str) -> dict:
+    """Get execution run detail with results and progress.
+
+    Poll this after execute_test_plan to track progress. Returns run status,
+    individual test results, pass/fail counts, and proof artifacts.
+
+    Args:
+        run_id: UUID of the execution run
+    """
+    return await get_execution_run_impl(run_id=run_id)
+
+
 # ═══════════════════════════════════════════════════════════════════
 # Knowledge Base Tools
 # ═══════════════════════════════════════════════════════════════════
@@ -364,6 +429,43 @@ async def upload_reference(entries: list, domain: str, sub_domain: str) -> dict:
         sub_domain: Sub-domain (reltio, snowflake, databricks, etc.)
     """
     return await upload_reference_impl(entries=entries, domain=domain, sub_domain=sub_domain)
+
+
+@mcp.tool()
+async def create_kb_entry(
+    domain: str, entry_type: str, title: str, content: str,
+    sub_domain: str = "", tags: list = [], version: str = "1.0",
+) -> dict:
+    """Create a new Knowledge Base entry (pattern, best practice, framework, etc.).
+
+    Use this to add domain-specific knowledge that improves future AI test generation.
+
+    Args:
+        domain: Domain classification (mdm, ai, data_eng, integration, digital)
+        entry_type: Type of entry - 'pattern', 'best_practice', 'reference_test', 'framework', 'glossary'
+        title: Entry title
+        content: Full content text (markdown supported)
+        sub_domain: Sub-domain (reltio, snowflake, databricks, etc.)
+        tags: List of keyword tags for searchability
+        version: Version string (default '1.0')
+    """
+    return await create_kb_entry_impl(
+        domain=domain, entry_type=entry_type, title=title, content=content,
+        sub_domain=sub_domain, tags=tags or None, version=version,
+    )
+
+
+@mcp.tool()
+async def list_kb_entries(domain: str = "", entry_type: str = "") -> list:
+    """List Knowledge Base entries with optional filters.
+
+    Returns entries with: id, domain, sub_domain, entry_type, title, content, tags, version.
+
+    Args:
+        domain: Filter by domain (mdm, ai, data_eng, etc.). Empty = all.
+        entry_type: Filter by type (pattern, best_practice, reference_test, etc.). Empty = all.
+    """
+    return await list_kb_entries_impl(domain=domain, entry_type=entry_type)
 
 
 # ═══════════════════════════════════════════════════════════════════

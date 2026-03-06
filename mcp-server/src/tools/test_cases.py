@@ -95,3 +95,13 @@ async def archive_test_cases_impl(test_case_ids: list) -> dict:
 async def delete_test_cases_impl(test_case_ids: list) -> dict:
     """Permanently delete test cases and their execution results."""
     return await agent_delete("/test-cases", json={"test_case_ids": test_case_ids})
+
+
+async def get_test_case_impl(tc_id: str) -> dict:
+    """Get a single test case by UUID or display ID (e.g. TC-MCP-004)."""
+    return await agent_get(f"/test-cases/{tc_id}")
+
+
+async def update_test_case_impl(tc_id: str, updates: dict) -> dict:
+    """Update fields of a test case. Pass only the fields to change."""
+    return await agent_put(f"/test-cases/{tc_id}", json=updates)

@@ -16,12 +16,13 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Header, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Header, Query
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from db_models import (
     AgentSession,
+    Connection,
     ExecutionResult,
     ExecutionRun,
     KnowledgeEntry,
@@ -42,12 +43,17 @@ from models import (
     AgentSummaryResponse,
     AgentTestCaseBatchSubmit,
     ExecutionResultResponse,
+    ExecutionRunResponse,
+    KnowledgeEntryCreate,
+    KnowledgeEntryResponse,
     ProofArtifactResponse,
     ProofArtifactSubmit,
     RequirementResponse,
     TestCaseResponse,
+    TestCaseUpdate,
     TestPlanCreate,
     TestPlanResponse,
+    TestStepSchema,
 )
 
 logger = logging.getLogger(__name__)
@@ -1616,3 +1622,222 @@ def delete_execution_runs(
         len(deleted_ids), project.name,
     )
     return {"deleted": len(deleted_ids), "run_ids": deleted_ids}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# New endpoints — update test case, execute, get run, KB CRUD
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+# ---------------------------------------------------------------------------
+# PUT /test-cases/{tc_id} — Update a test case
+# ---------------------------------------------------------------------------
+@router.put("/test-cases/{tc_id}", response_model=TestCaseResponse)
+def update_test_case(
+    tc_id: str,
+    body: TestCaseUpdate,
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """Update fields of an existing test case. Accepts either UUID or display ID (e.g. TC-MCP-004)."""
+    # Try UUID first, fall back to display test_case_id
+    tc = None
+    try:
+        tc_uuid = uuid.UUID(tc_id)
+        tc = db.query(TestCase).filter(
+            TestCase.id == tc_uuid, TestCase.project_id == project.id
+        ).first()
+    except ValueError:
+        pass
+    if not tc:
+        tc = db.query(TestCase).filter(
+            TestCase.test_case_id == tc_id, TestCase.project_id == project.id
+        ).first()
+    if not tc:
+        raise HTTPException(404, f"Test case '{tc_id}' not found")
+
+    if body.title is not None:
+        tc.title = sanitize_string(body.title) or body.title
+    if body.description is not None:
+        tc.description = sanitize_string(body.description)
+    if body.preconditions is not None:
+        tc.preconditions = sanitize_string(body.preconditions)
+    if body.test_steps is not None:
+        tc.test_steps = [s.model_dump() for s in body.test_steps]
+    if body.expected_result is not None:
+        tc.expected_result = sanitize_string(body.expected_result)
+    if body.test_data is not None:
+        tc.test_data = body.test_data
+    if body.priority is not None:
+        tc.priority = body.priority
+    if body.category is not None:
+        tc.category = body.category
+    if body.domain_tags is not None:
+        tc.domain_tags = body.domain_tags
+    if body.execution_type is not None:
+        tc.execution_type = body.execution_type
+    if body.status is not None:
+        tc.status = body.status
+    if body.test_plan_id is not None:
+        tc.test_plan_id = body.test_plan_id
+
+    db.commit()
+    db.refresh(tc)
+    logger.info("Agent updated test case %s in project %s", tc.test_case_id, project.name)
+    return TestCaseResponse.model_validate(tc)
+
+
+# ---------------------------------------------------------------------------
+# GET /test-cases/{tc_id} — Get a single test case with full detail
+# ---------------------------------------------------------------------------
+@router.get("/test-cases/{tc_id}", response_model=TestCaseResponse)
+def get_test_case(
+    tc_id: str,
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """Get a single test case by UUID or display ID."""
+    tc = None
+    try:
+        tc_uuid = uuid.UUID(tc_id)
+        tc = db.query(TestCase).filter(
+            TestCase.id == tc_uuid, TestCase.project_id == project.id
+        ).first()
+    except ValueError:
+        pass
+    if not tc:
+        tc = db.query(TestCase).filter(
+            TestCase.test_case_id == tc_id, TestCase.project_id == project.id
+        ).first()
+    if not tc:
+        raise HTTPException(404, f"Test case '{tc_id}' not found")
+    return TestCaseResponse.model_validate(tc)
+
+
+# ---------------------------------------------------------------------------
+# POST /test-plans/{plan_id}/execute — Trigger execution
+# ---------------------------------------------------------------------------
+@router.post("/test-plans/{plan_id}/execute", response_model=ExecutionRunResponse)
+def execute_test_plan(
+    plan_id: str,
+    background_tasks: BackgroundTasks,
+    body: dict = None,
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """Trigger execution of a test plan. Returns immediately; poll get_execution_run for progress."""
+    body = body or {}
+    plan_uuid = uuid.UUID(plan_id)
+    plan = db.query(TestPlan).filter(
+        TestPlan.id == plan_uuid, TestPlan.project_id == project.id
+    ).first()
+    if not plan:
+        raise HTTPException(404, "Test plan not found")
+
+    # Resolve connection
+    connection_id = None
+    default_conn = db.query(Connection).filter(
+        Connection.project_id == project.id, Connection.is_default == True
+    ).first()
+    if default_conn:
+        connection_id = default_conn.id
+
+    # Collect test case IDs
+    tc_id_strs = body.get("test_case_ids")
+    if tc_id_strs:
+        tc_ids = [uuid.UUID(tid) for tid in tc_id_strs]
+    else:
+        tcs = db.query(TestCase.id).filter(TestCase.test_plan_id == plan_uuid).all()
+        tc_ids = [tc.id for tc in tcs]
+
+    if not tc_ids:
+        raise HTTPException(400, "No test cases found in this plan")
+
+    run = ExecutionRun(
+        id=uuid.uuid4(),
+        project_id=project.id,
+        test_plan_id=plan_uuid,
+        connection_id=connection_id,
+        test_case_ids=[str(tid) for tid in tc_ids],
+        status="pending",
+        triggered_by=project.created_by,
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    try:
+        from execution.engine import run_execution
+        background_tasks.add_task(run_execution, run.id)
+    except ImportError:
+        logger.warning("execution.engine not available; run will stay pending")
+
+    logger.info("Agent triggered execution run %s for plan %s", run.id, plan.name)
+    return run
+
+
+# ---------------------------------------------------------------------------
+# GET /execution-runs/{run_id} — Get execution run with results
+# ---------------------------------------------------------------------------
+@router.get("/execution-runs/{run_id}", response_model=ExecutionRunResponse)
+def get_execution_run(
+    run_id: str,
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """Get execution run detail with results and progress."""
+    run_uuid = uuid.UUID(run_id)
+    run = db.query(ExecutionRun).filter(
+        ExecutionRun.id == run_uuid, ExecutionRun.project_id == project.id
+    ).first()
+    if not run:
+        raise HTTPException(404, "Execution run not found")
+    return run
+
+
+# ---------------------------------------------------------------------------
+# POST /knowledge — Create a KB entry
+# ---------------------------------------------------------------------------
+@router.post("/knowledge", response_model=KnowledgeEntryResponse)
+def create_knowledge_entry(
+    body: KnowledgeEntryCreate,
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """Create a new knowledge base entry."""
+    entry = KnowledgeEntry(
+        id=uuid.uuid4(),
+        domain=body.domain,
+        sub_domain=body.sub_domain,
+        entry_type=body.entry_type,
+        title=sanitize_string(body.title) or body.title,
+        content=body.content,
+        tags=body.tags or [],
+        source_project_id=body.source_project_id or project.id,
+        version=body.version or "1.0",
+        usage_count=0,
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    logger.info("Agent created KB entry '%s' (domain=%s)", entry.title, entry.domain)
+    return KnowledgeEntryResponse.model_validate(entry)
+
+
+# ---------------------------------------------------------------------------
+# GET /knowledge — List KB entries (with optional domain filter)
+# ---------------------------------------------------------------------------
+@router.get("/knowledge", response_model=List[KnowledgeEntryResponse])
+def list_knowledge_entries(
+    domain: Optional[str] = Query(None),
+    entry_type: Optional[str] = Query(None),
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """List knowledge base entries with optional domain and type filters."""
+    q = db.query(KnowledgeEntry)
+    if domain:
+        q = q.filter(KnowledgeEntry.domain == domain)
+    if entry_type:
+        q = q.filter(KnowledgeEntry.entry_type == entry_type)
+    return q.order_by(KnowledgeEntry.usage_count.desc()).limit(50).all()

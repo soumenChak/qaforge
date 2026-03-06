@@ -1,5 +1,5 @@
 """QAForge MCP Tools — Execution Results"""
-from src.api_client import agent_delete, agent_post
+from src.api_client import agent_delete, agent_get, agent_post
 
 
 async def submit_results_impl(results: list) -> list:
@@ -22,3 +22,16 @@ async def add_proof_impl(execution_id: str, proof: dict) -> dict:
 async def delete_execution_runs_impl(run_ids: list) -> dict:
     """Permanently delete execution runs by their IDs."""
     return await agent_delete("/execution-runs", json={"run_ids": run_ids})
+
+
+async def execute_test_plan_impl(plan_id: str, test_case_ids: list = None) -> dict:
+    """Trigger execution of a test plan. Returns run ID; poll get_execution_run for progress."""
+    body = {}
+    if test_case_ids:
+        body["test_case_ids"] = test_case_ids
+    return await agent_post(f"/test-plans/{plan_id}/execute", json=body)
+
+
+async def get_execution_run_impl(run_id: str) -> dict:
+    """Get execution run detail with results and progress."""
+    return await agent_get(f"/execution-runs/{run_id}")

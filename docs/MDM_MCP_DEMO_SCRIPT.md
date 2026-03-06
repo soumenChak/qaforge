@@ -116,25 +116,25 @@ Run a live smoke test: use Reltio MCP to check the server health, then search fo
 Show me the test cases in the Sprint 1 plan — break them down by execution type so I can see the testing strategy
 ```
 
-**What happens:** Claude calls `get_plan_test_cases` and groups the 28 test cases:
+**What happens:** Claude calls `get_plan_test_cases` and groups the 25 test cases:
 
 | Type | Count | What |
 |------|-------|------|
-| **api** | 14 | Direct Reltio REST API calls (OAuth2 authenticated) |
+| **api** | 10 | Direct Reltio REST API calls (OAuth2 authenticated) |
 | **mcp** | 10 | Via Reltio MCP server (45 tools) |
 | **manual** | 3 | UI tests behind SSO (can't automate login) |
-| **sql** | 1 | Snowflake database schema validation |
+| **sql** | 2 | Snowflake database schema validation |
 
-> **Say:** "This is a real enterprise test profile. 25 out of 28 are fully automated. The 3 manual ones? They test the Reltio UI — which is behind SSO. You can't automate an Okta redirect with Playwright. But watch this."
+> **Say:** "This is a real enterprise test profile. 22 out of 25 are fully automated. The 3 manual ones? They test the Reltio UI — which is behind SSO. You can't automate an Okta redirect with Playwright. But watch this."
 
 **Type:**
 ```
-Show me TC-MDM-004 (manual) and TC-MCP-004 (mcp) side by side — same functional coverage, different execution strategy
+Show me TC-UI-001 (manual) and TC-MCP-002 (mcp) side by side — same functional coverage (entity search), different execution strategy
 ```
 
 **What happens:** Claude shows the manual test case (UI steps: login, navigate to match rules, verify config) alongside its MCP equivalent (API steps: call get_business_configuration_tool, find_potential_matches_tool, etc.).
 
-> **Say:** "Same functional coverage. The manual version navigates the UI. The MCP version calls the same Reltio tools I used earlier. SSO blocks the browser — but it doesn't block MCP. We kept both: the manual ones document what a human tester would do, the MCP ones automate the same checks. 28 test cases, 4 execution types, zero gaps."
+> **Say:** "Same functional coverage. The manual version navigates the UI. The MCP version calls the same Reltio tools I used earlier. SSO blocks the browser — but it doesn't block MCP. We kept both: the manual ones document what a human tester would do, the MCP ones automate the same checks. 25 test cases, 4 execution types, zero gaps."
 
 ---
 
@@ -147,7 +147,7 @@ Generate 3 test cases for Reltio entity merge scenarios — cover happy path mer
 
 **What happens:** Claude calls `generate_test_cases` which uses:
 - MDM framework standards (mandatory test areas)
-- 43 Reltio-specific KB reference patterns
+- 53 MDM-specific KB reference patterns
 - 27 BRD requirements for context
 
 > **Say:** "These aren't generic test cases. The AI pulled from our MDM framework, 43 reference patterns in the knowledge base, and the project's BRD requirements. The 50th project in this domain will generate better tests than the first — because the system learns."
@@ -164,9 +164,9 @@ Generate 3 test cases for Reltio entity merge scenarios — cover happy path mer
 Show me the MDM testing frameworks first, then show KB stats, then check framework coverage — I want to see what guardrails exist before we generate anything
 ```
 
-**What happens:** Three calls — `get_frameworks`, `kb_stats`, `check_framework_coverage`. Shows the mandatory test areas, 91 KB entries, and current coverage gaps.
+**What happens:** Three calls — `get_frameworks`, `kb_stats`, `check_framework_coverage`. Shows the mandatory test areas, 96 KB entries, and current coverage gaps.
 
-> **Say:** "These are the guardrails. The framework defines what MUST be tested. The knowledge base has 43 Reltio-specific patterns. Now watch what happens when we generate."
+> **Say:** "These are the guardrails. The framework defines what MUST be tested. The knowledge base has 53 MDM-specific patterns. Now watch what happens when we generate."
 
 **Type:**
 ```
@@ -281,7 +281,7 @@ Re-run the smoke test and verify the results
 
 ## Closing (30 seconds — you talk)
 
-> "QAForge isn't another test management tool with an AI chatbot bolted on. It's a platform where AI agents are first-class citizens. 69 tools across 2 MCP servers. Domain knowledge that compounds over time. Role-based access that just works. And the question we started with — 'what does QA look like when AI is the starting point?' — you just saw the answer."
+> "QAForge isn't another test management tool with an AI chatbot bolted on. It's a platform where AI agents are first-class citizens. 70 tools across 2 MCP servers. Domain knowledge that compounds over time. Role-based access that just works. And the question we started with — 'what does QA look like when AI is the starting point?' — you just saw the answer."
 
 ---
 
@@ -360,7 +360,7 @@ You are a QA Engineer using QAForge and Reltio MCP to manage testing.
 You do NOT have access to any source code. You work entirely through MCP tools.
 
 ## Available MCP Servers
-- **QAForge MCP** (24 tools) — test management: connect, generate, execute, report
+- **QAForge MCP** (25 tools) — test management: connect, generate, execute, report
 - **Reltio MCP** (45 tools) — live Reltio MDM: search, CRUD, merge, match, analytics
 
 ## Workflow
