@@ -43,7 +43,7 @@ QAForge solves this by being the **documentation layer** — agents test, QAForg
   ┌────▼────┐     ┌──────▼──────┐   ┌─────▼─────┐
   │ QAForge │     │ QAForge MCP │   │ Reltio MCP│
   │ Backend │◄────│ Server      │   │ Server    │
-  │ FastAPI │     │ 20 tools    │   │ 45 tools  │
+  │ FastAPI │     │ 31 tools    │   │ 45 tools  │
   └──┬──┬──┬┘     └─────────────┘   └─────┬─────┘
      │  │  │                               │
   ┌──▼┐┌▼─┐┌▼──────┐┌────────┐     ┌──────▼──────┐
@@ -173,7 +173,7 @@ Then during vibe coding, just say: *"use QAForge to document testing"*
 |-----------|-----------|---------|
 | Backend | FastAPI (Python 3.11) | REST API + WebSocket |
 | Frontend | React 18 + Tailwind CSS | Web UI |
-| QAForge MCP | FastMCP (SSE) | 20 MCP tools for Claude Code |
+| QAForge MCP | FastMCP (SSE) | 31 MCP tools for Claude Code |
 | Reltio MCP | FastMCP (SSE) | 45 MCP tools for MDM operations |
 | Database | PostgreSQL 16 | Primary data store |
 | Cache | Redis 7 | Rate limiting, sessions |
@@ -212,7 +212,7 @@ qaforge/
     execution/           # Test execution engine + templates
   mcp-server/            # QAForge MCP Server (SSE transport)
     main.py              # Entry point: mcp.run(transport="sse")
-    src/server.py        # FastMCP instance + 20 tool registrations
+    src/server.py        # FastMCP instance + 31 tool registrations
     src/api_client.py    # httpx wrapper for QAForge Agent API
     src/tools/           # 8 tool modules (project, requirements, test_cases, frameworks, etc.)
     Dockerfile           # Python 3.11-slim container
