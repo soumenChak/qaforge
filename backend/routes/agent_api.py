@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from db_models import (
     AgentSession,
     ExecutionResult,
+    ExecutionRun,
     KnowledgeEntry,
     ProofArtifact,
     Requirement,
@@ -1565,3 +1566,53 @@ def delete_test_plan(
         plan_name, unlinked, project.name,
     )
     return {"deleted": True, "plan_name": plan_name, "test_cases_unlinked": unlinked}
+
+
+# ---------------------------------------------------------------------------
+# DELETE /execution-runs
+# ---------------------------------------------------------------------------
+@router.delete("/execution-runs")
+def delete_execution_runs(
+    body: dict,
+    project: Project = Depends(get_agent_project),
+    db: Session = Depends(get_db),
+):
+    """Delete execution runs by IDs. Also cleans up linked execution results."""
+    run_ids = body.get("run_ids", [])
+    if not run_ids:
+        raise HTTPException(400, "run_ids list is required")
+
+    # Convert string IDs to UUIDs
+    try:
+        uuids = [uuid.UUID(rid) for rid in run_ids]
+    except (ValueError, AttributeError):
+        raise HTTPException(400, "Invalid UUID in run_ids")
+
+    # Only delete runs belonging to this project
+    runs = (
+        db.query(ExecutionRun)
+        .filter(ExecutionRun.id.in_(uuids), ExecutionRun.project_id == project.id)
+        .all()
+    )
+
+    if not runs:
+        return {"deleted": 0}
+
+    # Don't delete currently running executions
+    running = [r for r in runs if r.status == "running"]
+    if running:
+        raise HTTPException(
+            400,
+            f"Cannot delete {len(running)} running execution(s). Cancel them first.",
+        )
+
+    deleted_ids = [str(r.id) for r in runs]
+    for run in runs:
+        db.delete(run)
+    db.commit()
+
+    logger.info(
+        "Agent deleted %d execution runs in project %s",
+        len(deleted_ids), project.name,
+    )
+    return {"deleted": len(deleted_ids), "run_ids": deleted_ids}

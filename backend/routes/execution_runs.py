@@ -8,6 +8,7 @@ Endpoints:
     GET    /{pid}/execution-runs                   -- list runs for project
     GET    /{pid}/execution-runs/{run_id}          -- get run detail + progress
     POST   /{pid}/execution-runs/{run_id}/cancel   -- cancel running execution
+    DELETE /{pid}/execution-runs/{run_id}          -- delete an execution run
     GET    /{pid}/connections                       -- list connections
     POST   /{pid}/connections                       -- create connection
 """
@@ -267,6 +268,50 @@ def cancel_execution_run(
     )
 
     return MessageResponse(message="Execution cancelled")
+
+
+# ---------------------------------------------------------------------------
+# DELETE /{project_id}/execution-runs/{run_id}
+# ---------------------------------------------------------------------------
+@router.delete(
+    "/{project_id}/execution-runs/{run_id}",
+    response_model=MessageResponse,
+    summary="Delete an execution run",
+)
+def delete_execution_run(
+    project_id: uuid.UUID,
+    run_id: uuid.UUID,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete an execution run and its results. Only admin users can delete runs."""
+    if current_user.role != "admin":
+        raise HTTPException(403, "Only admins can delete execution runs")
+
+    run = db.query(ExecutionRun).filter(
+        ExecutionRun.id == run_id,
+        ExecutionRun.project_id == project_id,
+    ).first()
+    if not run:
+        raise HTTPException(404, "Execution run not found")
+
+    if run.status == "running":
+        raise HTTPException(400, "Cannot delete a running execution. Cancel it first.")
+
+    db.delete(run)
+    db.commit()
+
+    audit_log(
+        db,
+        user_id=current_user.id,
+        action="delete_execution_run",
+        entity_type="execution_run",
+        entity_id=str(run_id),
+        ip_address=get_client_ip(request),
+    )
+
+    return MessageResponse(message=f"Execution run {run_id} deleted")
 
 
 # ---------------------------------------------------------------------------

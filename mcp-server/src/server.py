@@ -25,7 +25,7 @@ from src.tools.test_plans import (
     list_test_plans_impl, create_test_plan_impl, get_plan_test_cases_impl,
     archive_test_plan_impl, delete_test_plan_impl,
 )
-from src.tools.executions import submit_results_impl, add_proof_impl
+from src.tools.executions import submit_results_impl, add_proof_impl, delete_execution_runs_impl
 from src.tools.knowledge import kb_stats_impl, upload_reference_impl
 from src.tools.frameworks import get_frameworks_impl, check_framework_coverage_impl
 from src.tools.summary import get_summary_impl
@@ -469,3 +469,16 @@ async def delete_test_plan(plan_id: str) -> dict:
         plan_id: UUID of the test plan to permanently delete
     """
     return await delete_test_plan_impl(plan_id)
+
+
+@mcp.tool()
+async def delete_execution_runs(run_ids: list) -> dict:
+    """Permanently delete execution runs. NOT reversible.
+
+    Use this to clean up bad or orphaned execution runs (e.g., failed runs
+    with incorrect results that skew pass rates).
+
+    Args:
+        run_ids: List of execution run UUIDs to delete
+    """
+    return await delete_execution_runs_impl(run_ids)

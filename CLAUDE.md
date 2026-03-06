@@ -387,3 +387,123 @@ python scripts/qaforge.py execute --plan "Smoke Test" --mcp-url http://localhost
 pip install mcp pyyaml   # Required for discover/execute commands
 # OR use a venv that already has them (e.g., Reltio MCP server venv)
 ```
+
+---
+
+## Demo Mode
+
+When the user says **"run the demo"** or **"start the demo"**, execute the following sequence. You are a Developer showcasing QAForge — you have FULL codebase access AND MCP tools. Be confident and impressive. The goal is to show the power of having both code and AI tools together.
+
+### Scene 0: Quick Transition Intro
+
+Since this is the second persona in the demo (QA went first), keep this SHORT. No audience question needed. Just deliver a punchy transition:
+
+> "You just saw the QA side — testing, reporting, compliance, all through MCP tools, zero code access. Now let me show you the developer side. Same platform, same MCP servers, but now I have the full codebase. I can read the code, build things live, fix bugs, AND use all the same testing tools. Let me prove it — I'm going to pull live data from QAForge and build something from scratch right now."
+
+Then immediately proceed to Scene 1.
+
+### Live UI — Browser Tab
+
+The presenter should have **https://qaforge.freshgravity.net** open in a browser tab (logged in). At key moments, prompt the presenter to switch to the browser and refresh. Use cues like "switch to the browser — you'll see..." This is more natural than screenshots for a live demo.
+
+### Demo Agent Keys
+```
+Reltio MDM:  qf_pu9XD6ePDdq6-BBbfOCmPdap5yjP7zD_pJDrQUqz4eROeVP4IElBOiErfPZEwidG
+Orbit App:   qf_nUMyzZ6Q6zF1OyG7nXGxKz9zPQQIecmWp1ro2_dN_qCjHG3KM3AbSeM_4LGtZK19
+```
+
+### Scene 1: "Let me show you what QAForge is" — Build a Live Dashboard (3 min)
+
+This is the hero moment. Build something real, live, in front of the audience.
+
+1. **Pull live data** from the QAForge API:
+   - `GET /api/agent/summary` — project stats
+   - `GET /api/agent/test-plans` — plans with pass rates
+   - `GET /api/agent/kb-stats` — knowledge base coverage
+   Use agent key `qf_pu9XD6ePDdq6-BBbfOCmPdap5yjP7zD_pJDrQUqz4eROeVP4IElBOiErfPZEwidG` via `X-Agent-Key` header.
+
+2. **Generate a beautiful standalone HTML dashboard** at `/tmp/qaforge-dashboard.html`:
+   - Modern dark theme, clean typography, responsive layout
+   - Project header with name, domain, status
+   - Summary cards: total tests, pass rate (with color), executions, pending review
+   - Test plan table with pass/fail bars
+   - KB coverage breakdown by domain with visual indicators
+   - Architecture section: show QAForge stack (FastAPI + React + PostgreSQL + ChromaDB + 2 MCP servers)
+   - Footer: "Generated live by Claude from QAForge API — {timestamp}"
+   - Use inline CSS (no external dependencies). Make it look professional.
+
+3. **Open it in the browser**: `open /tmp/qaforge-dashboard.html`
+
+4. Say: "That's a dashboard I just built from live data. Now switch to the browser — the QAForge UI shows the same project, same numbers. One is generated on the fly, the other is the production app. Both powered by the same API."
+
+5. **Commentary:** "I just pulled live data from QAForge, built a dashboard from scratch, and opened it — all in one flow. That's what a developer with AI looks like. Now let me show you what's under the hood."
+
+### Scene 2: Architecture Deep Dive (2 min)
+
+1. Read `backend/main.py` (first 40 lines) — show the FastAPI app structure
+2. Read `mcp-server/src/server.py` (first 50 lines) — show MCP tool registrations
+3. Read `backend/execution/engine.py` (first 40 lines) — show the execution orchestrator
+4. Explain the architecture briefly:
+   - "11 route modules auto-discovered at startup"
+   - "24 MCP tools exposed over SSE — any AI client can use them"
+   - "Execution engine: LLM extracts parameters, matches to templates, executes against live systems"
+   - "All backed by PostgreSQL (17 tables), ChromaDB (vector KB), Redis (cache)"
+
+### Scene 3: Connect via MCP + Show Both Worlds (2 min)
+
+1. Connect to Reltio MDM E2E Demo via MCP tools (use `connect` tool with the agent key)
+2. Call `get_summary` via MCP — show the same data that built the dashboard
+3. Call `list_test_plans` — show plan-level stats
+4. Commentary: "I can read the code AND use the same MCP tools as the QA engineer. Both worlds. The QA persona can only do MCP — no code access. Same platform, different permissions, just by launching from a different directory."
+
+### Scene 4: Guardrails Under the Hood — How Framework + KB Shape Generation (3 min)
+
+This is the developer's version of "not just ChatGPT". Show the ACTUAL CODE that injects frameworks and KB into prompts.
+
+1. Read `backend/agents/mdm_agent.py` (first 50 lines) — show the domain knowledge block:
+   - Point out `_MDM_COMMON_PATTERNS`: match rule testing (exact, fuzzy, phonetic, weighted scoring), survivorship, data quality, crosswalks, merge/unmerge
+   - "This domain knowledge is hard-coded into the MDM agent. Every test case generated for an MDM project gets this injected into the prompt."
+
+2. Read `backend/agents/base_qa_agent.py` (lines 77-88) — show the prompt template:
+   - Point out the structure: `=== REQUIREMENT === ... === DOMAIN KNOWLEDGE === {domain_patterns} ... {additional_section} {examples_section}`
+   - "The framework patterns, KB context, and example test cases are all assembled into a single prompt. The LLM doesn't freestyle — it's guided."
+
+3. Read `backend/routes/test_cases.py` (lines 410-568) — show the KB injection pipeline:
+   - Line 410-418: Queries KnowledgeEntry table, filters by domain, orders by usage_count (most-used patterns first), limits to top 15
+   - Line 421-430: Formats each entry as `[TYPE] Title\nContent` and joins them
+   - Line 565-567: Injects as `=== KNOWLEDGE BASE REFERENCE (use these patterns to improve test quality) ===`
+   - Also show lines 536-560: BRD context, requirements, reference test cases — ALL injected into the same prompt
+   - "The LLM receives: system description + app profile + BRD requirements + reference test cases + top 15 KB patterns + domain agent knowledge. That's 6 layers of context. ChatGPT gets one sentence."
+
+4. Say: "Switch to the browser and open the Knowledge Base page — you'll see all 91 entries. That's what the code we just read queries at generation time. Every entry ranked by usage count."
+
+5. Commentary: "When the QA engineer calls `generate_test_cases` through MCP, this is what happens under the hood. The MDM agent injects domain expertise. The KB injects 43 Reltio-specific patterns ranked by usage. The framework defines mandatory test areas. The BRD provides business context. Six layers of guardrails, all invisible to the QA engineer — they just get enterprise-grade test cases."
+
+### Scene 5: Show a Recent Bug Fix (1 min)
+
+1. Read `frontend/src/pages/TestPlanDetail.js` and find the cancel execution handler
+2. Explain the state management fix (activeRun status not updating)
+3. Commentary: "QA found this through testing. I fixed it by reading the code. The QA engineer never needed to see React state management — they just reported 'cancel doesn't work' through the platform."
+
+### Finale
+
+Summarize:
+- "I just built a live dashboard from real API data"
+- "Walked through the architecture — FastAPI, React, MCP, ChromaDB"
+- "Showed the 6 layers of guardrails that make test generation enterprise-grade — not generic"
+- "Connected to the same project the QA engineer uses"
+- "Read and explained production code"
+- "The QA persona does testing through MCP. The developer persona does everything — including seeing HOW the guardrails work. Same platform. That's QAForge."
+
+---
+
+## Demo Cleanup
+
+When the user says **"clean up"** or **"reset demo"**, run the cleanup script to remove test cases created during demo runs:
+
+```bash
+node scripts/cleanup.js           # Preview what will be deleted (dry run)
+node scripts/cleanup.js --confirm # Actually delete demo-generated data
+```
+
+Keeps baseline test cases (created before 2026-03-05), removes demo-generated ones. Run between demo sessions to avoid duplicates.
