@@ -109,7 +109,36 @@ Run a live smoke test: use Reltio MCP to check the server health, then search fo
 
 ---
 
-### Scene 4: AI Test Generation from Domain Knowledge (2 min)
+### Scene 4: The Test Case Mix — Real Enterprise Testing (2 min)
+
+**Type:**
+```
+Show me the test cases in the Sprint 1 plan — break them down by execution type so I can see the testing strategy
+```
+
+**What happens:** Claude calls `get_plan_test_cases` and groups the 28 test cases:
+
+| Type | Count | What |
+|------|-------|------|
+| **api** | 14 | Direct Reltio REST API calls (OAuth2 authenticated) |
+| **mcp** | 10 | Via Reltio MCP server (45 tools) |
+| **manual** | 3 | UI tests behind SSO (can't automate login) |
+| **sql** | 1 | Snowflake database schema validation |
+
+> **Say:** "This is a real enterprise test profile. 25 out of 28 are fully automated. The 3 manual ones? They test the Reltio UI — which is behind SSO. You can't automate an Okta redirect with Playwright. But watch this."
+
+**Type:**
+```
+Show me TC-MDM-004 (manual) and TC-MCP-004 (mcp) side by side — same functional coverage, different execution strategy
+```
+
+**What happens:** Claude shows the manual test case (UI steps: login, navigate to match rules, verify config) alongside its MCP equivalent (API steps: call get_business_configuration_tool, find_potential_matches_tool, etc.).
+
+> **Say:** "Same functional coverage. The manual version navigates the UI. The MCP version calls the same Reltio tools I used earlier. SSO blocks the browser — but it doesn't block MCP. We kept both: the manual ones document what a human tester would do, the MCP ones automate the same checks. 28 test cases, 4 execution types, zero gaps."
+
+---
+
+### Scene 5: AI Test Generation from Domain Knowledge (2 min)
 
 **Type:**
 ```
@@ -125,9 +154,10 @@ Generate 3 test cases for Reltio entity merge scenarios — cover happy path mer
 
 ---
 
-### Scene 5: Guardrails in Action — Framework + KB Driving Generation (3 min)
+### Scene 6: Guardrails in Action — Framework + KB Driving Generation (3 min)
 
 **What it shows:** This is NOT ChatGPT generating generic tests. Frameworks and KB actively shape every test case.
+
 
 **Type:**
 ```
@@ -152,7 +182,7 @@ Now generate 2 test cases for MDM entity survivorship and golden record assembly
 
 ---
 
-### Scene 6: The "Aha" Moment (30 seconds)
+### Scene 7: The "Aha" Moment (30 seconds)
 
 **Type:**
 ```
@@ -169,7 +199,7 @@ Show me the source code of the QAForge backend — how does the execution engine
 
 > "Same platform. Same MCP servers. But now I'm a developer with full codebase access."
 
-### Scene 7: Code + MCP — Best of Both Worlds (2 min)
+### Scene 8: Code + MCP — Best of Both Worlds (2 min)
 
 **Type in right terminal:**
 ```
@@ -189,7 +219,7 @@ Connect to Reltio MDM E2E Demo with key qf_pu9XD6ePDdq6-BBbfOCmPdap5yjP7zD_pJDrQ
 
 ---
 
-### Scene 8: Guardrails Under the Hood — The Code Behind the Magic (3 min)
+### Scene 9: Guardrails Under the Hood — The Code Behind the Magic (3 min)
 
 **What it shows:** The developer can see HOW frameworks and KB shape generation — 6 layers of context injected into every AI prompt.
 
@@ -213,7 +243,7 @@ Now show me routes/test_cases.py around line 410 — where the knowledge base en
 
 ---
 
-### Scene 9: Developer Fixes What QA Found (2 min)
+### Scene 10: Developer Fixes What QA Found (2 min)
 
 **Type:**
 ```
@@ -265,19 +295,20 @@ Re-run the smoke test and verify the results
 | 1. Dashboard | 2:00 | QA | Breadth |
 | 2. Project Switch | 1:00 | QA | Speed |
 | 3. Live Testing | 3:00 | QA | **Peak wow** |
-| 4. AI Generation | 2:00 | QA | Intelligence |
-| 5. Guardrails | 3:00 | QA | **Not ChatGPT moment** |
-| 6. No Code | 0:30 | QA | **Aha moment** |
-| 7. Code + MCP | 2:00 | Dev | Contrast |
-| 8. Guardrails Code | 3:00 | Dev | **Deep differentiator** |
-| 9. Bug Fix | 2:00 | Dev | Full picture |
-| 10. Full Loop | 2:00 | Both | Closure |
+| 4. Test Case Mix | 2:00 | QA | **Enterprise reality** |
+| 5. AI Generation | 2:00 | QA | Intelligence |
+| 6. Guardrails | 3:00 | QA | **Not ChatGPT moment** |
+| 7. No Code | 0:30 | QA | **Aha moment** |
+| 8. Code + MCP | 2:00 | Dev | Contrast |
+| 9. Guardrails Code | 3:00 | Dev | **Deep differentiator** |
+| 10. Bug Fix | 2:00 | Dev | Full picture |
+| 11. Full Loop | 2:00 | Both | Closure |
 | Closing | 0:30 | You | Land the message |
-| **Total** | **~21 min** | | |
+| **Total** | **~23 min** | | |
 
 ### If Short on Time (10 min version)
 
-Do scenes 1, 3, 5, 6, 7 only. Dashboard, live testing, guardrails, aha moment, developer contrast.
+Do scenes 1, 3, 4, 7, 8 only. Dashboard, live testing, test case mix, aha moment, developer contrast.
 
 ### If Medium (15 min version)
 
