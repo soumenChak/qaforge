@@ -1153,6 +1153,38 @@ async def _execute_run(run_id: UUID) -> None:
                 app_profile = project.app_profile
                 logger.info("Loaded app_profile for project %s (%d keys)", project.name, len(app_profile))
 
+        # ---------- OAuth2 client_credentials token fetch ----------
+        # If app_profile has OAuth2 auth config and no token yet, fetch one.
+        if app_profile and not connection_config.get("auth_token"):
+            _auth = app_profile.get("auth", {})
+            if _auth.get("type") == "oauth2" and _auth.get("token_url"):
+                _token_url = _auth["token_url"]
+                _payload = {
+                    "grant_type": _auth.get("grant_type", "client_credentials"),
+                    "client_id": _auth.get("client_id", ""),
+                    "client_secret": _auth.get("client_secret", ""),
+                }
+                logger.info("OAuth2 auth: requesting token from %s", _token_url)
+                try:
+                    async with httpx.AsyncClient(verify=False, timeout=15) as _hc:
+                        _resp = await _hc.post(_token_url, data=_payload)
+                        if _resp.status_code == 200:
+                            _data = _resp.json()
+                            _token = _data.get("access_token")
+                            if _token:
+                                connection_config["auth_token"] = _token
+                                connection_config["auth_type"] = "bearer"
+                                if not connection_config.get("base_url") and app_profile.get("api_base_url"):
+                                    connection_config["base_url"] = app_profile["api_base_url"]
+                                logger.info("OAuth2 auth: obtained token (%d chars)", len(_token))
+                            else:
+                                logger.warning("OAuth2 auth: 200 but no access_token in response: %s", list(_data.keys()))
+                        else:
+                            logger.warning("OAuth2 auth: token request returned %d — %s", _resp.status_code, _resp.text[:200])
+                except Exception as _exc:
+                    logger.error("OAuth2 auth: token request failed — %s", _exc)
+        # ---------- End OAuth2 token fetch ----------
+
         # Load agent config
         agent_config = None
         if run.test_agent_id:
