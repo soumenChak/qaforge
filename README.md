@@ -1,27 +1,41 @@
 # QAForge
 
-**Enterprise Test Documentation Platform — Where Quality Is Engineered**
+**AI-Native Quality Engineering — Powered by Quinn & Forge**
 
-QAForge is a test documentation and tracking platform designed for AI-assisted development. When AI agents (Claude Code, Codex, Gemini CLI) build and test applications, QAForge captures, structures, and tracks the evidence. Human QA validates at defined checkpoints.
+QAForge is the first test management platform built for the AI era. No click-through UIs. No 2005-era workflows. Just two AI personas that handle quality engineering through conversation.
+
+**Quinn** is your QA engineer — she tests live systems, generates domain-specific test cases, debugs failures, and documents everything with proof artifacts. No code access needed.
+
+**Forge** is your developer — he has the full codebase, builds from live data, and shows you the engineering guardrails that make AI generation enterprise-grade.
+
+Same platform. Two perspectives. 76 tools. Zero professional services needed.
+
+> **[Read the full story: Meet Quinn & Forge](docs/MEET_QUINN_AND_FORGE.md)**
 
 ## Why QAForge?
 
-AI coding agents already perform extensive testing while building apps. But this testing is **undocumented** (results disappear in terminal output), **unstructured** (no standard format), **unvalidated** (no human QA checkpoint), and **untraceable** (no link from requirement to test case to result).
+The test management industry is worth $40B+ and runs on tools designed in 2005. QA engineers spend **78% of their time** on documentation, not testing (Capgemini World Quality Report). Every platform bolted on an AI copilot and called it innovation.
 
-QAForge solves this by being the **documentation layer** — agents test, QAForge records.
+QAForge is different:
+- **AI-native** — built from scratch for LLM orchestration, not retrofitted
+- **MCP-first** — 76 tools across 2 MCP servers. Zero mainstream test platforms support MCP today
+- **Two built-in personas** — Quinn (QA) and Forge (Dev) guide you through everything
+- **Self-improving** — Knowledge Base compounds over time; LLM upgrades make Quinn & Forge smarter automatically
+- **Self-service** — no consultants, no transformation projects. Install, connect, talk.
 
 ## Key Features
 
 | Feature | Description |
 |---------|-------------|
-| **Agent API** | Any AI agent submits test cases + execution results via `X-Agent-Key` header |
-| **Test Plans** | Group test cases into plans (SIT, UAT, Regression, Smoke) with pass/fail tracking |
-| **Proof Artifacts** | Attach evidence: API responses, screenshots, logs, data comparisons |
-| **Validation Checkpoints** | Human QA gates — review and approve before sign-off |
-| **AI Test Generation** | Domain-specific agents generate test cases from requirements + BRD/PRD |
-| **Coverage Analysis** | Priority-weighted scoring with Requirements Traceability Matrix |
-| **Testing Frameworks** | Domain-specific quality standards (AI, MDM, Data Eng, Integration, App) with versioning |
-| **Knowledge Base** | RAG-powered semantic search for test patterns and best practices |
+| **Quinn (QA Persona)** | Test through conversation — connect, test, generate, debug, fix, all via MCP |
+| **Forge (Dev Persona)** | Full codebase access — build, inspect guardrails, deploy, self-test |
+| **31 MCP Tools** | Connect, generate, execute, debug, fix — complete QA lifecycle via conversation |
+| **AI Test Generation** | Domain-specific, backed by Knowledge Base patterns — not generic ChatGPT |
+| **Live Execution** | Run tests against APIs, MCP servers, SQL databases, UIs — with proof artifacts |
+| **Self-Service Debug** | Inspect failing tests, fix steps/expected results, re-execute — no developer needed |
+| **Knowledge Base** | 96+ domain patterns that compound — every fix makes future generation better |
+| **Testing Frameworks** | Domain-specific quality standards with gap analysis and coverage tracking |
+| **Eats Its Own Dogfood** | QAForge tests itself — 18 self-test cases validated through its own agent API |
 
 ## Architecture
 
@@ -54,45 +68,53 @@ QAForge solves this by being the **documentation layer** — agents test, QAForg
 
 ## Quick Start
 
-### Deploy QAForge (Admin / Developer)
+### 1. Deploy QAForge
 
 ```bash
-# 1. Clone and configure
-git clone git@bitbucket.org:lifio/qaforge.git
-cd qaforge
-cp .env.example .env
-# Edit .env: set SECRET_KEY and at least one LLM API key
-
-# 2. Launch all services (backend, frontend, MCP server, DB, Redis, ChromaDB)
-docker compose up -d
-
-# 3. Login
-# Open https://qaforge.freshgravity.net
-# Credentials: admin@freshgravity.com / admin123
-
-# 4. Create a project and generate an agent key
-# Projects > New Project > Agent API Key > Generate
+git clone <repo-url> && cd qaforge
+cp .env.example .env    # Set SECRET_KEY + at least one LLM API key
+docker compose up -d     # Start all 6 services
 ```
 
-### Connect as QA User (Claude Code / Claude Desktop — No Codebase Needed)
+Open the UI, create a project, and generate an agent API key (Project Settings > Agent API Key > Generate).
 
-QA users don't need the QAForge source code. They connect to remote MCP servers.
-
-#### Option A: Claude Code (CLI)
+### 2. Meet Quinn (QA — No Code Needed)
 
 ```bash
-# 1. Install Claude Code
+# Set up Quinn's workspace (interactive — asks for MCP URL)
+./scripts/setup-qa-workspace.sh
+
+# Start talking to Quinn
+cd ~/qa-workspace && claude
+```
+
+> "Hey Quinn, connect to my project with key qf_... and show me the dashboard"
+
+### 3. Meet Forge (Developer — Full Codebase)
+
+```bash
+# Just open Claude Code from the QAForge repo
+cd qaforge && claude
+```
+
+> "Hey Forge, build me a live dashboard and show me the guardrails"
+
+### 4. Both at Once (The Full Experience)
+
+Two terminals. Quinn on the left, Forge on the right. Same platform, two perspectives.
+
+---
+
+### Alternative: Connect Without the Setup Script
+
+#### Claude Code (CLI)
+
+```bash
 npm install -g @anthropic-ai/claude-code
 
-# 2. Add QAForge MCP server (test management, generation, frameworks, execution)
 claude mcp add qaforge --transport sse \
-  --url "https://qaforge.freshgravity.net/qaforge-mcp/sse"
+  --url "https://your-host/qaforge-mcp/sse"
 
-# 3. Add Reltio MCP server (entity search, match, merge — optional)
-claude mcp add reltio --transport sse \
-  --url "https://qaforge.freshgravity.net/mcp/sse"
-
-# 4. Start Claude Code from any directory
 cd ~/qa-workspace && claude
 ```
 
@@ -185,12 +207,11 @@ Then during vibe coding, just say: *"use QAForge to document testing"*
 
 | Document | Description |
 |----------|-------------|
-| [Testing Guide](docs/QAFORGE_TESTING_GUIDE.md) | **Start here** — Complete guide to using QAForge while vibe coding |
-| [MCP Operations Guide](docs/MCP_OPERATIONS_GUIDE.md) | QAForge MCP + Reltio MCP setup, Claude Code connection, ops |
-| [Architecture](docs/ARCHITECTURE.md) | System design, data model, security |
-| [Agent Integration](docs/AGENT_INTEGRATION.md) | How to integrate any AI agent with QAForge |
-| [Runbook](docs/RUNBOOK.md) | Deploy, monitor, troubleshoot |
-| [CLAUDE.md](CLAUDE.md) | For developing QAForge with Claude Code |
+| [Meet Quinn & Forge](docs/MEET_QUINN_AND_FORGE.md) | **Start here** — The story, the vision, what they can do |
+| [Setup Guide](docs/SETUP_GUIDE.md) | Docker deploy, HTTPS config, first-time setup |
+| [Contributing](CONTRIBUTING.md) | Dev setup, code structure, PR process |
+| [Open Source Checklist](docs/OPEN_SOURCE_CHECKLIST.md) | Security audit, team onboarding |
+| [CLAUDE.md](CLAUDE.md) | Forge's persona — for developing QAForge with Claude Code |
 
 ## Project Structure
 
