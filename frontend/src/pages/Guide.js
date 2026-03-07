@@ -43,6 +43,30 @@ const CATEGORY_META = {
 const GUIDE_SCENARIOS = [
   /* ── Getting Started ────────────────────────────────────────────── */
   {
+    id: 'meet-quinn-forge',
+    title: 'Meet Quinn & Forge — Your AI Partners',
+    role: 'everyone',
+    category: 'getting-started',
+    description: 'QAForge comes with two built-in AI personas that guide you through everything. No AI expertise needed — they handle the complexity so you can focus on decisions.',
+    prerequisites: [],
+    steps: [
+      '**Quinn** is your AI QA Engineer. She manages testing, generates test cases, executes them against live systems, debugs failures, and documents everything — all through conversation. No code access needed.',
+      '**Forge** is your AI Developer. He has the full codebase, builds dashboards from live data, shows you the engineering guardrails, and writes code that Quinn\'s tests validate.',
+      '**They share the same platform** — QAForge — but see it from different angles. Quinn sees quality. Forge sees architecture. Together, they cover everything.',
+      '**They get smarter automatically.** Quinn and Forge are powered by LLMs (Claude, GPT, Groq, Ollama). As models improve, they improve. Your Knowledge Base compounds over time. You do nothing.',
+      '**No professional services needed.** No 6-month transformation. No consultants. Install, connect, talk. Quinn and Forge take it from there.',
+      '**To use Quinn:** Run `./scripts/setup-qa-workspace.sh`, then `cd ~/qa-workspace && claude`. Say "Hey Quinn, connect to my project."',
+      '**To use Forge:** Open Claude Code from the QAForge repo: `cd qaforge && claude`. Say "Hey Forge, show me the architecture."',
+    ],
+    tips: [
+      'Open two terminals side by side — Quinn on the left, Forge on the right. Same platform, two perspectives.',
+      '31 QAForge MCP tools + 45 Reltio MCP tools = 76 tools available through natural conversation.',
+      'You don\'t need to learn prompt engineering, MCP, RAG, or any AI acronym. Quinn and Forge absorb the complexity.',
+      'QAForge is the first MCP-native test management platform with built-in AI personas. First of its kind.',
+    ],
+    related: ['first-login', 'mcp-qa-user-setup', 'mcp-developer-setup'],
+  },
+  {
     id: 'first-login',
     title: 'First Login & Setup',
     role: 'everyone',
@@ -91,7 +115,7 @@ const GUIDE_SCENARIOS = [
     ],
     steps: [
       '**Install Claude Code** — Anthropic\'s AI coding agent that connects to MCP servers.',
-      '**Add QAForge MCP server** — this gives Claude access to 20 test management tools (connect to projects, list/generate/submit test cases, create plans, submit results, manage KB, testing frameworks).',
+      '**Add QAForge MCP server** — this gives Claude access to 31 test management tools (connect to projects, list/generate/submit test cases, create plans, submit results, manage KB, testing frameworks).',
       '**Add Reltio MCP server (optional)** — this adds 45 MDM tools (entity search, match, merge, workflows, data model). Only needed if you work with Reltio.',
       '**Create a workspace and start Claude Code** — no git repo needed, any empty directory works.',
       '**Verify connection** — type `/mcp` in Claude Code to confirm both servers are connected and tools are listed.',
@@ -145,19 +169,19 @@ const GUIDE_SCENARIOS = [
   },
   {
     id: 'mcp-qaforge-tools',
-    title: 'QAForge MCP — 20 Available Tools',
+    title: 'QAForge MCP — 31 Available Tools',
     role: 'everyone',
     category: 'mcp',
-    description: 'Complete reference of all 20 QAForge MCP tools available through Claude Code. Each tool maps to a QAForge Agent API endpoint.',
+    description: 'Complete reference of all 31 QAForge MCP tools available through Claude Code. Each tool maps to a QAForge Agent API endpoint.',
     prerequisites: ['QAForge MCP server connected (see QA User Setup or Developer Setup)'],
     steps: [
       '**Connection (2 tools):** `connect` — switch to a different QAForge project by providing its agent key. `connection_status` — check which project is currently connected and whether using a session override or server default.',
       '**Project (2 tools):** `get_project` — get project metadata, domain, app profile, description. `update_project` — update description or BRD/PRD context text.',
       '**Requirements (3 tools):** `list_requirements` — list all project requirements. `extract_requirements` — AI-extract structured requirements from BRD/PRD text. `submit_requirements` — submit manually created requirements.',
-      '**Test Cases (3 tools):** `list_test_cases` — list test cases, filter by status or plan. `generate_test_cases` — AI-generate from frameworks + requirements + KB (auto-fetches domain frameworks as mandatory test areas). `submit_test_cases` — submit structured test cases.',
+      '**Test Cases (5 tools):** `list_test_cases` — list test cases, filter by status or plan. `generate_test_cases` — AI-generate from frameworks + requirements + KB (auto-fetches domain frameworks as mandatory test areas). `submit_test_cases` — submit structured test cases. `get_test_case` — get a single test case by ID with full details. `update_test_case` — update any field (title, steps, expected result, status, plan assignment).',
       '**Test Plans (3 tools):** `list_test_plans` — list plans with pass/fail stats. `create_test_plan` — create smoke, regression, e2e, or custom plan with test case binding. `get_plan_test_cases` — get test cases assigned to a plan.',
-      '**Execution (2 tools):** `submit_results` — submit execution results with proof artifacts (API responses, screenshots, logs). `add_proof` — attach additional proof to an existing execution.',
-      '**Knowledge Base (2 tools):** `kb_stats` — KB statistics by domain/sub-domain. `upload_reference` — upload reference test cases for AI generation quality.',
+      '**Execution (5 tools):** `submit_results` — submit execution results with proof artifacts (API responses, screenshots, logs). `add_proof` — attach additional proof to an existing execution. `execute_test_plan` — trigger execution of a test plan and poll for results. `get_execution_run` — get detailed results for a specific execution run. `delete_execution_runs` — delete execution runs for a test plan (cleanup).',
+      '**Knowledge Base (4 tools):** `kb_stats` — KB statistics by domain/sub-domain. `upload_reference` — upload reference test cases for AI generation quality. `create_kb_entry` — create a custom KB entry with domain, type, and tags. `list_kb_entries` — list KB entries filtered by domain or type.',
       '**Frameworks (2 tools):** `get_frameworks` — fetch domain-specific testing standards, patterns, and quality gates. `check_framework_coverage` — gap analysis comparing test cases against framework sections.',
       '**Summary (1 tool):** `get_summary` — project quality dashboard: total test cases, pass rates, execution stats, coverage percentage.',
     ],
@@ -165,7 +189,7 @@ const GUIDE_SCENARIOS = [
       'All tools are project-scoped — the agent key determines which project you access.',
       'Use `connect(agent_key)` to switch between projects without restarting the MCP server.',
       'You don\'t need to remember tool names. Just say "show me test cases" and Claude picks the right tool.',
-      'Example prompts: "Generate 10 security test cases", "Create a smoke test plan", "What\'s the pass rate?", "Check framework coverage for MDM".',
+      'Example prompts: "Quinn, generate 10 security test cases", "Create a smoke test plan", "What\'s the pass rate?", "Quinn, debug TC-MCP-004".',
       '`generate_test_cases` now auto-fetches testing frameworks as mandatory test areas — ensuring AI-generated tests satisfy domain standards.',
       'SSE endpoint: https://qaforge.freshgravity.net/qaforge-mcp/sse',
     ],
@@ -236,7 +260,7 @@ const GUIDE_SCENARIOS = [
       '**Quit and reopen Claude Desktop** — press Cmd+Q (Mac) or close completely (Windows), then reopen. MCP servers load on startup.',
       '**Verify connection** — start a new conversation and ask "What tools do you have?" or "Show me MCP tools." You should see QAForge and Reltio tools listed.',
       '**Connect to your project** — say: "Connect to my project with key qf_xxx..." (get the key from your admin or the Project Settings page in QAForge UI).',
-      '**Start working** — you now have full access to 65 tools (20 QAForge + 45 Reltio). Just talk naturally: "Show me all test cases", "Generate 10 regression tests", "Search Reltio for entities with FirstName John".',
+      '**Start working** — you now have full access to 76 tools (31 QAForge + 45 Reltio). Just talk naturally: "Show me all test cases", "Generate 10 regression tests", "Search Reltio for entities with FirstName John".',
     ],
     cli: [
       { label: 'Config file location (macOS)', cmd: '~/Library/Application Support/Claude/claude_desktop_config.json' },
@@ -261,7 +285,7 @@ const GUIDE_SCENARIOS = [
     title: 'Claude Desktop — Developer Mode (Full Codebase Access)',
     role: 'engineer',
     category: 'mcp',
-    description: 'Use Claude Desktop with MCP servers AND full codebase access. Open a project folder in Claude Desktop to get file editing, terminal commands, git operations, and all 65 MCP tools in one session.',
+    description: 'Use Claude Desktop with MCP servers AND full codebase access. Open a project folder in Claude Desktop to get file editing, terminal commands, git operations, and all 76 MCP tools in one session.',
     prerequisites: [
       'Claude Desktop app installed with MCP servers configured (see QA Mode setup first)',
       'Git access to the QAForge repo (or any project repo)',
@@ -272,7 +296,7 @@ const GUIDE_SCENARIOS = [
       '**Open your project in Claude Desktop** — use File > Open Folder (or drag the project folder onto Claude Desktop). This gives Claude access to your full codebase.',
       '**Alternatively, use Claude Code from the project directory** — run `claude` from your repo root. Claude Code reads the `.mcp.json` file in the project root for MCP server config.',
       '**For Claude Code: add a `.mcp.json` file** to your project root with the MCP server configuration (see below). This auto-loads MCP servers when Claude Code starts from that directory.',
-      '**You now have dual capabilities:** All 65 MCP tools for test management + full codebase access to edit code, run commands, deploy, and debug.',
+      '**You now have dual capabilities:** All 76 MCP tools for test management + full codebase access to edit code, run commands, deploy, and debug.',
       '**Example developer workflows:** "Fix the bug in api_client.py and then run the smoke tests via QAForge", "Add a new MCP tool for test plan export, then test it by calling it", "Generate test cases from this BRD file in my Downloads folder".',
     ],
     cli: [
@@ -491,12 +515,12 @@ const GUIDE_SCENARIOS = [
       '**Base URL:** `https://your-server:8080/api/agent/` — all endpoints under `/agent/`.',
       '**Bootstrap:** `POST /bootstrap` with `X-Bootstrap-Token` — creates project + returns agent key.',
       '**Sessions:** `POST /sessions` — create a tracking session (agent_name, version, mode).',
-      '**Test Cases:** `POST /test-cases` — batch submit. `GET /test-cases` — list (filter by status, plan).',
-      '**Executions:** `POST /executions` — submit results with proof artifacts. `POST /executions/{id}/proof` — add proof to existing result.',
+      '**Test Cases:** `POST /test-cases` — batch submit. `GET /test-cases` — list (filter by status, plan). `GET /test-cases/{id}` — get single test case. `PUT /test-cases/{id}` — update test case fields.',
+      '**Executions:** `POST /executions` — submit results with proof artifacts. `POST /executions/{id}/proof` — add proof. `POST /test-plans/{id}/execute` — trigger plan execution. `GET /execution-runs/{id}` — get run details. `DELETE /test-plans/{id}/execution-runs` — delete runs.',
       '**Requirements:** `POST /requirements` — batch submit. `GET /requirements` — list. `POST /requirements/extract` — AI extraction.',
       '**Test Plans:** `POST /test-plans` — create plans to group test cases.',
       '**Generation:** `POST /generate-from-brd` — generate test cases from BRD text + optional reference TCs.',
-      '**Knowledge Base:** `POST /upload-reference` — upload reference TCs. `GET /kb-stats` — check KB coverage.',
+      '**Knowledge Base:** `POST /upload-reference` — upload reference TCs. `GET /kb-stats` — check KB coverage. `POST /kb-entries` — create KB entry. `GET /kb-entries` — list entries by domain/type.',
       '**Project:** `PUT /project` — update metadata (app_profile, description, brd_prd_text).',
       '**Summary:** `GET /summary` — project progress (totals, pass rate, pending reviews).',
     ],
@@ -645,6 +669,29 @@ const GUIDE_SCENARIOS = [
       'Agents (Claude, Codex) can call the REST API directly: POST /api/agent/requirements and POST /api/agent/requirements/extract.',
     ],
     related: ['connect-agent', 'upload-brd-file', 'generate-from-requirements', 'agent-workflow-brd'],
+  },
+  {
+    id: 'self-service-debug',
+    title: 'Self-Service Debug & Fix (No Developer Needed)',
+    role: 'everyone',
+    category: 'test-cases',
+    description: 'Use Quinn to inspect a failing test case, fix the test steps or expected results, and re-execute — all through conversation. No developer, no Jira ticket, no 3-day round trip.',
+    prerequisites: ['QAForge MCP server connected', 'A test case that failed or needs updating'],
+    steps: [
+      '**Inspect the test case:** Say "Quinn, show me TC-MCP-004" or "Get test case <id>". Quinn calls `get_test_case` to fetch the full details — steps, expected results, actual results, proof artifacts.',
+      '**Identify the issue:** Quinn analyzes the test steps and expected result against what actually happened. She tells you exactly what\'s wrong — missing parameters, wrong expected format, outdated assertions.',
+      '**Fix it:** Say "Fix the test steps to include the search_type parameter." Quinn calls `update_test_case` to update the steps, expected result, or any other field. No UI clicks needed.',
+      '**Re-execute:** Say "Run the test plan again." Quinn calls `execute_test_plan` to trigger execution and polls for results using `get_execution_run`.',
+      '**Verify:** Quinn shows you the new result — PASSED or FAILED with proof artifacts. If it passed, she can add what she learned to the Knowledge Base.',
+      '**Clean up (optional):** Say "Delete the old failed runs." Quinn calls `delete_execution_runs` to clean up stale execution data.',
+    ],
+    tips: [
+      'This workflow replaces the classic: file Jira → wait for standup → developer context-switches → 3-day round trip. Quinn does it in 60 seconds.',
+      'Quinn can update any test case field: title, description, steps, expected_result, priority, category, status, test_plan_id.',
+      'After fixing, ask Quinn to create a KB entry: "Add what you learned to the Knowledge Base" — so future test generation avoids the same mistake.',
+      'Works for any test type: API, MCP, SQL, UI, manual.',
+    ],
+    related: ['mcp-qaforge-tools', 'create-test-plan', 'add-kb-entry'],
   },
   {
     id: 'chat-generate',
@@ -1327,7 +1374,7 @@ export default function Guide() {
             <h1 className="text-2xl font-bold text-fg-navy">Usage Guide</h1>
           </div>
           <p className="text-sm text-fg-mid mt-1">
-            {filtered.length} scenario{filtered.length !== 1 ? 's' : ''} — step-by-step walkthroughs for every workflow
+            {filtered.length} scenario{filtered.length !== 1 ? 's' : ''} — powered by <strong>Quinn</strong> (QA) & <strong>Forge</strong> (Dev), your AI partners
           </p>
         </div>
         <button onClick={toggleAll} className="btn-secondary text-sm">
@@ -1425,12 +1472,13 @@ export default function Guide() {
         <div className="h-1 bg-gradient-to-r from-fg-teal to-fg-green" />
         <div className="p-5">
           <h3 className="text-sm font-bold text-fg-navy uppercase tracking-wider mb-3">Quick Links</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
             {[
               { label: 'Dashboard', path: '/' },
               { label: 'Projects', path: '/projects' },
               { label: 'Review Queue', path: '/reviews' },
               { label: 'Knowledge Base', path: '/knowledge' },
+              { label: 'Frameworks', path: '/frameworks' },
             ].map((link) => (
               <button
                 key={link.path}
