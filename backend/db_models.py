@@ -900,3 +900,73 @@ class ExecutionRun(Base):
 
     def __repr__(self) -> str:
         return f"<ExecutionRun {self.status} ({len(self.test_case_ids or [])} TCs)>"
+
+
+# ---------------------------------------------------------------------------
+# Chat Sessions (Quinn web chat)
+# ---------------------------------------------------------------------------
+class ChatSession(Base):
+    """A Quinn chat conversation scoped to a project and user."""
+
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=_uuid
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="active"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=_utcnow
+    )
+
+    # -- relationships --
+    project: Mapped["Project"] = relationship("Project", lazy="joined")
+    user: Mapped["User"] = relationship("User", lazy="joined")
+    messages: Mapped[List["ChatMessage"]] = relationship(
+        "ChatMessage", back_populates="session", cascade="all, delete-orphan",
+        lazy="select", order_by="ChatMessage.created_at"
+    )
+
+    def __repr__(self) -> str:
+        return f"<ChatSession {self.id} [{self.status}]>"
+
+
+class ChatMessage(Base):
+    """A single message in a Quinn chat session."""
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=_uuid
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    role: Mapped[str] = mapped_column(
+        String(20), nullable=False, comment="user / assistant / tool_call / tool_result"
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_: Mapped[Any] = mapped_column(
+        "metadata_", JSONB, nullable=True, default=None,
+        comment="Tool info, token counts, model used"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    # -- relationships --
+    session: Mapped["ChatSession"] = relationship("ChatSession", back_populates="messages")
+
+    def __repr__(self) -> str:
+        return f"<ChatMessage {self.role}: {self.content[:40]}>"

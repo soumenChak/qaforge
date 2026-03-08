@@ -1035,3 +1035,61 @@ class ConnectionResponse(BaseModel):
     config: Dict[str, Any] = Field(default_factory=dict)
     is_default: bool
     created_at: datetime
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Quinn Chat Sessions
+# ═══════════════════════════════════════════════════════════════════════════
+class ChatSessionCreate(BaseModel):
+    """Payload to create a chat session."""
+
+    title: Optional[str] = Field(None, max_length=500)
+
+
+class ChatSessionResponse(BaseModel):
+    """Chat session returned to clients."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    user_id: uuid.UUID
+    title: Optional[str] = None
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    message_count: int = 0
+
+
+class ChatMessageResponse(BaseModel):
+    """Chat message returned to clients."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    session_id: uuid.UUID
+    role: str
+    content: str
+    metadata_: Optional[Dict[str, Any]] = None
+    created_at: datetime
+
+
+class ChatSessionDetailResponse(BaseModel):
+    """Chat session with messages."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    user_id: uuid.UUID
+    title: Optional[str] = None
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    messages: List[ChatMessageResponse] = Field(default_factory=list)
+
+
+class ChatSendMessageRequest(BaseModel):
+    """Payload to send a message in a chat session."""
+
+    content: str = Field(..., min_length=1, max_length=10000)
