@@ -201,13 +201,4 @@ export const agentKeyAPI = {
   revoke: (projectId) => api.delete(`/projects/${projectId}/agent-key`),
 };
 
-// -- Quinn Chat --
-export const quinnAPI = {
-  createSession: (projectId, data = {}) => api.post(`/projects/${projectId}/chat/sessions`, data),
-  listSessions: (projectId) => api.get(`/projects/${projectId}/chat/sessions`),
-  getSession: (projectId, sessionId) => api.get(`/projects/${projectId}/chat/sessions/${sessionId}`),
-  deleteSession: (projectId, sessionId) => api.delete(`/projects/${projectId}/chat/sessions/${sessionId}`),
-  // Note: sendMessage uses raw fetch() for SSE streaming (see useQuinnChat hook)
-};
-
 export default api;

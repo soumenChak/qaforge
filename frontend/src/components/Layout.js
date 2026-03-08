@@ -1,8 +1,6 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import QuinnFAB from './quinn/QuinnFAB';
-import QuinnPanel from './quinn/QuinnPanel';
 
 import {
   HomeIcon,
@@ -36,9 +34,6 @@ export default function Layout() {
   const { user, logout, isAdmin } = useAuth();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [quinnOpen, setQuinnOpen] = useState(false);
-
-  const toggleQuinn = useCallback(() => setQuinnOpen((prev) => !prev), []);
 
   const handleLogout = () => {
     logout();
@@ -216,10 +211,6 @@ export default function Layout() {
           <Outlet />
         </main>
       </div>
-
-      {/* Quinn Chat */}
-      <QuinnFAB onClick={toggleQuinn} isOpen={quinnOpen} />
-      <QuinnPanel isOpen={quinnOpen} onClose={toggleQuinn} />
     </div>
   );
 }

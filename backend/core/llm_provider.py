@@ -31,29 +31,7 @@ from typing import Iterator, List, Dict, Any, Optional
 logger = logging.getLogger(__name__)
 
 
-# -- Tool call dataclass -------------------------------------------------------
-
-@dataclass
-class ToolCall:
-    """Represents a tool call requested by the LLM."""
-    id: str
-    name: str
-    input: Dict[str, Any]
-
-
 # -- LLM Response with token tracking -----------------------------------------
-
-@dataclass
-class LLMToolResponse:
-    """Response from complete_with_tools, may contain tool calls."""
-    text: str = ""
-    tool_calls: List[ToolCall] = field(default_factory=list)
-    tokens_in: int = 0
-    tokens_out: int = 0
-    model: str = ""
-    provider: str = ""
-    raw: Any = field(default=None, repr=False)
-
 
 @dataclass
 class LLMResponse:
@@ -104,22 +82,6 @@ class LLMProvider(ABC):
     ) -> Iterator[str]:
         """Stream completion tokens. Token counts are not tracked in streaming mode."""
         ...
-
-    def complete_with_tools(
-        self,
-        system: str,
-        messages: List[Dict[str, str]],
-        tools: List[Any],
-        max_tokens: int = 1024,
-        temperature: float = 0.7,
-        **kwargs: Any,
-    ) -> LLMToolResponse:
-        """Complete with tool definitions. Returns text and/or tool calls.
-
-        Default implementation raises AttributeError so callers can detect
-        providers that don't support tool calling.
-        """
-        raise AttributeError(f"{self.provider_name} does not support tool calling")
 
     def complete_text(
         self,
@@ -202,46 +164,6 @@ class AnthropicProvider(LLMProvider):
             raw=resp,
         )
 
-    def complete_with_tools(self, system, messages, tools, max_tokens=1024, temperature=0.7, **kwargs) -> LLMToolResponse:
-        model = kwargs.pop("model", self.smart_model)
-        # Convert ToolDefinition objects to Anthropic tool format
-        anthropic_tools = []
-        for t in tools:
-            anthropic_tools.append({
-                "name": t.name,
-                "description": t.description,
-                "input_schema": t.input_schema,
-            })
-
-        resp = self._client.messages.create(
-            model=model, max_tokens=max_tokens, temperature=temperature,
-            system=system, messages=messages, tools=anthropic_tools,
-        )
-        tokens_in = getattr(resp.usage, "input_tokens", 0)
-        tokens_out = getattr(resp.usage, "output_tokens", 0)
-
-        text = ""
-        tool_calls = []
-        for block in resp.content:
-            if block.type == "text":
-                text += block.text
-            elif block.type == "tool_use":
-                tool_calls.append(ToolCall(
-                    id=block.id,
-                    name=block.name,
-                    input=block.input,
-                ))
-
-        return LLMToolResponse(
-            text=text,
-            tool_calls=tool_calls,
-            tokens_in=tokens_in,
-            tokens_out=tokens_out,
-            model=model,
-            provider="anthropic",
-            raw=resp,
-        )
-
     def stream(self, system, messages, max_tokens=1024, temperature=0.7, **kwargs) -> Iterator[str]:
         model = self._pick_model(kwargs)
         with self._client.messages.stream(
@@ -309,45 +231,6 @@ class OpenAIProvider(LLMProvider):
             raw=resp,
         )
 
-    def complete_with_tools(self, system, messages, tools, max_tokens=1024, temperature=0.7, **kwargs) -> LLMToolResponse:
-        model = kwargs.pop("model", self.smart_model)
-        openai_tools = []
-        for t in tools:
-            openai_tools.append({
-                "type": "function",
-                "function": {
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.input_schema,
-                },
-            })
-
-        resp = self._client.chat.completions.create(
-            model=model, max_tokens=max_tokens, temperature=temperature,
-            messages=self._build_openai_messages(system, messages),
-            tools=openai_tools,
-        )
-        usage = resp.usage
-        tokens_in = usage.prompt_tokens if usage else 0
-        tokens_out = usage.completion_tokens if usage else 0
-
-        choice = resp.choices[0]
-        text = choice.message.content or ""
-        tool_calls = []
-        if choice.message.tool_calls:
-            for tc in choice.message.tool_calls:
-                tool_calls.append(ToolCall(
-                    id=tc.id,
-                    name=tc.function.name,
-                    input=json.loads(tc.function.arguments) if tc.function.arguments else {},
-                ))
-
-        return LLMToolResponse(
-            text=text, tool_calls=tool_calls,
-            tokens_in=tokens_in, tokens_out=tokens_out,
-            model=model, provider="openai", raw=resp,
-        )
-
     def stream(self, system, messages, max_tokens=1024, temperature=0.7, **kwargs) -> Iterator[str]:
         model = self._pick_model(kwargs)
         stream = self._client.chat.completions.create(
@@ -413,45 +296,6 @@ class GroqProvider(LLMProvider):
             model=model,
             provider="groq",
             raw=resp,
-        )
-
-    def complete_with_tools(self, system, messages, tools, max_tokens=1024, temperature=0.7, **kwargs) -> LLMToolResponse:
-        model = kwargs.pop("model", self.smart_model)
-        openai_tools = []
-        for t in tools:
-            openai_tools.append({
-                "type": "function",
-                "function": {
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.input_schema,
-                },
-            })
-
-        resp = self._client.chat.completions.create(
-            model=model, max_tokens=max_tokens, temperature=temperature,
-            messages=self._build_messages(system, messages),
-            tools=openai_tools,
-        )
-        usage = resp.usage
-        tokens_in = usage.prompt_tokens if usage else 0
-        tokens_out = usage.completion_tokens if usage else 0
-
-        choice = resp.choices[0]
-        text = choice.message.content or ""
-        tool_calls = []
-        if choice.message.tool_calls:
-            for tc in choice.message.tool_calls:
-                tool_calls.append(ToolCall(
-                    id=tc.id,
-                    name=tc.function.name,
-                    input=json.loads(tc.function.arguments) if tc.function.arguments else {},
-                ))
-
-        return LLMToolResponse(
-            text=text, tool_calls=tool_calls,
-            tokens_in=tokens_in, tokens_out=tokens_out,
-            model=model, provider="groq", raw=resp,
         )
 
     def stream(self, system, messages, max_tokens=1024, temperature=0.7, **kwargs) -> Iterator[str]:

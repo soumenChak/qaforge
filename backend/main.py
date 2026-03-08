@@ -240,7 +240,6 @@ def _register_routes() -> None:
         "reviews": "/api/reviews",
         "execution_runs": "/api/projects",
         "frameworks": "/api/frameworks",
-        "chat": "/api/projects",
     }
 
     for importer, module_name, is_pkg in pkgutil.iter_modules(package_path):
